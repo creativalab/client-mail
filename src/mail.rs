@@ -79,7 +79,14 @@ pub fn connect(account: &Account) -> Result<ImapSession> {
     client.read_greeting().context("saluto IMAP")?;
     client
         .login(&account.username, &account.password)
-        .map_err(|(e, _)| anyhow!("login IMAP fallito: {e}"))
+        .map_err(|(e, _)| {
+            let msg = e.to_string();
+            if msg.to_uppercase().contains("AUTHENTICATIONFAILED") {
+                anyhow!("login IMAP fallito: username o password errati (risposta server: {msg})")
+            } else {
+                anyhow!("login IMAP fallito: {msg}")
+            }
+        })
 }
 
 pub fn list_folders(session: &mut ImapSession) -> Result<Vec<String>> {
@@ -282,5 +289,25 @@ mod tests {
         };
         let err = connect(&acc).err().expect("il login deve fallire");
         assert!(format!("{err:#}").contains("login IMAP fallito"), "{err:#}");
+    }
+}
+
+#[cfg(test)]
+mod live {
+    /// Usa l'account configurato: `cargo test live_account -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn live_account() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let acc = crate::config::Config::load().account.expect("nessun account");
+        match super::connect(&acc) {
+            Ok(mut s) => {
+                let folders = super::list_folders(&mut s).unwrap();
+                println!("IMAP OK, cartelle: {folders:?}");
+                let h = super::fetch_headers(&mut s, "INBOX").unwrap();
+                println!("INBOX: {} messaggi caricati", h.len());
+            }
+            Err(e) => panic!("IMAP ERRORE: {e:#}"),
+        }
     }
 }
