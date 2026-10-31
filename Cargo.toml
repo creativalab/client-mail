@@ -1,0 +1,21 @@
+[package]
+name = "client-mail"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+chrono = "0.4.45"
+dirs = "7.0.0"
+eframe = "0.33"
+imap = { version = "2.4.1", default-features = false }
+lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "rustls-tls", "hostname"] }
+mail-parser = "1.0.0"
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "logging", "tls12"] }
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "1.1.8"
+webpki-roots = "1.0.11"
+
+[profile.release]
+strip = true
+lto = "thin"
