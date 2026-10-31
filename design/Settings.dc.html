@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Ferrowl — Impostazioni</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:Inter,system-ui,sans-serif}
+a{color:#A63A0C}a:hover{color:#7C2A07}
+button,input,select,textarea{font-family:inherit}
+</style>
+</helmet>
+<div style="min-height: 900px; display: flex; flex-direction: column; background: {{t.bg}}; color: {{t.text}}; font-family: Inter, system-ui, sans-serif">
+
+  <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 12px 20px; border-bottom: 1px solid {{t.line}}; background: {{t.chrome}}">
+    <a href="Main.dc.html" style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; border-radius: 10px; color: {{t.text2}}; text-decoration: none; font-size: 14px; font-weight: 500">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>
+      Torna alla posta
+    </a>
+    <h1 style="margin: 0; font-size: 18px; font-weight: 700">Impostazioni</h1>
+    <span style="flex: 1"></span>
+    <label for="setSearch" style="flex: 0 1 320px; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; border: 1px solid {{t.field}}; border-radius: 10px; background: {{t.bg}}; color: {{t.muted}}">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+      <input id="setSearch" type="search" placeholder="Cerca un'impostazione" aria-label="Cerca un'impostazione" style="flex: 1; min-width: 0; border: 0; outline: 0; font-size: 14px; background: transparent; color: {{t.text}}">
+    </label>
+  </header>
+
+  <div style="flex: 1; display: flex; flex-wrap: wrap; align-items: stretch">
+    <nav aria-label="Sezioni" style="flex: 1 1 220px; max-width: 100%; box-sizing: border-box; padding: 16px 12px; background: {{t.side}}; border-right: 1px solid {{t.line}}; display: flex; flex-direction: column; gap: 2px">
+      <sc-for list="{{sections}}" as="s" hint-placeholder-count="9">
+        <button onClick="{{s.pick}}" aria-current="{{s.current}}" style="{{s.style}}">{{s.label}}</button>
+      </sc-for>
+      <span style="margin-top: auto; padding: 16px 12px 4px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: {{t.muted}}">Ferrowl 0.1.0 · build di sviluppo</span>
+    </nav>
+
+    <main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 32px 40px 48px">
+      <div style="max-width: 760px; display: flex; flex-direction: column; gap: 28px">
+
+        <!-- GENERALE -->
+        <sc-if value="{{is.generale}}" hint-placeholder-val="{{true}}">
+          <div style="display: flex; flex-direction: column; gap: 28px">
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <h2 style="margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.01em">Generale</h2>
+              <p style="margin: 0; font-size: 15px; color: {{t.muted}}">Lingua, avvio e comportamento della lettura.</p>
+            </div>
+            <div style="border: 1px solid {{t.line}}; border-radius: 14px; padding: 4px 20px">
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid {{t.lineSoft}}">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><label for="lang" style="font-size: 15px; font-weight: 500">Lingua</label><span style="font-size: 13px; color: {{t.muted}}">Interfaccia e formato delle date</span></div>
+                <select id="lang" style="height: 40px; padding: 0 10px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px"><option>Italiano</option><option>English</option><option>Deutsch</option><option>Français</option></select>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid {{t.lineSoft}}">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 500">Avvia all'accesso</span><span style="font-size: 13px; color: {{t.muted}}">Apri Ferrowl ridotto nella barra di sistema</span></div>
+                <button role="switch" aria-label="Avvia all'accesso" aria-checked="{{sw.startup.on}}" onClick="{{sw.startup.flip}}" style="{{sw.startup.track}}"><span style="{{sw.startup.knob}}"></span></button>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid {{t.lineSoft}}">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 500">App di posta predefinita</span><span style="font-size: 13px; color: {{t.muted}}">Apri i link mailto: con Ferrowl</span></div>
+                <button style="height: 40px; padding: 0 16px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px; font-weight: 500; cursor: pointer">Imposta come predefinita</button>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid {{t.lineSoft}}">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><label for="markRead" style="font-size: 15px; font-weight: 500">Segna come letto</label><span style="font-size: 13px; color: {{t.muted}}">Quando un messaggio resta aperto</span></div>
+                <select id="markRead" style="height: 40px; padding: 0 10px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px"><option>Subito</option><option selected>Dopo 2 secondi</option><option>Dopo 5 secondi</option><option>Mai, solo manualmente</option></select>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 500">Raggruppa in conversazioni</span><span style="font-size: 13px; color: {{t.muted}}">Mostra risposte e inoltri nello stesso thread</span></div>
+                <button role="switch" aria-label="Raggruppa in conversazioni" aria-checked="{{sw.threads.on}}" onClick="{{sw.threads.flip}}" style="{{sw.threads.track}}"><span style="{{sw.threads.knob}}"></span></button>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- ACCOUNT -->
+        <sc-if value="{{is.account}}" hint-placeholder-val="{{false}}">
+          <div style="display: flex; flex-direction: column; gap: 28px">
+            <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px">
+              <div style="flex: 1 1 300px; display: flex; flex-direction: column; gap: 6px">
+                <h2 style="margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.01em">Account</h2>
+                <p style="margin: 0; font-size: 15px; color: {{t.muted}}">IMAP, JMAP, POP3 e SMTP. Le password restano nel portachiavi di sistema.</p>
+              </div>
+              <button style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 16px; border: 0; border-radius: 10px; background: {{t.accent}}; color: {{t.onAccent}}; font-size: 14px; font-weight: 600; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>Aggiungi account</button>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 10px">
+              <div style="display: flex; align-items: center; gap: 14px; padding: 14px 16px; border: 2px solid {{t.accent}}; border-radius: 14px; background: {{t.soft}}">
+                <span style="width: 40px; height: 40px; border-radius: 50%; background: {{t.ink}}; color: {{t.onInk}}; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; flex: none">FC</span>
+                <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 600">Lavoro</span><span style="font-size: 13px; color: {{t.muted}}">fabio@esempio.it · IMAP / SMTP</span></div>
+                <span style="font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: {{t.secBg}}; color: {{t.secText}}">Connesso</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 14px; padding: 14px 16px; border: 1px solid {{t.line}}; border-radius: 14px">
+                <span style="width: 40px; height: 40px; border-radius: 50%; background: #6B4FA0; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; flex: none">F</span>
+                <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 600">Personale</span><span style="font-size: 13px; color: {{t.muted}}">fabio@posta-personale.it · JMAP</span></div>
+                <span style="font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: {{t.secBg}}; color: {{t.secText}}">Connesso</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 14px; padding: 14px 16px; border: 1px solid {{t.line}}; border-radius: 14px">
+                <span style="width: 40px; height: 40px; border-radius: 50%; background: {{t.chip}}; color: {{t.text2}}; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; flex: none">A</span>
+                <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 600">Archivio</span><span style="font-size: 13px; color: {{t.muted}}">Cartella locale (Maildir) · solo lettura</span></div>
+                <span style="font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: {{t.chip}}; color: {{t.text2}}">Offline</span>
+              </div>
+            </div>
+
+            <div style="border: 1px solid {{t.line}}; border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 18px">
+              <span style="font-size: 16px; font-weight: 700">Lavoro — dettagli</span>
+              <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
+                <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 500; color: {{t.text2}}">Nome visualizzato<input type="text" value="Fabio Carli" style="height: 40px; padding: 0 12px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px"></label>
+                <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 500; color: {{t.text2}}">Indirizzo email<input type="email" value="fabio@esempio.it" style="height: 40px; padding: 0 12px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px"></label>
+                <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 500; color: {{t.text2}}">Server in arrivo (IMAP)<input type="text" value="imap.esempio.it:993 · SSL/TLS" style="height: 40px; padding: 0 12px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px; font-family: 'JetBrains Mono', monospace"></label>
+                <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 500; color: {{t.text2}}">Server in uscita (SMTP)<input type="text" value="smtp.esempio.it:465 · SSL/TLS" style="height: 40px; padding: 0 12px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px; font-family: 'JetBrains Mono', monospace"></label>
+                <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 500; color: {{t.text2}}">Autenticazione<select style="height: 40px; padding: 0 10px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px"><option>Password (portachiavi)</option><option>OAuth2</option><option>Certificato client</option></select></label>
+                <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 500; color: {{t.text2}}">Sincronizzazione<select style="height: 40px; padding: 0 10px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px"><option>In tempo reale (IDLE)</option><option>Ogni 5 minuti</option><option>Ogni 15 minuti</option><option>Manuale</option></select></label>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; gap: 10px">
+                <button style="height: 40px; padding: 0 16px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px; font-weight: 500; cursor: pointer">Verifica connessione</button>
+                <button style="height: 40px; padding: 0 16px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px; font-weight: 500; cursor: pointer">Cartelle e alias</button>
+                <span style="flex: 1"></span>
+                <button style="height: 40px; padding: 0 16px; border: 0; border-radius: 8px; background: transparent; color: {{t.danger}}; font-size: 14px; font-weight: 600; cursor: pointer">Rimuovi account</button>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- ASPETTO -->
+        <sc-if value="{{is.aspetto}}" hint-placeholder-val="{{false}}">
+          <div style="display: flex; flex-direction: column; gap: 28px">
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <h2 style="margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.01em">Aspetto</h2>
+              <p style="margin: 0; font-size: 15px; color: {{t.muted}}">Tema colore, densità e testo.</p>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 12px">
+              <span style="font-size: 14px; font-weight: 600; color: {{t.text2}}">Tema colore</span>
+              <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+                <sc-for list="{{themeCards}}" as="c" hint-placeholder-count="6">
+                  <button onClick="{{c.pick}}" aria-pressed="{{c.on}}" style="{{c.cardStyle}}">
+                    <div style="height: 84px; border-radius: 8px; overflow: hidden; display: flex; border: 1px solid {{c.border}}">
+                      <div style="width: 30%; background: {{c.side}}; display: flex; flex-direction: column; gap: 5px; padding: 8px 6px; box-sizing: border-box">
+                        <span style="height: 10px; border-radius: 3px; background: {{c.accent}}"></span>
+                        <span style="height: 5px; border-radius: 2px; background: {{c.line}}"></span>
+                        <span style="height: 5px; border-radius: 2px; background: {{c.line}}"></span>
+                        <span style="height: 5px; border-radius: 2px; background: {{c.line}}"></span>
+                      </div>
+                      <div style="flex: 1; background: {{c.bg}}; display: flex; flex-direction: column; gap: 6px; padding: 9px 8px; box-sizing: border-box">
+                        <span style="height: 14px; border-radius: 3px; background: {{c.soft}}; box-shadow: inset 3px 0 0 {{c.accent}}"></span>
+                        <span style="height: 5px; width: 80%; border-radius: 2px; background: {{c.line}}"></span>
+                        <span style="height: 5px; width: 60%; border-radius: 2px; background: {{c.line}}"></span>
+                        <span style="height: 5px; width: 70%; border-radius: 2px; background: {{c.line}}"></span>
+                      </div>
+                    </div>
+                    <span style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600"><span style="width: 10px; height: 10px; border-radius: 50%; background: {{c.accent}}"></span>{{c.name}}</span>
+                  </button>
+                </sc-for>
+              </div>
+            </div>
+            <div style="border: 1px solid {{t.line}}; border-radius: 14px; padding: 4px 20px">
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid {{t.lineSoft}}">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 500">Densità dell'elenco</span><span style="font-size: 13px; color: {{t.muted}}">Quanti messaggi entrano nello schermo</span></div>
+                <div style="display: flex; gap: 4px; padding: 3px; background: {{t.chip}}; border-radius: 9px">
+                  <sc-for list="{{density}}" as="d" hint-placeholder-count="3">
+                    <button onClick="{{d.pick}}" aria-pressed="{{d.on}}" style="{{d.style}}">{{d.label}}</button>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid {{t.lineSoft}}">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><label for="fontSize" style="font-size: 15px; font-weight: 500">Dimensione del testo</label><span style="font-size: 13px; color: {{t.muted}}">Elenco e lettura</span></div>
+                <div style="display: flex; align-items: center; gap: 12px"><span style="font-size: 12px; color: {{t.muted}}">A</span><input id="fontSize" type="range" min="12" max="20" value="15" style="width: 180px; accent-color: {{t.accent}}"><span style="font-size: 18px; color: {{t.muted}}">A</span></div>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid {{t.lineSoft}}">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><label for="readFont" style="font-size: 15px; font-weight: 500">Carattere di lettura</label><span style="font-size: 13px; color: {{t.muted}}">Per i messaggi in testo semplice</span></div>
+                <select id="readFont" style="height: 40px; padding: 0 10px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px"><option>Inter</option><option>Serif di sistema</option><option>JetBrains Mono</option></select>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 500">Anteprima del testo nell'elenco</span><span style="font-size: 13px; color: {{t.muted}}">Una riga sotto l'oggetto</span></div>
+                <button role="switch" aria-label="Anteprima del testo" aria-checked="{{sw.preview.on}}" onClick="{{sw.preview.flip}}" style="{{sw.preview.track}}"><span style="{{sw.preview.knob}}"></span></button>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- NOTIFICHE -->
+        <sc-if value="{{is.notifiche}}" hint-placeholder-val="{{false}}">
+          <div style="display: flex; flex-direction: column; gap: 28px">
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <h2 style="margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.01em">Notifiche</h2>
+              <p style="margin: 0; font-size: 15px; color: {{t.muted}}">Quando e come avvisarti dei nuovi messaggi.</p>
+            </div>
+            <div style="border: 1px solid {{t.line}}; border-radius: 14px; padding: 4px 20px">
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid {{t.lineSoft}}">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 500">Notifiche desktop</span><span style="font-size: 13px; color: {{t.muted}}">Mittente e oggetto dei nuovi messaggi</span></div>
+                <button role="switch" aria-label="Notifiche desktop" aria-checked="{{sw.notify.on}}" onClick="{{sw.notify.flip}}" style="{{sw.notify.track}}"><span style="{{sw.notify.knob}}"></span></button>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid {{t.lineSoft}}">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 500">Solo contatti importanti</span><span style="font-size: 13px; color: {{t.muted}}">Avvisa solo per i mittenti segnati come VIP</span></div>
+                <button role="switch" aria-label="Solo contatti importanti" aria-checked="{{sw.vip.on}}" onClick="{{sw.vip.flip}}" style="{{sw.vip.track}}"><span style="{{sw.vip.knob}}"></span></button>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid {{t.lineSoft}}">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 500">Suono</span><span style="font-size: 13px; color: {{t.muted}}">Un tocco breve all'arrivo</span></div>
+                <button role="switch" aria-label="Suono" aria-checked="{{sw.sound.on}}" onClick="{{sw.sound.flip}}" style="{{sw.sound.track}}"><span style="{{sw.sound.knob}}"></span></button>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid {{t.lineSoft}}">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 500">Contatore sull'icona</span><span style="font-size: 13px; color: {{t.muted}}">Numero di non letti nella barra di sistema</span></div>
+                <button role="switch" aria-label="Contatore sull'icona" aria-checked="{{sw.badge.on}}" onClick="{{sw.badge.flip}}" style="{{sw.badge.track}}"><span style="{{sw.badge.knob}}"></span></button>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 500">Non disturbare</span><span style="font-size: 13px; color: {{t.muted}}">Silenzia le notifiche in questa fascia oraria</span></div>
+                <div style="display: flex; align-items: center; gap: 8px">
+                  <label for="dndFrom" style="font-size: 13px; color: {{t.muted}}">dalle</label><input id="dndFrom" type="time" value="22:00" style="height: 40px; padding: 0 8px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px">
+                  <label for="dndTo" style="font-size: 13px; color: {{t.muted}}">alle</label><input id="dndTo" type="time" value="07:00" style="height: 40px; padding: 0 8px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px">
+                </div>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- COMPOSIZIONE -->
+        <sc-if value="{{is.composizione}}" hint-placeholder-val="{{false}}">
+          <div style="display: flex; flex-direction: column; gap: 28px">
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <h2 style="margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.01em">Composizione</h2>
+              <p style="margin: 0; font-size: 15px; color: {{t.muted}}">Formato, firme e invio.</p>
+            </div>
+            <div style="border: 1px solid {{t.line}}; border-radius: 14px; padding: 4px 20px">
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid {{t.lineSoft}}">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 500">Formato predefinito</span><span style="font-size: 13px; color: {{t.muted}}">Per i nuovi messaggi</span></div>
+                <div style="display: flex; gap: 4px; padding: 3px; background: {{t.chip}}; border-radius: 9px">
+                  <sc-for list="{{formats}}" as="d" hint-placeholder-count="3">
+                    <button onClick="{{d.pick}}" aria-pressed="{{d.on}}" style="{{d.style}}">{{d.label}}</button>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid {{t.lineSoft}}">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><label for="undo" style="font-size: 15px; font-weight: 500">Annulla invio</label><span style="font-size: 13px; color: {{t.muted}}">Tempo per ripensarci dopo "Invia"</span></div>
+                <select id="undo" style="height: 40px; padding: 0 10px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px"><option>Disattivato</option><option>5 secondi</option><option selected>10 secondi</option><option>30 secondi</option></select>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid {{t.lineSoft}}">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><label for="quote" style="font-size: 15px; font-weight: 500">Posizione della risposta</label><span style="font-size: 13px; color: {{t.muted}}">Rispetto al testo citato</span></div>
+                <select id="quote" style="height: 40px; padding: 0 10px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px"><option>Sopra la citazione</option><option>Sotto la citazione</option></select>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 500">Controllo ortografico</span><span style="font-size: 13px; color: {{t.muted}}">Italiano, Inglese</span></div>
+                <button role="switch" aria-label="Controllo ortografico" aria-checked="{{sw.spell.on}}" onClick="{{sw.spell.flip}}" style="{{sw.spell.track}}"><span style="{{sw.spell.knob}}"></span></button>
+              </div>
+            </div>
+            <div style="border: 1px solid {{t.line}}; border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+                <span style="flex: 1; font-size: 16px; font-weight: 700">Firma</span>
+                <label for="sigAcc" style="font-size: 13px; color: {{t.muted}}">Account</label>
+                <select id="sigAcc" style="height: 40px; padding: 0 10px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px"><option>Lavoro</option><option>Personale</option></select>
+              </div>
+              <label for="sig" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Testo della firma</label>
+              <textarea id="sig" rows="4" style="padding: 12px 14px; border: 1px solid {{t.field}}; border-radius: 10px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px; line-height: 1.55; resize: vertical">--
+Fabio Carli
+[RUOLO] · [AZIENDA]
+[TELEFONO]</textarea>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- SICUREZZA -->
+        <sc-if value="{{is.sicurezza}}" hint-placeholder-val="{{false}}">
+          <div style="display: flex; flex-direction: column; gap: 28px">
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <h2 style="margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.01em">Sicurezza e privacy</h2>
+              <p style="margin: 0; font-size: 15px; color: {{t.muted}}">Cifratura OpenPGP, contenuti remoti e blocco dell'app.</p>
+            </div>
+            <div style="border: 1px solid {{t.line}}; border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+                <span style="flex: 1; font-size: 16px; font-weight: 700">Chiavi OpenPGP</span>
+                <button style="height: 40px; padding: 0 14px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px; font-weight: 500; cursor: pointer">Importa chiave</button>
+                <button style="height: 40px; padding: 0 14px; border: 0; border-radius: 8px; background: {{t.accent}}; color: {{t.onAccent}}; font-size: 14px; font-weight: 600; cursor: pointer">Genera nuova</button>
+              </div>
+              <div style="display: flex; align-items: center; gap: 14px; padding: 14px; border-radius: 10px; background: {{t.chip}}">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="{{t.secText}}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"></circle><path d="M11 12l9-9"></path><path d="M17 6l3 3"></path><path d="M15 8l2 2"></path></svg>
+                <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+                  <span style="font-size: 14px; font-weight: 600">fabio@esempio.it · Ed25519</span>
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: {{t.muted}}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">[IMPRONTA DELLA CHIAVE]</span>
+                </div>
+                <span style="font-size: 12px; color: {{t.muted}}">scade [DATA]</span>
+              </div>
+            </div>
+            <div style="border: 1px solid {{t.line}}; border-radius: 14px; padding: 4px 20px">
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid {{t.lineSoft}}">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 500">Firma sempre i messaggi</span><span style="font-size: 13px; color: {{t.muted}}">I destinatari possono verificare che vengono da te</span></div>
+                <button role="switch" aria-label="Firma sempre i messaggi" aria-checked="{{sw.sign.on}}" onClick="{{sw.sign.flip}}" style="{{sw.sign.track}}"><span style="{{sw.sign.knob}}"></span></button>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid {{t.lineSoft}}">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 500">Cifra quando possibile</span><span style="font-size: 13px; color: {{t.muted}}">Se tutti i destinatari hanno una chiave nota</span></div>
+                <button role="switch" aria-label="Cifra quando possibile" aria-checked="{{sw.encrypt.on}}" onClick="{{sw.encrypt.flip}}" style="{{sw.encrypt.track}}"><span style="{{sw.encrypt.knob}}"></span></button>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid {{t.lineSoft}}">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 500">Blocca immagini remote</span><span style="font-size: 13px; color: {{t.muted}}">Impedisce ai pixel di tracciamento di sapere quando leggi</span></div>
+                <button role="switch" aria-label="Blocca immagini remote" aria-checked="{{sw.images.on}}" onClick="{{sw.images.flip}}" style="{{sw.images.track}}"><span style="{{sw.images.knob}}"></span></button>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid {{t.lineSoft}}">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 500">Avvisa sui link sospetti</span><span style="font-size: 13px; color: {{t.muted}}">Quando il testo del link e l'indirizzo reale non coincidono</span></div>
+                <button role="switch" aria-label="Avvisa sui link sospetti" aria-checked="{{sw.phish.on}}" onClick="{{sw.phish.flip}}" style="{{sw.phish.track}}"><span style="{{sw.phish.knob}}"></span></button>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 500">Blocca Ferrowl</span><span style="font-size: 13px; color: {{t.muted}}">Chiedi la password del sistema dopo un periodo di inattività</span></div>
+                <select aria-label="Blocca Ferrowl dopo" style="height: 40px; padding: 0 10px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px"><option>Mai</option><option>Dopo 5 minuti</option><option>Dopo 15 minuti</option><option>Alla chiusura</option></select>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- FILTRI -->
+        <sc-if value="{{is.filtri}}" hint-placeholder-val="{{false}}">
+          <div style="display: flex; flex-direction: column; gap: 28px">
+            <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px">
+              <div style="flex: 1 1 300px; display: flex; flex-direction: column; gap: 6px">
+                <h2 style="margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.01em">Filtri e regole</h2>
+                <p style="margin: 0; font-size: 15px; color: {{t.muted}}">Applicate in ordine all'arrivo di ogni messaggio. Compatibili con Sieve.</p>
+              </div>
+              <button style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 16px; border: 0; border-radius: 10px; background: {{t.accent}}; color: {{t.onAccent}}; font-size: 14px; font-weight: 600; cursor: pointer"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>Nuova regola</button>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 10px">
+              <sc-for list="{{rules}}" as="r" hint-placeholder-count="4">
+                <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 14px 16px; border: 1px solid {{t.line}}; border-radius: 12px">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: {{t.muted}}; width: 20px">{{r.n}}</span>
+                  <div style="flex: 1 1 360px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 14px">
+                    <span style="color: {{t.muted}}">Se</span>
+                    <span style="padding: 3px 8px; border-radius: 6px; background: {{t.chip}}; font-weight: 500">{{r.when}}</span>
+                    <span style="color: {{t.muted}}">allora</span>
+                    <span style="padding: 3px 8px; border-radius: 6px; background: {{t.soft}}; color: {{t.activeText}}; font-weight: 600">{{r.then}}</span>
+                  </div>
+                  <button role="switch" aria-label="Regola attiva" aria-checked="{{r.sw.on}}" onClick="{{r.sw.flip}}" style="{{r.sw.track}}"><span style="{{r.sw.knob}}"></span></button>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- SCORCIATOIE -->
+        <sc-if value="{{is.scorciatoie}}" hint-placeholder-val="{{false}}">
+          <div style="display: flex; flex-direction: column; gap: 28px">
+            <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px">
+              <div style="flex: 1 1 300px; display: flex; flex-direction: column; gap: 6px">
+                <h2 style="margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.01em">Scorciatoie da tastiera</h2>
+                <p style="margin: 0; font-size: 15px; color: {{t.muted}}">Clicca una combinazione per cambiarla.</p>
+              </div>
+              <label for="keymap" style="display: flex; align-items: center; gap: 10px; font-size: 13px; color: {{t.muted}}">Schema
+                <select id="keymap" style="height: 40px; padding: 0 10px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px"><option>Ferrowl</option><option>Stile Vim</option><option>Stile Gmail</option></select>
+              </label>
+            </div>
+            <div style="border: 1px solid {{t.line}}; border-radius: 14px; padding: 4px 20px">
+              <sc-for list="{{keys}}" as="k" hint-placeholder-count="8">
+                <div style="display: flex; align-items: center; gap: 16px; min-height: 52px; border-bottom: 1px solid {{t.lineSoft}}">
+                  <span style="flex: 1; font-size: 15px">{{k.label}}</span>
+                  <button style="min-width: 44px; height: 32px; padding: 0 10px; border: 1px solid {{t.field}}; border-radius: 7px; background: {{t.chip}}; color: {{t.text}}; font-family: 'JetBrains Mono', monospace; font-size: 13px; cursor: pointer">{{k.key}}</button>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- AVANZATE -->
+        <sc-if value="{{is.avanzate}}" hint-placeholder-val="{{false}}">
+          <div style="display: flex; flex-direction: column; gap: 28px">
+            <div style="display: flex; flex-direction: column; gap: 6px">
+              <h2 style="margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.01em">Avanzate</h2>
+              <p style="margin: 0; font-size: 15px; color: {{t.muted}}">Dati locali, indice di ricerca e diagnostica.</p>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+              <div style="padding: 16px; border: 1px solid {{t.line}}; border-radius: 12px; display: flex; flex-direction: column; gap: 4px"><span style="font-size: 13px; color: {{t.muted}}">Messaggi indicizzati</span><span style="font-size: 22px; font-weight: 700">48.212</span></div>
+              <div style="padding: 16px; border: 1px solid {{t.line}}; border-radius: 12px; display: flex; flex-direction: column; gap: 4px"><span style="font-size: 13px; color: {{t.muted}}">Spazio usato</span><span style="font-size: 22px; font-weight: 700">[GB]</span></div>
+              <div style="padding: 16px; border: 1px solid {{t.line}}; border-radius: 12px; display: flex; flex-direction: column; gap: 4px"><span style="font-size: 13px; color: {{t.muted}}">Cache allegati</span><span style="font-size: 22px; font-weight: 700">[MB]</span></div>
+            </div>
+            <div style="border: 1px solid {{t.line}}; border-radius: 14px; padding: 4px 20px">
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid {{t.lineSoft}}">
+                <div style="flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 500">Cartella dati</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: {{t.muted}}">~/.local/share/ferrowl</span></div>
+                <button style="height: 40px; padding: 0 14px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px; font-weight: 500; cursor: pointer">Cambia…</button>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid {{t.lineSoft}}">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 500">Indice di ricerca</span><span style="font-size: 13px; color: {{t.muted}}">Ricostruiscilo se la ricerca restituisce risultati strani</span></div>
+                <button style="height: 40px; padding: 0 14px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px; font-weight: 500; cursor: pointer">Ricostruisci indice</button>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid {{t.lineSoft}}">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><label for="logLevel" style="font-size: 15px; font-weight: 500">Livello di log</label><span style="font-size: 13px; color: {{t.muted}}">Per segnalare problemi</span></div>
+                <select id="logLevel" style="height: 40px; padding: 0 10px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px; font-family: 'JetBrains Mono', monospace"><option>error</option><option selected>warn</option><option>info</option><option>debug</option><option>trace</option></select>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0; border-bottom: 1px solid {{t.lineSoft}}">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 500">Accelerazione grafica</span><span style="font-size: 13px; color: {{t.muted}}">Disattivala se l'interfaccia mostra artefatti</span></div>
+                <button role="switch" aria-label="Accelerazione grafica" aria-checked="{{sw.gpu.on}}" onClick="{{sw.gpu.flip}}" style="{{sw.gpu.track}}"><span style="{{sw.gpu.knob}}"></span></button>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 0">
+                <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 500">Impostazioni</span><span style="font-size: 13px; color: {{t.muted}}">Esporta o importa come file TOML</span></div>
+                <div style="display: flex; gap: 8px">
+                  <button style="height: 40px; padding: 0 14px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px; font-weight: 500; cursor: pointer">Esporta</button>
+                  <button style="height: 40px; padding: 0 14px; border: 1px solid {{t.field}}; border-radius: 8px; background: {{t.bg}}; color: {{t.text}}; font-size: 14px; font-weight: 500; cursor: pointer">Importa</button>
+                </div>
+              </div>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 20px; border: 1px solid {{t.dangerLine}}; border-radius: 14px">
+              <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px; font-weight: 600; color: {{t.danger}}">Ripristina Ferrowl</span><span style="font-size: 13px; color: {{t.muted}}">Cancella account, cache e impostazioni da questo computer</span></div>
+              <button style="height: 40px; padding: 0 14px; border: 1px solid {{t.dangerLine}}; border-radius: 8px; background: transparent; color: {{t.danger}}; font-size: 14px; font-weight: 600; cursor: pointer">Ripristina…</button>
+            </div>
+          </div>
+        </sc-if>
+
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["ruggine","ardesia","bosco","lavanda","sabbia","notte"],"default":"ruggine"},"startSection":{"editor":"enum","options":["generale","account","aspetto","notifiche","composizione","sicurezza","filtri","scorciatoie","avanzate"],"default":"aspetto"},"$preview":{"width":1280,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      section: null, theme: null, density: 'comoda', format: 'markdown',
+      on: { startup: true, threads: true, preview: true, notify: true, vip: false, sound: false, badge: true, spell: true, sign: true, encrypt: true, images: true, phish: true, gpu: true, r1: true, r2: true, r3: true, r4: false }
+    };
+  }
+  themes() {
+    return {
+      ruggine: { name: 'Ruggine', accent: '#A63A0C', onAccent: '#FFFFFF', activeText: '#7C2A07', soft: '#FBEDE4', bg: '#FFFFFF', chrome: '#FBF9F7', side: '#F6F2EE', sideActive: '#EADFD5', line: '#E7E1DA', lineSoft: '#EFEAE4', field: '#D6CDC3', text: '#1F1B18', text2: '#3A3430', muted: '#5B5650', chip: '#F3EEE9', ink: '#2A1A12', onInk: '#FBF3EA', secBg: '#E8F3EC', secText: '#2F6B45', knobOff: '#B3A99F' },
+      ardesia: { name: 'Ardesia', accent: '#1E5AA8', onAccent: '#FFFFFF', activeText: '#154283', soft: '#E7EFFA', bg: '#FFFFFF', chrome: '#F8FAFC', side: '#F1F4F8', sideActive: '#DCE5F1', line: '#E1E6ED', lineSoft: '#EDF0F4', field: '#CBD3DE', text: '#141A22', text2: '#2E3744', muted: '#556070', chip: '#EEF2F7', ink: '#142236', onInk: '#F2F6FB', secBg: '#E8F3EC', secText: '#2F6B45', knobOff: '#A3AEBD' },
+      bosco: { name: 'Bosco', accent: '#2F6B45', onAccent: '#FFFFFF', activeText: '#1F4D30', soft: '#E6F1EA', bg: '#FFFFFF', chrome: '#F8FAF7', side: '#F1F5F0', sideActive: '#DAE8DD', line: '#E0E7E1', lineSoft: '#ECF0EC', field: '#C7D2C9', text: '#18201A', text2: '#2E3A31', muted: '#536056', chip: '#EDF2EE', ink: '#16291C', onInk: '#F1F7F2', secBg: '#E6F1EA', secText: '#245A39', knobOff: '#A0AEA3' },
+      lavanda: { name: 'Lavanda', accent: '#6B4FA0', onAccent: '#FFFFFF', activeText: '#4E3680', soft: '#F0EBF8', bg: '#FFFFFF', chrome: '#FAF9FC', side: '#F4F1F9', sideActive: '#E3DBF0', line: '#E6E1EE', lineSoft: '#EFECF4', field: '#D0C8DE', text: '#1C1824', text2: '#353042', muted: '#5D5768', chip: '#F1EEF6', ink: '#251A38', onInk: '#F6F2FB', secBg: '#E8F3EC', secText: '#2F6B45', knobOff: '#ABA2BC' },
+      sabbia: { name: 'Sabbia', accent: '#8A5A12', onAccent: '#FFFFFF', activeText: '#5E3C0A', soft: '#F6ECD9', bg: '#FFFCF5', chrome: '#FAF5EA', side: '#F4EDDE', sideActive: '#E8DBC0', line: '#E8DFCC', lineSoft: '#F0E9DA', field: '#D5C8AC', text: '#221C12', text2: '#3B3324', muted: '#5F5643', chip: '#F2EADA', ink: '#2E2414', onInk: '#FBF5E8', secBg: '#E8F1E4', secText: '#2F6237', knobOff: '#B5A88C' },
+      notte: { name: 'Notte', accent: '#E07A4A', onAccent: '#1A0D06', activeText: '#F3B08E', soft: '#33231B', bg: '#17181B', chrome: '#1D1F23', side: '#1B1D21', sideActive: '#2C2F35', line: '#2C2F35', lineSoft: '#232529', field: '#41454D', text: '#ECECEE', text2: '#C9CBD0', muted: '#A0A4AC', chip: '#26292E', ink: '#E07A4A', onInk: '#1A0D06', secBg: '#1D3326', secText: '#8FD1A6', knobOff: '#4A4F57' }
+    };
+  }
+  renderVals() {
+    const all = this.themes();
+    const key = this.state.theme || this.props.theme || 'ruggine';
+    const t = Object.assign({}, all[key] || all.ruggine);
+    const dark = key === 'notte';
+    t.danger = dark ? '#F28B82' : '#B3261E';
+    t.dangerLine = dark ? '#5C2B28' : '#F0C9C5';
+    const section = this.state.section || this.props.startSection || 'aspetto';
+    const on = this.state.on;
+    const mk = (k) => {
+      const v = !!on[k];
+      return {
+        on: v,
+        flip: () => this.setState({ on: Object.assign({}, this.state.on, { [k]: !this.state.on[k] }) }),
+        track: 'position: relative; flex: none; width: 46px; height: 28px; border: 0; border-radius: 14px; padding: 0; cursor: pointer; background: ' + (v ? t.accent : t.knobOff),
+        knob: 'position: absolute; top: 4px; left: ' + (v ? '22px' : '4px') + '; width: 20px; height: 20px; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 3px rgba(0,0,0,.25)'
+      };
+    };
+    const sw = {};
+    ['startup','threads','preview','notify','vip','sound','badge','spell','sign','encrypt','images','phish','gpu'].forEach((k) => { sw[k] = mk(k); });
+    const defs = [
+      ['generale', 'Generale'], ['account', 'Account'], ['aspetto', 'Aspetto'], ['notifiche', 'Notifiche'], ['composizione', 'Composizione'],
+      ['sicurezza', 'Sicurezza e privacy'], ['filtri', 'Filtri e regole'], ['scorciatoie', 'Scorciatoie'], ['avanzate', 'Avanzate']
+    ];
+    const sections = defs.map((d) => {
+      const cur = d[0] === section;
+      return {
+        label: d[1], current: cur ? 'page' : 'false',
+        pick: () => this.setState({ section: d[0] }),
+        style: 'display: flex; align-items: center; width: 100%; min-height: 40px; padding: 0 12px; border: 0; border-radius: 9px; cursor: pointer; font-family: inherit; font-size: 14px; text-align: left; background: ' + (cur ? t.sideActive : 'transparent') + '; color: ' + (cur ? t.activeText : t.text2) + '; font-weight: ' + (cur ? '600' : '500')
+      };
+    });
+    const is = {};
+    defs.forEach((d) => { is[d[0]] = d[0] === section; });
+    const seg = (list, curVal, field) => list.map((x) => {
+      const o = x[0] === curVal;
+      return {
+        label: x[1], on: o,
+        pick: () => this.setState({ [field]: x[0] }),
+        style: 'border: 0; border-radius: 7px; padding: 0 12px; height: 34px; cursor: pointer; font-family: inherit; font-size: 13px; background: ' + (o ? t.bg : 'transparent') + '; color: ' + (o ? t.text : t.text2) + '; font-weight: ' + (o ? '600' : '500') + '; box-shadow: ' + (o ? '0 1px 2px rgba(0,0,0,.12)' : 'none')
+      };
+    });
+    const density = seg([['compatta', 'Compatta'], ['comoda', 'Comoda'], ['ampia', 'Ampia']], this.state.density, 'density');
+    const formats = seg([['testo', 'Testo semplice'], ['markdown', 'Markdown'], ['html', 'HTML']], this.state.format, 'format');
+    const themeCards = Object.keys(all).map((k) => {
+      const th = all[k];
+      const o = k === key;
+      return {
+        name: th.name, on: o, accent: th.accent, bg: th.bg, side: th.side, soft: th.soft, line: th.field, border: th.line,
+        pick: () => this.setState({ theme: k }),
+        cardStyle: 'display: flex; flex-direction: column; gap: 10px; padding: 10px; border-radius: 14px; cursor: pointer; font-family: inherit; text-align: left; background: ' + t.bg + '; color: ' + t.text + '; border: 2px solid ' + (o ? t.accent : t.line)
+      };
+    });
+    const rules = [
+      { n: '1', when: 'il mittente contiene "fatture"', then: 'Etichetta: Fatture', k: 'r1' },
+      { n: '2', when: 'il mittente è alert@monitor.local', then: 'Etichetta: Server · Notifica', k: 'r2' },
+      { n: '3', when: 'l\'oggetto contiene "newsletter"', then: 'Sposta in Archivio', k: 'r3' },
+      { n: '4', when: 'ha allegati oltre 20 MB', then: 'Scarica solo su richiesta', k: 'r4' }
+    ].map((r) => Object.assign({}, r, { sw: mk(r.k) }));
+    const keys = [
+      { label: 'Nuovo messaggio', key: 'C' }, { label: 'Rispondi', key: 'R' }, { label: 'Rispondi a tutti', key: 'Shift R' },
+      { label: 'Inoltra', key: 'F' }, { label: 'Archivia', key: 'E' }, { label: 'Elimina', key: 'Canc' },
+      { label: 'Messaggio successivo / precedente', key: 'J / K' }, { label: 'Cerca', key: 'Ctrl K' }, { label: 'Invia', key: 'Ctrl ↵' }
+    ];
+    return { t, sw, sections, is, density, formats, themeCards, rules, keys };
+  }
+}
+</script>
+</body>
+</html>

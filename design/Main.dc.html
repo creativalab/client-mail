@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Ferrowl — Posta in arrivo</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:Inter,system-ui,sans-serif}
+a{color:#A63A0C}a:hover{color:#7C2A07}
+button{font-family:inherit}
+</style>
+</helmet>
+<div style="position: relative; min-height: 900px; display: flex; flex-direction: column; background: {{t.bg}}; font-family: Inter, system-ui, sans-serif; color: {{t.text}}">
+
+  <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 12px 20px; border-bottom: 1px solid {{t.line}}; background: {{t.chrome}}">
+    <div style="display: flex; align-items: center; gap: 10px; min-width: 200px">
+      <svg width="32" height="32" viewBox="0 0 64 64" aria-hidden="true"><rect x="0" y="0" width="64" height="64" rx="15" fill="{{t.logo}}"></rect><polygon points="13,25 13,14.5 22.5,21" fill="#FBF3EA" stroke="#FBF3EA" stroke-width="1.2" stroke-linejoin="round"></polygon><polygon points="51,25 51,14.5 41.5,21" fill="#FBF3EA" stroke="#FBF3EA" stroke-width="1.2" stroke-linejoin="round"></polygon><rect x="13" y="20.75" width="38" height="27.75" rx="4" fill="#FBF3EA"></rect><path d="M15 23.25 L32 36.25 L49 23.25" fill="none" stroke="{{t.logo}}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"></path><polygon points="23.75,32.5 28.08,35 28.08,40 23.75,42.5 19.42,40 19.42,35" fill="#2A1A12"></polygon><polygon points="40.25,32.5 44.58,35 44.58,40 40.25,42.5 35.92,40 35.92,35" fill="#2A1A12"></polygon><polygon points="30,37.5 34,37.5 32,41" fill="{{t.logo}}"></polygon></svg>
+      <span style="font-size: 18px; font-weight: 700; letter-spacing: -0.01em">Ferrowl</span>
+    </div>
+    <label for="search" style="flex: 1 1 320px; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; border: 1px solid {{t.field}}; border-radius: 10px; background: {{t.bg}}; color: {{t.muted}}">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+      <input id="search" type="search" placeholder="Cerca in tutta la posta (from:, has:attachment, label:)" aria-label="Cerca" style="flex: 1; border: 0; outline: 0; font: inherit; font-size: 14px; background: transparent; color: {{t.text}}">
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: {{t.muted}}; border: 1px solid {{t.field}}; border-radius: 6px; padding: 2px 6px">Ctrl K</span>
+    </label>
+    <div style="display: flex; align-items: center; gap: 8px">
+      <button aria-label="Sincronizza" style="width: 44px; height: 44px; border: 0; border-radius: 10px; background: transparent; color: {{t.text2}}; cursor: pointer; display: flex; align-items: center; justify-content: center">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"></path><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"></path><path d="M21 3v5h-5"></path><path d="M3 21v-5h5"></path></svg>
+      </button>
+      <button aria-label="Impostazioni" aria-expanded="{{settingsOpen}}" onClick="{{toggleSettings}}" style="width: 44px; height: 44px; border: 0; border-radius: 10px; background: {{gearBg}}; color: {{gearColor}}; cursor: pointer; display: flex; align-items: center; justify-content: center">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg>
+      </button>
+      <div aria-label="Account: Fabio" role="img" style="width: 36px; height: 36px; border-radius: 50%; background: {{t.ink}}; color: {{t.onInk}}; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600">FC</div>
+    </div>
+  </header>
+
+  <div style="flex: 1; display: flex; flex-wrap: wrap; align-items: stretch">
+
+    <nav aria-label="Cartelle" style="flex: 1 1 220px; box-sizing: border-box; padding: 16px 12px; background: {{t.side}}; border-right: 1px solid {{t.line}}; display: flex; flex-direction: column; gap: 20px">
+      <a href="Compose.dc.html" style="display: flex; align-items: center; justify-content: center; gap: 10px; height: 44px; border-radius: 10px; background: {{t.accent}}; color: {{t.onAccent}}; font-size: 15px; font-weight: 600; text-decoration: none">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg>
+        Scrivi
+      </a>
+
+      <div style="display: flex; flex-direction: column; gap: 2px">
+        <sc-for list="{{folders}}" as="f" hint-placeholder-count="7">
+          <button onClick="{{f.pick}}" style="{{f.style}}">
+            <span style="width: 20px; height: 20px; display: flex; align-items: center; justify-content: center">
+              <sc-if value="{{f.isInbox}}" hint-placeholder-val="{{true}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-6l-2 3h-4l-2-3H2"></path><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"></path></svg></sc-if>
+              <sc-if value="{{f.isStar}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"></path></svg></sc-if>
+              <sc-if value="{{f.isSent}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13"></path><path d="M22 2l-7 20-4-9-9-4z"></path></svg></sc-if>
+              <sc-if value="{{f.isDraft}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><path d="M14 3v6h6"></path></svg></sc-if>
+              <sc-if value="{{f.isArchive}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="5" rx="1"></rect><path d="M4 9v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"></path><path d="M10 13h4"></path></svg></sc-if>
+              <sc-if value="{{f.isSpam}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l9 4v6c0 5-4 9-9 10-5-1-9-5-9-10V6z"></path><path d="M12 8v5"></path><path d="M12 16h.01"></path></svg></sc-if>
+              <sc-if value="{{f.isTrash}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 15h10l1-15"></path></svg></sc-if>
+            </span>
+            <span style="flex: 1; text-align: left">{{f.label}}</span>
+            <span style="font-size: 12px; font-weight: 600; font-family: 'JetBrains Mono', monospace">{{f.count}}</span>
+          </button>
+        </sc-for>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <span style="padding: 0 12px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{t.muted}}">Etichette</span>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; color: {{t.text2}}"><span style="width: 10px; height: 10px; border-radius: 3px; background: #3B78C9"></span>Clienti</div>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; color: {{t.text2}}"><span style="width: 10px; height: 10px; border-radius: 3px; background: #C4511F"></span>Fatture</div>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; color: {{t.text2}}"><span style="width: 10px; height: 10px; border-radius: 3px; background: #3C9462"></span>Server</div>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; color: {{t.text2}}"><span style="width: 10px; height: 10px; border-radius: 3px; background: #8466BE"></span>Personale</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <span style="padding: 0 12px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{t.muted}}">Account</span>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; color: {{t.text2}}"><span style="width: 8px; height: 8px; border-radius: 50%; background: #3C9462"></span>Lavoro · IMAP</div>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; color: {{t.text2}}"><span style="width: 8px; height: 8px; border-radius: 50%; background: #3C9462"></span>Personale · JMAP</div>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; color: {{t.muted}}"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{t.field}}"></span>Archivio · offline</div>
+      </div>
+
+      <div style="margin-top: auto; padding: 12px; border-radius: 10px; background: {{t.chip}}; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: {{t.text2}}; display: flex; flex-direction: column; gap: 4px">
+        <span>Sincronizzato · 2 min fa</span>
+        <span>Indice locale · 48.212 msg</span>
+      </div>
+    </nav>
+
+    <section aria-label="Elenco messaggi" style="flex: 3 1 340px; box-sizing: border-box; border-right: 1px solid {{t.line}}; display: flex; flex-direction: column; min-width: 0">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px 12px">
+        <h1 style="margin: 0; font-size: 20px; font-weight: 700">Posta in arrivo</h1>
+        <div style="display: flex; gap: 4px; padding: 3px; background: {{t.chip}}; border-radius: 9px; font-size: 13px">
+          <button style="border: 0; border-radius: 7px; padding: 6px 10px; background: {{t.bg}}; color: {{t.text}}; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.12); cursor: pointer">Tutti</button>
+          <button style="border: 0; border-radius: 7px; padding: 6px 10px; background: transparent; color: {{t.text2}}; cursor: pointer">Non letti</button>
+          <button style="border: 0; border-radius: 7px; padding: 6px 10px; background: transparent; color: {{t.text2}}; cursor: pointer">Allegati</button>
+        </div>
+      </div>
+      <div style="flex: 1; max-height: 780px; overflow-y: auto">
+        <sc-for list="{{messages}}" as="m" hint-placeholder-count="7">
+          <button onClick="{{m.pick}}" style="{{m.rowStyle}}">
+            <div style="display: flex; align-items: center; gap: 8px">
+              <span style="{{m.dotStyle}}"></span>
+              <span style="{{m.fromStyle}}">{{m.from}}</span>
+              <sc-if value="{{m.hasAttach}}" hint-placeholder-val="{{false}}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{{t.muted}}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="Con allegati" role="img"><path d="M21 11l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8"></path></svg></sc-if>
+              <span style="font-size: 12px; color: {{t.muted}}; font-family: 'JetBrains Mono', monospace">{{m.time}}</span>
+            </div>
+            <span style="{{m.subjectStyle}}">{{m.subject}}</span>
+            <span style="font-size: 13px; color: {{t.muted}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 16px">{{m.preview}}</span>
+            <sc-if value="{{m.tag}}" hint-placeholder-val="{{false}}">
+              <span style="margin-left: 16px; align-self: flex-start; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: {{t.chip}}; color: {{t.text2}}">{{m.tag}}</span>
+            </sc-if>
+          </button>
+        </sc-for>
+      </div>
+    </section>
+
+    <article aria-label="Lettura messaggio" style="flex: 999 1 480px; min-width: 0; box-sizing: border-box; display: flex; flex-direction: column">
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 10px 16px; border-bottom: 1px solid {{t.line}}">
+        <button style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; border: 0; border-radius: 10px; background: transparent; color: {{t.text2}}; font-size: 14px; cursor: pointer">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"></path><path d="M4 9h10a6 6 0 0 1 6 6v5"></path></svg>Rispondi</button>
+        <button style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; border: 0; border-radius: 10px; background: transparent; color: {{t.text2}}; font-size: 14px; cursor: pointer">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14l5-5-5-5"></path><path d="M20 9H10a6 6 0 0 0-6 6v5"></path></svg>Inoltra</button>
+        <button style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; border: 0; border-radius: 10px; background: transparent; color: {{t.text2}}; font-size: 14px; cursor: pointer">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="5" rx="1"></rect><path d="M4 9v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"></path><path d="M10 13h4"></path></svg>Archivia</button>
+        <button aria-label="Elimina" style="width: 44px; height: 44px; border: 0; border-radius: 10px; background: transparent; color: {{t.text2}}; cursor: pointer; display: flex; align-items: center; justify-content: center">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 15h10l1-15"></path></svg></button>
+        <button aria-label="Posticipa" style="width: 44px; height: 44px; border: 0; border-radius: 10px; background: transparent; color: {{t.text2}}; cursor: pointer; display: flex; align-items: center; justify-content: center">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"></circle><path d="M12 9v4l2 2"></path><path d="M5 3L2 6"></path><path d="M19 3l3 3"></path></svg></button>
+        <span style="flex: 1"></span>
+        <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: {{t.secText}}; background: {{t.secBg}}; padding: 6px 10px; border-radius: 8px; font-weight: 500">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+          {{current.security}}
+        </span>
+      </div>
+
+      <div style="padding: 28px 40px; display: flex; flex-direction: column; gap: 24px; max-width: 820px">
+        <h2 style="margin: 0; font-size: 26px; line-height: 1.25; font-weight: 700; letter-spacing: -0.01em">{{current.subject}}</h2>
+        <div style="display: flex; align-items: center; gap: 14px">
+          <div style="width: 44px; height: 44px; border-radius: 50%; background: {{current.avatarBg}}; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 15px; flex: none">{{current.initials}}</div>
+          <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+            <span style="font-size: 15px; font-weight: 600">{{current.from}} <span style="font-weight: 400; color: {{t.muted}}">&lt;{{current.email}}&gt;</span></span>
+            <span style="font-size: 13px; color: {{t.muted}}">a me · {{current.date}}</span>
+          </div>
+          <button aria-label="Aggiungi ai preferiti" style="width: 44px; height: 44px; border: 0; border-radius: 10px; background: transparent; color: {{t.muted}}; cursor: pointer; display: flex; align-items: center; justify-content: center">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"></path></svg>
+          </button>
+        </div>
+        <div style="font-size: 15px; line-height: 1.65; color: {{t.text2}}; white-space: pre-line">{{current.body}}</div>
+
+        <sc-if value="{{current.hasAttach}}" hint-placeholder-val="{{true}}">
+          <div style="display: flex; flex-direction: column; gap: 10px">
+            <span style="font-size: 13px; font-weight: 600; color: {{t.text2}}">{{current.attachLabel}}</span>
+            <div style="display: flex; flex-wrap: wrap; gap: 12px">
+              <sc-for list="{{current.attachments}}" as="a" hint-placeholder-count="2">
+                <div style="display: flex; align-items: center; gap: 12px; padding: 10px 14px 10px 10px; border: 1px solid {{t.line}}; border-radius: 12px; min-width: 220px">
+                  <div style="width: 40px; height: 40px; border-radius: 8px; background: {{t.chip}}; color: {{t.accentText}}; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 500">{{a.ext}}</div>
+                  <div style="display: flex; flex-direction: column; gap: 2px">
+                    <span style="font-size: 14px; font-weight: 500">{{a.name}}</span>
+                    <span style="font-size: 12px; color: {{t.muted}}">{{a.size}}</span>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <div style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid {{t.field}}; border-radius: 12px; color: {{t.muted}}; font-size: 14px">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"></path><path d="M4 9h10a6 6 0 0 1 6 6v5"></path></svg>
+          <span style="flex: 1">Rispondi a {{current.from}}…</span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; border: 1px solid {{t.field}}; border-radius: 6px; padding: 2px 6px">R</span>
+        </div>
+      </div>
+    </article>
+  </div>
+
+  <sc-if value="{{settingsOpen}}" hint-placeholder-val="{{false}}">
+    <div role="dialog" aria-label="Impostazioni — Aspetto" style="position: absolute; top: 64px; right: 20px; width: 440px; max-width: calc(100% - 40px); box-sizing: border-box; background: {{t.bg}}; color: {{t.text}}; border: 1px solid {{t.line}}; border-radius: 16px; box-shadow: 0 20px 50px rgba(0,0,0,.22); display: flex; flex-direction: column; overflow: hidden">
+      <div style="display: flex; align-items: center; gap: 12px; padding: 14px 12px 14px 20px; border-bottom: 1px solid {{t.line}}">
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 2px">
+          <span style="font-size: 12px; color: {{t.muted}}">Impostazioni</span>
+          <span style="font-size: 17px; font-weight: 700">Aspetto</span>
+        </div>
+        <button aria-label="Chiudi impostazioni" onClick="{{toggleSettings}}" style="width: 44px; height: 44px; border: 0; border-radius: 10px; background: transparent; color: {{t.text2}}; cursor: pointer; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg></button>
+      </div>
+
+      <div style="padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 14px">
+        <span style="font-size: 13px; font-weight: 600; color: {{t.text2}}">Tema colore</span>
+        <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px">
+          <sc-for list="{{themeCards}}" as="c" hint-placeholder-count="6">
+            <button onClick="{{c.pick}}" aria-pressed="{{c.on}}" style="{{c.cardStyle}}">
+              <div style="height: 58px; border-radius: 8px; overflow: hidden; display: flex; border: 1px solid {{c.border}}">
+                <div style="width: 30%; background: {{c.side}}; display: flex; flex-direction: column; gap: 4px; padding: 6px 5px; box-sizing: border-box">
+                  <span style="height: 8px; border-radius: 3px; background: {{c.accent}}"></span>
+                  <span style="height: 4px; border-radius: 2px; background: {{c.line}}"></span>
+                  <span style="height: 4px; border-radius: 2px; background: {{c.line}}"></span>
+                </div>
+                <div style="flex: 1; background: {{c.bg}}; display: flex; flex-direction: column; gap: 5px; padding: 7px 6px; box-sizing: border-box">
+                  <span style="height: 10px; border-radius: 3px; background: {{c.soft}}; box-shadow: inset 2px 0 0 {{c.accent}}"></span>
+                  <span style="height: 4px; width: 80%; border-radius: 2px; background: {{c.line}}"></span>
+                  <span style="height: 4px; width: 60%; border-radius: 2px; background: {{c.line}}"></span>
+                </div>
+              </div>
+              <span style="display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600">
+                <span style="width: 10px; height: 10px; border-radius: 50%; background: {{c.accent}}"></span>{{c.name}}
+              </span>
+            </button>
+          </sc-for>
+        </div>
+
+        <label for="followSystem" style="display: flex; align-items: center; gap: 12px; min-height: 44px; margin-top: 6px; padding: 0 2px; font-size: 14px; color: {{t.text2}}; cursor: pointer">
+          <input id="followSystem" type="checkbox" style="width: 18px; height: 18px; margin: 0; accent-color: {{t.accent}}">
+          <span style="flex: 1">Passa a Notte quando il sistema è in modalità scura</span>
+        </label>
+        <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 10px; background: {{t.chip}}; font-size: 13px; color: {{t.text2}}">
+          <span style="flex: 1">Il tema vale per tutte le finestre e per l'icona nella barra di sistema.</span>
+        </div>
+        <a href="Settings.dc.html" style="display: flex; align-items: center; justify-content: center; gap: 8px; height: 44px; border-radius: 10px; border: 1px solid {{t.field}}; color: {{t.text}}; text-decoration: none; font-size: 14px; font-weight: 600">Tutte le impostazioni<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></a>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["ruggine","ardesia","bosco","lavanda","sabbia","notte"],"default":"ruggine"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { sel: 0, folder: 'inbox', theme: null, settings: false };
+  }
+  themes() {
+    return {
+      ruggine: { name: 'Ruggine', accent: '#A63A0C', accentText: '#A63A0C', onAccent: '#FFFFFF', activeText: '#7C2A07', soft: '#FBEDE4', bg: '#FFFFFF', chrome: '#FBF9F7', side: '#F6F2EE', sideActive: '#EADFD5', line: '#E7E1DA', lineSoft: '#EFEAE4', field: '#D6CDC3', text: '#1F1B18', text2: '#3A3430', muted: '#5B5650', chip: '#F3EEE9', ink: '#2A1A12', onInk: '#FBF3EA', secBg: '#E8F3EC', secText: '#2F6B45', logo: '#A63A0C' },
+      ardesia: { name: 'Ardesia', accent: '#1E5AA8', accentText: '#1E5AA8', onAccent: '#FFFFFF', activeText: '#154283', soft: '#E7EFFA', bg: '#FFFFFF', chrome: '#F8FAFC', side: '#F1F4F8', sideActive: '#DCE5F1', line: '#E1E6ED', lineSoft: '#EDF0F4', field: '#CBD3DE', text: '#141A22', text2: '#2E3744', muted: '#556070', chip: '#EEF2F7', ink: '#142236', onInk: '#F2F6FB', secBg: '#E8F3EC', secText: '#2F6B45', logo: '#1E5AA8' },
+      bosco: { name: 'Bosco', accent: '#2F6B45', accentText: '#2F6B45', onAccent: '#FFFFFF', activeText: '#1F4D30', soft: '#E6F1EA', bg: '#FFFFFF', chrome: '#F8FAF7', side: '#F1F5F0', sideActive: '#DAE8DD', line: '#E0E7E1', lineSoft: '#ECF0EC', field: '#C7D2C9', text: '#18201A', text2: '#2E3A31', muted: '#536056', chip: '#EDF2EE', ink: '#16291C', onInk: '#F1F7F2', secBg: '#E6F1EA', secText: '#245A39', logo: '#2F6B45' },
+      lavanda: { name: 'Lavanda', accent: '#6B4FA0', accentText: '#6B4FA0', onAccent: '#FFFFFF', activeText: '#4E3680', soft: '#F0EBF8', bg: '#FFFFFF', chrome: '#FAF9FC', side: '#F4F1F9', sideActive: '#E3DBF0', line: '#E6E1EE', lineSoft: '#EFECF4', field: '#D0C8DE', text: '#1C1824', text2: '#353042', muted: '#5D5768', chip: '#F1EEF6', ink: '#251A38', onInk: '#F6F2FB', secBg: '#E8F3EC', secText: '#2F6B45', logo: '#6B4FA0' },
+      sabbia: { name: 'Sabbia', accent: '#8A5A12', accentText: '#7A4F0F', onAccent: '#FFFFFF', activeText: '#5E3C0A', soft: '#F6ECD9', bg: '#FFFCF5', chrome: '#FAF5EA', side: '#F4EDDE', sideActive: '#E8DBC0', line: '#E8DFCC', lineSoft: '#F0E9DA', field: '#D5C8AC', text: '#221C12', text2: '#3B3324', muted: '#5F5643', chip: '#F2EADA', ink: '#2E2414', onInk: '#FBF5E8', secBg: '#E8F1E4', secText: '#2F6237', logo: '#A63A0C' },
+      notte: { name: 'Notte', accent: '#E07A4A', accentText: '#F0A07A', onAccent: '#1A0D06', activeText: '#F3B08E', soft: '#33231B', bg: '#17181B', chrome: '#1D1F23', side: '#1B1D21', sideActive: '#2C2F35', line: '#2C2F35', lineSoft: '#232529', field: '#41454D', text: '#ECECEE', text2: '#C9CBD0', muted: '#A0A4AC', chip: '#26292E', ink: '#E07A4A', onInk: '#1A0D06', secBg: '#1D3326', secText: '#8FD1A6', logo: '#C4511F' }
+    };
+  }
+  renderVals() {
+    const all = this.themes();
+    const key = this.state.theme || this.props.theme || 'ruggine';
+    const t = all[key] || all.ruggine;
+    const sel = this.state.sel;
+    const folder = this.state.folder;
+    const msgs = [
+      { from: 'Giulia Ferri', initials: 'GF', avatarBg: '#1E5AA8', email: 'giulia.ferri@studioferri.it', time: '09:42', date: 'oggi, 09:42', unread: true, subject: 'Preventivo portale clienti — revisione 2', preview: 'Ciao Fabio, ti allego la versione aggiornata con le modifiche…', tag: 'Clienti', security: 'Firmato · DKIM ok',
+        body: 'Ciao Fabio,\n\nti allego la versione aggiornata del preventivo con le modifiche di cui abbiamo parlato giovedì: ho tolto il modulo di reportistica avanzata e aggiunto l\'integrazione con lo SDI.\n\nSe per te va bene, la presento al cliente lunedì mattina.\n\nGrazie,\nGiulia',
+        attachments: [{ ext: 'PDF', name: 'Preventivo_v2.pdf', size: '284 KB' }, { ext: 'XLSX', name: 'Stima_ore.xlsx', size: '41 KB' }] },
+      { from: 'Monitor server', initials: 'MS', avatarBg: '#2F7D4F', email: 'alert@monitor.local', time: '08:15', date: 'oggi, 08:15', unread: true, subject: 'Certificato TLS in scadenza tra 14 giorni', preview: 'Il certificato per mail.esempio.it scade il 14 novembre…', tag: 'Server', security: 'Firmato · DKIM ok',
+        body: 'Il certificato TLS per mail.esempio.it scade il 14 novembre 2026.\n\nRinnovo automatico: disattivato\nUltimo controllo: 31/10/2026 08:15\n\nAccedi al pannello per rinnovarlo.', attachments: [] },
+      { from: 'Marco Bellini', initials: 'MB', avatarBg: '#6B4FA0', email: 'marco@bellini.dev', time: 'Ieri', date: 'ieri, 18:03', unread: false, subject: 'Re: crate per il parsing MIME', preview: 'Ho provato mail-parser e va molto meglio di quello che usavamo…', tag: null, security: 'Cifrato · OpenPGP',
+        body: 'Ho provato il nuovo parser MIME e va molto meglio di quello che usavamo: gestisce bene le codifiche strane e gli allegati annidati.\n\nSul nostro archivio di test (circa 50.000 messaggi) l\'indicizzazione è scesa da 4 minuti a 40 secondi.\n\nNe parliamo domani?\nMarco', attachments: [] },
+      { from: 'Amministrazione', initials: 'AM', avatarBg: '#A63A0C', email: 'amministrazione@esempio.it', time: 'Ieri', date: 'ieri, 11:20', unread: false, subject: 'Fattura n. 214/2026', preview: 'In allegato la fattura relativa al mese di ottobre.', tag: 'Fatture', security: 'Firmato · DKIM ok',
+        body: 'Buongiorno,\n\nin allegato la fattura relativa al mese di ottobre.\n\nCordiali saluti,\nUfficio amministrazione',
+        attachments: [{ ext: 'XML', name: 'IT01234567890_00214.xml', size: '12 KB' }] },
+      { from: 'Sara Conti', initials: 'SC', avatarBg: '#1E5AA8', email: 'sara.conti@esempio.it', time: '29 ott', date: '29 ottobre, 16:47', unread: false, subject: 'Riunione di avanzamento progetto', preview: 'Propongo martedì alle 10:00, va bene a tutti?', tag: 'Clienti', security: 'Firmato · DKIM ok',
+        body: 'Ciao a tutti,\n\npropongo martedì alle 10:00 per la riunione di avanzamento. Ordine del giorno:\n– stato dei moduli\n– test con gli utenti\n– date di rilascio\n\nFatemi sapere.\nSara',
+        attachments: [{ ext: 'ICS', name: 'invito.ics', size: '2 KB' }] },
+      { from: 'Luca Moretti', initials: 'LM', avatarBg: '#6B4FA0', email: 'luca.moretti@esempio.it', time: '28 ott', date: '28 ottobre, 21:10', unread: false, subject: 'Foto della gita', preview: 'Ecco le foto di domenica, alcune sono venute benissimo!', tag: 'Personale', security: 'Firmato · DKIM ok',
+        body: 'Ecco le foto di domenica, alcune sono venute benissimo!\n\nLuca',
+        attachments: [{ ext: 'ZIP', name: 'foto_gita.zip', size: '38,2 MB' }] },
+      { from: 'Newsletter Dev', initials: 'ND', avatarBg: '#4A443F', email: 'news@esempio.dev', time: '27 ott', date: '27 ottobre, 07:00', unread: false, subject: 'Novità della settimana nel mondo Rust', preview: 'Async in evoluzione, nuove versioni di Tokio e altro…', tag: null, security: 'Firmato · DKIM ok',
+        body: 'Le novità della settimana: aggiornamenti su async, nuove versioni delle librerie più usate e i progetti emergenti della comunità.\n\nPer non ricevere più questa newsletter, annulla l\'iscrizione.', attachments: [] }
+    ];
+    const messages = msgs.map((m, i) => {
+      const active = i === sel;
+      return Object.assign({}, m, {
+        hasAttach: m.attachments.length > 0,
+        pick: () => this.setState({ sel: i }),
+        rowStyle: 'width: 100%; text-align: left; border: 0; border-bottom: 1px solid ' + t.lineSoft + '; padding: 14px 20px; display: flex; flex-direction: column; gap: 4px; cursor: pointer; font-family: inherit; color: ' + t.text + '; background: ' + (active ? t.soft : t.bg) + '; box-shadow: ' + (active ? 'inset 3px 0 0 ' + t.accent : 'none'),
+        dotStyle: 'width: 8px; height: 8px; border-radius: 50%; flex: none; background: ' + (m.unread ? t.accent : 'transparent'),
+        fromStyle: 'flex: 1; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: ' + (m.unread ? '700' : '500'),
+        subjectStyle: 'padding-left: 16px; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: ' + (m.unread ? '600' : '400')
+      });
+    });
+    const cur = messages[sel];
+    const n = cur.attachments.length;
+    const current = Object.assign({}, cur, { attachLabel: n === 1 ? '1 allegato' : n + ' allegati' });
+    const defs = [
+      { id: 'inbox', label: 'Posta in arrivo', count: '2' },
+      { id: 'star', label: 'Speciali', count: '' },
+      { id: 'sent', label: 'Inviati', count: '' },
+      { id: 'draft', label: 'Bozze', count: '3' },
+      { id: 'archive', label: 'Archivio', count: '' },
+      { id: 'spam', label: 'Spam', count: '12' },
+      { id: 'trash', label: 'Cestino', count: '' }
+    ];
+    const folders = defs.map((d) => {
+      const on = d.id === folder;
+      return {
+        label: d.label, count: d.count,
+        isInbox: d.id === 'inbox', isStar: d.id === 'star', isSent: d.id === 'sent', isDraft: d.id === 'draft', isArchive: d.id === 'archive', isSpam: d.id === 'spam', isTrash: d.id === 'trash',
+        pick: () => this.setState({ folder: d.id }),
+        style: 'display: flex; align-items: center; gap: 12px; width: 100%; min-height: 40px; padding: 0 12px; border: 0; border-radius: 9px; cursor: pointer; font-family: inherit; font-size: 14px; background: ' + (on ? t.sideActive : 'transparent') + '; color: ' + (on ? t.activeText : t.text2) + '; font-weight: ' + (on ? '600' : '500')
+      };
+    });
+    const themeCards = Object.keys(all).map((k) => {
+      const th = all[k];
+      const on = k === key;
+      return {
+        name: th.name, on: on, accent: th.accent, bg: th.bg, side: th.side, soft: th.soft, line: th.field, border: th.line,
+        pick: () => this.setState({ theme: k }),
+        cardStyle: 'display: flex; flex-direction: column; gap: 8px; padding: 8px; border-radius: 12px; cursor: pointer; font-family: inherit; text-align: left; background: ' + t.bg + '; color: ' + t.text + '; border: 2px solid ' + (on ? t.accent : t.line)
+      };
+    });
+    const open = !!this.state.settings;
+    return {
+      t, messages, current, folders, themeCards,
+      settingsOpen: open,
+      toggleSettings: () => this.setState({ settings: !this.state.settings }),
+      gearBg: open ? t.sideActive : 'transparent',
+      gearColor: open ? t.activeText : t.text2
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,75 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Compose.dc.html": {
+      "h": 640,
+      "title": "Nuovo messaggio",
+      "w": 760,
+      "x": 0,
+      "y": 1020
+    },
+    "Icon.dc.html": {
+      "h": 640,
+      "title": "Icona dell'app",
+      "w": 1200,
+      "x": 840,
+      "y": 1020
+    },
+    "Main.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "is_interactive": true,
+      "title": "Finestra principale",
+      "w": 1440,
+      "x": 0,
+      "y": 0
+    },
+    "Settings.dc.html": {
+      "expand": "fill",
+      "h": 900,
+      "is_interactive": true,
+      "title": "Impostazioni",
+      "w": 1280,
+      "x": 1520,
+      "y": 0
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-10-31T10:00:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "noteOrder": [
+    "title",
+    "shape-gz226y"
+  ],
+  "notes": {
+    "shape-gz226y": {
+      "kind": "arrow",
+      "x": 10026,
+      "x2": 10186,
+      "y": 1000000,
+      "y2": 1000000
+    },
+    "title": {
+      "kind": "title1",
+      "maxW": 2800,
+      "text": "Ferrowl — client di posta in Rust",
+      "w": 240,
+      "x": 0,
+      "y": -260
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Settings.dc.html",
+    "Compose.dc.html",
+    "Icon.dc.html"
+  ],
+  "pages": [],
+  "title": "Ferrowl — client di posta"
+}

@@ -1,21 +1,33 @@
 [package]
-name = "client-mail"
-version = "0.1.0"
+name = "ferrowl"
+version = "0.2.0"
 edition = "2024"
+description = "Fast desktop email client written in Rust"
+license = "MIT"
+repository = "https://github.com/creativalab/client-mail"
+readme = "README.md"
 
 [dependencies]
 anyhow = "1.0.104"
 chrono = "0.4.45"
 dirs = "7.0.0"
-eframe = "0.33"
+iced = { version = "0.14", features = ["tokio", "svg", "image", "advanced"] }
 imap = { version = "2.4.1", default-features = false }
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "rustls-tls", "hostname"] }
 mail-parser = "1.0.0"
+png = "0.18"
+rfd = "0.17.2"
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "logging", "tls12"] }
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sys-locale = "0.3.2"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "time"] }
 toml = "1.1.8"
 webpki-roots = "1.0.11"
 
 [profile.release]
 strip = true
 lto = "thin"
+
+[target."cfg(windows)".build-dependencies]
+winresource = "0.1.34"

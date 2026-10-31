@@ -1,22 +1,80 @@
+// On Windows, in release builds, no console window behind the app.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod app;
+mod backend;
 mod config;
+mod i18n;
 mod mail;
-mod worker;
+mod theme;
+mod ui;
 
-fn main() -> eframe::Result {
-    // lettre usa il provider crittografico di default di rustls: lo fissiamo a ring.
+use app::App;
+
+fn main() -> iced::Result {
+    // lettre uses rustls' default crypto provider: pin it to ring.
     let _ = rustls::crypto::ring::default_provider().install_default();
+    i18n::set(Some(&config::Config::load().ui.language));
+    install_crash_handler();
 
-    let options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default()
-            .with_title("Client Mail")
-            .with_inner_size([1200.0, 760.0])
-            .with_min_inner_size([800.0, 500.0]),
-        ..Default::default()
-    };
-    eframe::run_native(
-        "Client Mail",
-        options,
-        Box::new(|cc| Ok(Box::new(app::MailApp::new(cc)))),
+    let icon = iced::window::icon::from_file_data(
+        include_bytes!("../assets/icons/png/ferrowl-256.png"),
+        None,
     )
+    .ok();
+
+    let mut app = iced::application(App::boot, App::update, App::view)
+        .title(App::title)
+        .theme(App::theme)
+        .subscription(App::subscription)
+        .default_font(ui::INTER)
+        .window(iced::window::Settings {
+            size: iced::Size::new(1440.0, 900.0),
+            min_size: Some(iced::Size::new(1000.0, 640.0)),
+            icon,
+            ..Default::default()
+        });
+    for font in ui::FONTS {
+        app = app.font(font);
+    }
+    app.run()
+}
+
+/// On panic: writes a log and, if the main thread stopped,
+/// shows a window with the support address.
+fn install_crash_handler() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let log_path = dirs::data_local_dir()
+            .unwrap_or_else(std::env::temp_dir)
+            .join("ferrowl")
+            .join("crash.log");
+        let report = format!(
+            "Ferrowl {} — {}\nthread: {}\n{info}\n\n{}\n",
+            env!("CARGO_PKG_VERSION"),
+            chrono::Local::now().to_rfc3339(),
+            std::thread::current().name().unwrap_or("?"),
+            std::backtrace::Backtrace::force_capture()
+        );
+        if let Some(dir) = log_path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(&log_path, &report);
+        default_hook(info);
+
+        // Panics in background threads become a generic error in the UI;
+        // only the main thread closes the app.
+        if std::thread::current().name() == Some("main") {
+            let path = log_path.display().to_string();
+            let _ = rfd::MessageDialog::new()
+                .set_level(rfd::MessageLevel::Error)
+                .set_title(i18n::t("err_crash_title"))
+                .set_description(i18n::tf(
+                    "err_crash_body",
+                    &[("path", &path), ("email", i18n::SUPPORT_EMAIL)],
+                ))
+                .set_buttons(rfd::MessageButtons::Ok)
+                .show();
+        }
+    }));
 }

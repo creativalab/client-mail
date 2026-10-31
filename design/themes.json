@@ -1,0 +1,44 @@
+{
+  "_doc": "Token colore di Ferrowl. 'ruggine' è il default. Ogni tema definisce gli stessi token; danger/dangerLine sono comuni ai temi chiari, con valori dedicati per 'notte'.",
+  "tokens": {
+    "accent": "colore principale: pulsante Scrivi, interruttori attivi, indicatore non letto, bordo riga selezionata",
+    "onAccent": "testo/icone sopra accent",
+    "accentText": "accent usato come colore di testo (es. estensione allegato)",
+    "activeText": "testo della voce attiva in barra laterale",
+    "soft": "sfondo riga selezionata / chip evidenziati",
+    "bg": "sfondo contenuti",
+    "chrome": "sfondo barra superiore",
+    "side": "sfondo barra laterale",
+    "sideActive": "sfondo voce attiva in barra laterale",
+    "line": "bordi principali",
+    "lineSoft": "separatori tra righe",
+    "field": "bordi di input e select",
+    "text": "testo primario",
+    "text2": "testo secondario",
+    "muted": "testo terziario (anteprime, orari, descrizioni)",
+    "chip": "sfondo chip, contatori, segmented control",
+    "ink": "sfondo avatar utente",
+    "onInk": "testo sopra ink",
+    "secBg": "sfondo badge sicurezza (DKIM/PGP ok)",
+    "secText": "testo badge sicurezza",
+    "knobOff": "binario interruttore spento",
+    "logo": "fondo dell'icona nell'intestazione",
+    "danger": "azioni distruttive",
+    "dangerLine": "bordo blocchi distruttivi"
+  },
+  "themes": {
+    "ruggine": { "name": "Ruggine", "dark": false, "accent": "#A63A0C", "onAccent": "#FFFFFF", "accentText": "#A63A0C", "activeText": "#7C2A07", "soft": "#FBEDE4", "bg": "#FFFFFF", "chrome": "#FBF9F7", "side": "#F6F2EE", "sideActive": "#EADFD5", "line": "#E7E1DA", "lineSoft": "#EFEAE4", "field": "#D6CDC3", "text": "#1F1B18", "text2": "#3A3430", "muted": "#5B5650", "chip": "#F3EEE9", "ink": "#2A1A12", "onInk": "#FBF3EA", "secBg": "#E8F3EC", "secText": "#2F6B45", "knobOff": "#B3A99F", "logo": "#A63A0C", "danger": "#B3261E", "dangerLine": "#F0C9C5" },
+    "ardesia": { "name": "Ardesia", "dark": false, "accent": "#1E5AA8", "onAccent": "#FFFFFF", "accentText": "#1E5AA8", "activeText": "#154283", "soft": "#E7EFFA", "bg": "#FFFFFF", "chrome": "#F8FAFC", "side": "#F1F4F8", "sideActive": "#DCE5F1", "line": "#E1E6ED", "lineSoft": "#EDF0F4", "field": "#CBD3DE", "text": "#141A22", "text2": "#2E3744", "muted": "#556070", "chip": "#EEF2F7", "ink": "#142236", "onInk": "#F2F6FB", "secBg": "#E8F3EC", "secText": "#2F6B45", "knobOff": "#A3AEBD", "logo": "#1E5AA8", "danger": "#B3261E", "dangerLine": "#F0C9C5" },
+    "bosco": { "name": "Bosco", "dark": false, "accent": "#2F6B45", "onAccent": "#FFFFFF", "accentText": "#2F6B45", "activeText": "#1F4D30", "soft": "#E6F1EA", "bg": "#FFFFFF", "chrome": "#F8FAF7", "side": "#F1F5F0", "sideActive": "#DAE8DD", "line": "#E0E7E1", "lineSoft": "#ECF0EC", "field": "#C7D2C9", "text": "#18201A", "text2": "#2E3A31", "muted": "#536056", "chip": "#EDF2EE", "ink": "#16291C", "onInk": "#F1F7F2", "secBg": "#E6F1EA", "secText": "#245A39", "knobOff": "#A0AEA3", "logo": "#2F6B45", "danger": "#B3261E", "dangerLine": "#F0C9C5" },
+    "lavanda": { "name": "Lavanda", "dark": false, "accent": "#6B4FA0", "onAccent": "#FFFFFF", "accentText": "#6B4FA0", "activeText": "#4E3680", "soft": "#F0EBF8", "bg": "#FFFFFF", "chrome": "#FAF9FC", "side": "#F4F1F9", "sideActive": "#E3DBF0", "line": "#E6E1EE", "lineSoft": "#EFECF4", "field": "#D0C8DE", "text": "#1C1824", "text2": "#353042", "muted": "#5D5768", "chip": "#F1EEF6", "ink": "#251A38", "onInk": "#F6F2FB", "secBg": "#E8F3EC", "secText": "#2F6B45", "knobOff": "#ABA2BC", "logo": "#6B4FA0", "danger": "#B3261E", "dangerLine": "#F0C9C5" },
+    "sabbia": { "name": "Sabbia", "dark": false, "accent": "#8A5A12", "onAccent": "#FFFFFF", "accentText": "#7A4F0F", "activeText": "#5E3C0A", "soft": "#F6ECD9", "bg": "#FFFCF5", "chrome": "#FAF5EA", "side": "#F4EDDE", "sideActive": "#E8DBC0", "line": "#E8DFCC", "lineSoft": "#F0E9DA", "field": "#D5C8AC", "text": "#221C12", "text2": "#3B3324", "muted": "#5F5643", "chip": "#F2EADA", "ink": "#2E2414", "onInk": "#FBF5E8", "secBg": "#E8F1E4", "secText": "#2F6237", "knobOff": "#B5A88C", "logo": "#A63A0C", "danger": "#B3261E", "dangerLine": "#F0C9C5" },
+    "notte": { "name": "Notte", "dark": true, "accent": "#E07A4A", "onAccent": "#1A0D06", "accentText": "#F0A07A", "activeText": "#F3B08E", "soft": "#33231B", "bg": "#17181B", "chrome": "#1D1F23", "side": "#1B1D21", "sideActive": "#2C2F35", "line": "#2C2F35", "lineSoft": "#232529", "field": "#41454D", "text": "#ECECEE", "text2": "#C9CBD0", "muted": "#A0A4AC", "chip": "#26292E", "ink": "#E07A4A", "onInk": "#1A0D06", "secBg": "#1D3326", "secText": "#8FD1A6", "knobOff": "#4A4F57", "logo": "#C4511F", "danger": "#F28B82", "dangerLine": "#5C2B28" }
+  },
+  "labels": { "Clienti": "#3B78C9", "Fatture": "#C4511F", "Server": "#3C9462", "Personale": "#8466BE" },
+  "typography": {
+    "ui": "Inter (400, 500, 600, 700)",
+    "mono": "JetBrains Mono (400, 500) — scorciatoie, orari, percorsi, impronte PGP",
+    "sizes_px": { "titoloSezione": 26, "oggettoLettura": 26, "titoloLista": 20, "corpo": 15, "lista": 14, "secondario": 13, "meta": 12, "etichettaMaiuscola": 12 }
+  },
+  "metrics_px": { "radiusControl": 10, "radiusCard": 14, "radiusInput": 8, "touchMin": 44, "sidebarMin": 220, "listMin": 340, "readerMin": 480, "readerMaxText": 820 }
+}
