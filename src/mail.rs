@@ -405,16 +405,29 @@ pub fn connect(account: &Account) -> Result<ImapSession> {
 
     let mut client = imap::Client::new(tls);
     client.read_greeting().context("IMAP greeting")?;
-    client
-        .login(&account.username, &account.password)
-        .map_err(|(e, _)| {
-            let msg = e.to_string();
-            if msg.to_uppercase().contains("AUTHENTICATIONFAILED") {
-                anyhow!(tf("err_auth", &[("msg", &msg)]))
-            } else {
-                anyhow!(tf("err_login", &[("msg", &msg)]))
-            }
-        })
+    let login_error = |e: imap::Error| {
+        let msg = e.to_string();
+        if msg.to_uppercase().contains("AUTHENTICATIONFAILED") {
+            anyhow!(tf("err_auth", &[("msg", &msg)]))
+        } else {
+            anyhow!(tf("err_login", &[("msg", &msg)]))
+        }
+    };
+    match account.oauth {
+        // Signed in with Microsoft/Google: XOAUTH2 with a fresh access token.
+        Some(provider) => {
+            let token = crate::oauth::access_token(provider, &account.email)?;
+            let auth = crate::oauth::ImapXoauth2 {
+                response: crate::oauth::xoauth2(&account.username, &token),
+            };
+            client
+                .authenticate("XOAUTH2", &auth)
+                .map_err(|(e, _)| login_error(e))
+        }
+        None => client
+            .login(&account.username, &account.password)
+            .map_err(|(e, _)| login_error(e)),
+    }
 }
 
 /// Whether the server supports IMAP IDLE (push).
@@ -815,7 +828,6 @@ pub fn create_folder(session: &mut ImapSession, like: &[Folder], leaf: &str) -> 
 /// Sends via SMTP and returns the formatted message (to save it in Sent).
 pub fn send(account: &Account, mail: &Outgoing) -> Result<Vec<u8>> {
     use lettre::message::Mailbox;
-    use lettre::transport::smtp::authentication::Credentials;
     use lettre::{Message, SmtpTransport, Transport};
 
     let from: Mailbox = format!("{} <{}>", account.display_name, account.email)
@@ -878,10 +890,15 @@ pub fn send(account: &Account, mail: &Outgoing) -> Result<Vec<u8>> {
     };
     let mailer = relay
         .port(account.smtp_port)
-        .credentials(Credentials::new(
-            account.username.clone(),
-            account.password.clone(),
-        ))
+        .credentials(smtp_credentials(account)?)
+        .authentication(if account.oauth.is_some() {
+            vec![lettre::transport::smtp::authentication::Mechanism::Xoauth2]
+        } else {
+            vec![
+                lettre::transport::smtp::authentication::Mechanism::Plain,
+                lettre::transport::smtp::authentication::Mechanism::Login,
+            ]
+        })
         .timeout(Some(Duration::from_secs(60)))
         .build();
     mailer.send(&email).context(t("err_smtp"))?;
@@ -919,6 +936,18 @@ fn guess_mime(name: &str) -> &'static str {
         "ods" => "application/vnd.oasis.opendocument.spreadsheet",
         _ => "application/octet-stream",
     }
+}
+
+/// SMTP credentials: the password, or an OAuth2 access token (XOAUTH2).
+fn smtp_credentials(account: &Account) -> Result<lettre::transport::smtp::authentication::Credentials> {
+    use lettre::transport::smtp::authentication::Credentials;
+    Ok(match account.oauth {
+        Some(provider) => Credentials::new(
+            account.username.clone(),
+            crate::oauth::access_token(provider, &account.email)?,
+        ),
+        None => Credentials::new(account.username.clone(), account.password.clone()),
+    })
 }
 
 /// A MIME body: one part or a multipart tree.

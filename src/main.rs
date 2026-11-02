@@ -11,6 +11,7 @@ mod html_view;
 mod i18n;
 mod mail;
 mod markdown;
+mod oauth;
 mod preview;
 mod push;
 mod theme;

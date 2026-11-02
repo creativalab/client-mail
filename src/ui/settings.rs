@@ -485,6 +485,70 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
         None => space::horizontal().into(),
     };
 
+    // Sign in with Microsoft / Google (OAuth2) instead of typing a password.
+    use crate::oauth::Provider;
+    let sign_in_btn = |provider: Provider, label: &'static str| -> Element<'_, Message> {
+        let b = button(text(label).size(14).font(medium()))
+            .height(40)
+            .padding([10, 16])
+            .style(outline_btn(p, p.text));
+        if provider.available() && !app.oauth_busy {
+            b.on_press(Message::OAuthSignIn(provider)).into()
+        } else if !provider.available() {
+            tooltip(b, t("err_oauth_unavailable"), p)
+        } else {
+            b.into()
+        }
+    };
+    let mut oauth_row: Vec<Element<'_, Message>> = vec![
+        sign_in_btn(Provider::Microsoft, t("oauth_microsoft")),
+        sign_in_btn(Provider::Google, t("oauth_google")),
+    ];
+    if app.oauth_busy {
+        oauth_row.push(text(t("oauth_waiting")).size(13).color(p.muted).into());
+    }
+    let oauth_block: Element<'_, Message> = column![
+        dir_row(oauth_row).spacing(10).align_y(Alignment::Center),
+        text(
+            if Provider::for_email(&d.email) == Some(Provider::Microsoft) && d.oauth.is_none() {
+                t("oauth_hint_microsoft")
+            } else {
+                t("oauth_or")
+            }
+        )
+        .size(12)
+        .color(p.muted),
+    ]
+    .spacing(8)
+    .into();
+    // With OAuth the password field becomes a "signed in" line.
+    let password_field: Element<'_, Message> = match d.oauth {
+        Some(provider) => column![
+            text(t("password")).size(13).font(medium()).color(p.text2),
+            container(
+                dir_row(vec![
+                    text(fmt_provider(t("oauth_signed_in"), provider))
+                        .size(14)
+                        .color(p.sec_text)
+                        .width(Fill)
+                        .into(),
+                    button(text(t("oauth_use_password")).size(12).color(p.accent_text))
+                        .padding([2, 4])
+                        .style(ghost(p, p.accent_text))
+                        .on_press(Message::OAuthUsePassword)
+                        .into(),
+                ])
+                .align_y(Alignment::Center),
+            )
+            .padding([10, 12])
+            .style(chip_box(p.sec_bg, p.sec_text, 8.0)),
+        ]
+        .spacing(6)
+        .width(Fill)
+        .into(),
+        None => field(t("password"), &d.password, Field::Password, true, false),
+    };
+
     let details = container(
         column![
             text(if app.editing.is_some() {
@@ -495,6 +559,7 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
             .size(16)
             .font(INTER_BOLD)
             .color(p.text),
+            oauth_block,
             pair(
                 field(
                     t("display_name"),
@@ -513,7 +578,7 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
                 .spacing(4)
                 .width(Fill)
                 .into(),
-                field(t("password"), &d.password, Field::Password, true, false)
+                password_field
             ),
             dir_row(vec![
                 field(t("imap_server"), &d.imap_host, Field::ImapHost, false, true),
@@ -689,4 +754,13 @@ fn switch<'a>(p: Palette, on: bool, msg: fn(bool) -> Message) -> Element<'a, Mes
             }
         })
         .into()
+}
+
+/// "Signed in with {provider}" with the provider's name.
+fn fmt_provider(template: &str, provider: crate::oauth::Provider) -> String {
+    let name = match provider {
+        crate::oauth::Provider::Microsoft => "Microsoft",
+        crate::oauth::Provider::Google => "Google",
+    };
+    template.replace("{provider}", name)
 }

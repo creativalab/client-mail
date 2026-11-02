@@ -231,6 +231,8 @@ pub struct AccountDraft {
     pub smtp_port: String,
     /// Not shown in the form (edited under Security): carried through.
     pub pgp_passphrase: String,
+    /// Signed in with Microsoft/Google instead of a password.
+    pub oauth: Option<crate::oauth::Provider>,
 }
 
 impl AccountDraft {
@@ -253,6 +255,7 @@ impl AccountDraft {
             smtp_host: a.smtp_host.clone(),
             smtp_port: a.smtp_port.to_string(),
             pgp_passphrase: a.pgp_passphrase.clone(),
+            oauth: a.oauth,
         }
     }
 
@@ -267,6 +270,7 @@ impl AccountDraft {
             smtp_host: self.smtp_host.trim().to_string(),
             smtp_port: self.smtp_port.trim().parse().ok()?,
             pgp_passphrase: self.pgp_passphrase.clone(),
+            oauth: self.oauth,
         };
         a.is_complete().then_some(a)
     }
@@ -357,6 +361,8 @@ pub struct App {
     /// Account being edited in settings (`None` = new account).
     pub editing: Option<usize>,
     pub confirm_remove: bool,
+    /// Waiting for the browser sign-in (Microsoft/Google).
+    pub oauth_busy: bool,
     /// Bumped on account switch, to drop results of the previous account.
     pub generation: u64,
     pub testing: bool,
@@ -482,6 +488,9 @@ pub enum Message {
     Tested(Res<usize>),
     SaveAccount,
     SwitchAccount(usize),
+    OAuthSignIn(crate::oauth::Provider),
+    OAuthDone(Res<(crate::oauth::Provider, String)>),
+    OAuthUsePassword,
     EditAccount(usize),
     NewAccount,
     /// From the sidebar: open settings on an empty account form.
@@ -579,6 +588,7 @@ impl App {
             draft,
             editing,
             confirm_remove: false,
+            oauth_busy: false,
             generation: 0,
             testing: false,
             test_result: None,
@@ -2031,6 +2041,53 @@ impl App {
                 let save = self.save_config();
                 Task::batch([save, self.switch_account(index)])
             }
+            Message::OAuthSignIn(provider) => {
+                if self.oauth_busy {
+                    return Task::none();
+                }
+                self.oauth_busy = true;
+                self.test_result = None;
+                let hint = self.draft.email.trim().to_string();
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            crate::oauth::sign_in(provider, &hint)
+                                .map(|email| (provider, email))
+                                .map_err(|e| format!("{e:#}"))
+                        })
+                        .await
+                        .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    Message::OAuthDone,
+                )
+            }
+            Message::OAuthDone(result) => {
+                self.oauth_busy = false;
+                match result {
+                    Ok((provider, email)) => {
+                        // Signed in: fill the account from the provider.
+                        let ((imap, imap_port), (smtp, smtp_port)) = provider.servers(&email);
+                        let d = &mut self.draft;
+                        d.email = email.clone();
+                        d.username = email;
+                        d.password.clear();
+                        d.oauth = Some(provider);
+                        d.imap_host = imap.into();
+                        d.imap_port = imap_port.to_string();
+                        d.smtp_host = smtp.into();
+                        d.smtp_port = smtp_port.to_string();
+                        Task::none()
+                    }
+                    Err(e) => {
+                        self.test_result = Some(Err(e));
+                        Task::none()
+                    }
+                }
+            }
+            Message::OAuthUsePassword => {
+                self.draft.oauth = None;
+                Task::none()
+            }
             Message::SwitchAccount(i) => {
                 if i >= self.config.accounts.len() || (i == self.config.active && self.conn != Conn::Offline)
                 {
@@ -2075,7 +2132,10 @@ impl App {
                 if i >= self.config.accounts.len() {
                     return Task::none();
                 }
-                self.config.accounts.remove(i);
+                let removed = self.config.accounts.remove(i);
+                if let Some(provider) = removed.oauth {
+                    crate::oauth::forget(provider, &removed.email);
+                }
                 let was_active = i == self.config.active;
                 if self.config.active > i || self.config.active >= self.config.accounts.len() {
                     self.config.active = self.config.active.saturating_sub(1);

@@ -18,6 +18,10 @@ pub struct Account {
     /// Passphrase of this account's OpenPGP key (empty = none).
     #[serde(default)]
     pub pgp_passphrase: String,
+    /// Signed in with a provider (OAuth2) instead of a password; the tokens
+    /// live in the OAuth token store, not here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth: Option<crate::oauth::Provider>,
 }
 
 impl Default for Account {
@@ -32,6 +36,7 @@ impl Default for Account {
             smtp_host: String::new(),
             smtp_port: 465,
             pgp_passphrase: String::new(),
+            oauth: None,
         }
     }
 }
@@ -40,7 +45,7 @@ impl Account {
     pub fn is_complete(&self) -> bool {
         !self.email.is_empty()
             && !self.username.is_empty()
-            && !self.password.is_empty()
+            && (!self.password.is_empty() || self.oauth.is_some())
             && !self.imap_host.is_empty()
             && !self.smtp_host.is_empty()
     }

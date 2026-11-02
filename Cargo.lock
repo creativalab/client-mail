@@ -1979,10 +1979,12 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "sha2",
  "sys-locale",
  "tokio",
  "toml",
  "ureq",
+ "url",
  "webpki-roots",
  "winresource",
 ]
