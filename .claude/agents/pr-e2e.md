@@ -59,9 +59,9 @@ A PR number (`gh pr view <n>`). If none was given, list open PRs with
 ## Steps
 
 1. **Context**: `gh pr view <n> --json title,body,author,headRefName,baseRefName,files,additions,deletions,statusCheckRollup`
-   and `gh pr diff <n>`. Note which areas change: `src/mail.rs`/`backend.rs`
+   and `gh pr diff <n>`. Note which areas change: `core/src/mail.rs`/`backend.rs`
    (IMAP/SMTP), `cache.rs`, `crypto.rs`, `html_view.rs`, `preview.rs`,
-   `ui/*` (which screens), `locales/*`, CI files.
+   `ui/*` (which screens), `core/locales/*`, CI files.
 2. **CI status**: summarize `statusCheckRollup` (pending / failing jobs with
    names). If a job failed, fetch its log: `gh run view <id> --log-failed`
    (keep only the relevant lines).
@@ -72,15 +72,15 @@ A PR number (`gh pr view <n>`). If none was given, list open PRs with
    - `cargo build --release --locked`
    - `cargo deny check advisories` if `Cargo.lock` or `deny.toml` changed.
 4. **Translations**: every new `t("key")` / `tf("key", …)` must exist in all
-   10 files in `locales/` (en it fr de es pt zh ja ko ar) with the same
+   10 files in `core/locales/` (en it fr de es pt zh ja ko ar) with the same
    `{placeholders}`. `cargo test` (`all_locales_complete`) already checks that
    every locale has the same keys as `en.toml` and matching placeholders; it
    cannot see a key used in code but missing from **all** locale files (the UI
    would show the raw key) — grep the diff for new keys and verify
-   `locales/en.toml` has them.
+   `core/locales/en.toml` has them.
 5. **Project rules** on the diff:
    - code, comments, identifiers, commit messages and docs in **English**
-     (only `locales/*.toml` may contain other languages, plus explicit
+     (only `core/locales/*.toml` may contain other languages, plus explicit
      exceptions asked by the owner and stated in the PR, e.g. Italian
      planning documents `docs/piano-*.md` — not a finding);
    - no secrets: grep the diff for the account address/host from the config

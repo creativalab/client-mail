@@ -62,24 +62,31 @@ The local cache (message list, previews, text of opened messages, search index) 
 
 OpenPGP keys live in `keys/` in the same data directory (owner-only): `own/` for your secret keys, `contacts/` for correspondents' public keys.
 
-The password (and the optional OpenPGP key passphrase) is currently stored in this file (permissions `600` on Linux/macOS). Moving it to the system keychain is on the roadmap.
+Passwords and OpenPGP key passphrases are kept in the system keychain (macOS Keychain, Windows Credential Manager, Secret Service on Linux: GNOME Keyring or KWallet). Where no keychain is available they stay in this file (permissions `600` on Linux/macOS).
 
 For Gmail, use an [app password](https://support.google.com/accounts/answer/185833).
 
 ## Translations
 
-UI strings live in [`locales/`](locales/), one TOML file per language. `locales/en.toml` is the reference: every other file must contain the same keys with the same `{placeholders}` — `cargo test` checks this.
+UI strings live in [`core/locales/`](core/locales/), one TOML file per language. `core/locales/en.toml` is the reference: every other file must contain the same keys with the same `{placeholders}` — `cargo test` checks this.
 
-To add a language: copy `en.toml`, translate it, and register it in `LANGS` in [`src/i18n.rs`](src/i18n.rs).
+To add a language: copy `en.toml`, translate it, and register it in `LANGS` in [`core/src/i18n.rs`](core/src/i18n.rs).
 
 ## Development
+
+### Layout
+
+The repository is a Cargo workspace:
+
+- **`core/`** — `ferrowl-core`, the engine with no UI toolkit: IMAP, POP3 and SMTP, MIME, OpenPGP, the SQLite cache and search index, the POP3 mailbox, settings, secrets, translations. The mobile apps will use it too (see `docs/piano-mobile.md`). File locations come from `paths`; mobile apps set them with `ferrowl_core::paths::set`. Build it without the system keychain with `--no-default-features`.
+- **root package** — `ferrowl`, the desktop app (iced): windows, views, HTML rendering (Blitz), attachment previews, push (IMAP IDLE), single instance, AppImage integration.
 
 ### Code quality
 
 | Tool | Role (PHP / Node equivalent) | Command |
 |---|---|---|
 | rustfmt | formatter (PHP-CS-Fixer / Prettier) — config in `rustfmt.toml` | `cargo fmt` |
-| clippy | linter (PHPStan / ESLint) | `cargo clippy --all-targets -- -D warnings` |
+| clippy | linter (PHPStan / ESLint) | `cargo clippy --workspace --all-targets -- -D warnings` |
 | cargo-deny | dependency advisories (composer audit / npm audit) — config in `deny.toml` | `cargo deny check advisories` |
 
 - **Pull requests**: `checks.yml` runs formatting and cargo-deny; `build.yml` runs clippy and the tests on Linux (skipped when a PR only touches docs/Markdown). Optimized builds for Linux, Windows and macOS run on `master` and on `v*` tags (tags also publish the Release). Required checks: *Formatting (rustfmt)*, *Dependency advisories (cargo-deny)*, *Lints (clippy)*, *Test (Linux)*.
@@ -88,7 +95,7 @@ To add a language: copy `en.toml`, translate it, and register it in `LANGS` in [
 ### Tests
 
 ```bash
-cargo test                                   # unit tests (themes, locales, IMAP helpers)
+cargo test --workspace                       # unit tests (themes, locales, IMAP/POP3 helpers)
 cargo test -- --ignored                      # network tests (TLS handshake with imap.gmail.com)
 cargo test live_account -- --ignored --nocapture   # uses the configured account
 ```

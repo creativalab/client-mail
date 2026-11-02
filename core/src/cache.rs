@@ -66,7 +66,7 @@ END;
 ";
 
 fn path() -> Option<PathBuf> {
-    Some(dirs::data_local_dir()?.join("ferrowl").join("cache.sqlite"))
+    Some(crate::paths::data_dir()?.join("cache.sqlite"))
 }
 
 /// The shared cache, or `None` if it cannot be opened (the app then works

@@ -20,9 +20,8 @@ use rand::thread_rng;
 use std::path::PathBuf;
 
 fn keys_dir(kind: &str) -> Result<PathBuf> {
-    let dir = dirs::data_local_dir()
+    let dir = crate::paths::data_dir()
         .context("data directory not found")?
-        .join("ferrowl")
         .join("keys")
         .join(kind);
     std::fs::create_dir_all(&dir)?;

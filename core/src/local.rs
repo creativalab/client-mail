@@ -50,7 +50,7 @@ pub struct Store {
 }
 
 fn path() -> Option<PathBuf> {
-    Some(dirs::data_local_dir()?.join("ferrowl").join("local.sqlite"))
+    Some(crate::paths::data_dir()?.join("local.sqlite"))
 }
 
 /// The shared local mailbox, or `None` if it cannot be opened.

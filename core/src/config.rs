@@ -78,7 +78,7 @@ impl Account {
         } else {
             &self.display_name
         };
-        crate::ui::initials(source)
+        crate::initials(source)
     }
 }
 
@@ -137,9 +137,7 @@ pub struct Config {
 }
 
 fn config_dir() -> Result<PathBuf> {
-    Ok(dirs::config_dir()
-        .context("configuration directory not found")?
-        .join("ferrowl"))
+    crate::paths::config_dir().context("configuration directory not found")
 }
 
 fn config_path() -> Result<PathBuf> {
@@ -158,7 +156,7 @@ impl Config {
             .map(|p| p.join("client-mail").join("config.toml"));
         let text = std::fs::read_to_string(&path)
             .ok()
-            .or_else(|| legacy.and_then(|l| std::fs::read_to_string(l).ok()));
+            .or_else(|| legacy.as_ref().and_then(|l| std::fs::read_to_string(l).ok()));
         let config: Config = text.and_then(|s| toml::from_str(&s).ok()).unwrap_or_default();
         let mut config = config.migrated();
         crate::secrets::load(&crate::secrets::SystemKeychain, &mut config.accounts);
@@ -169,6 +167,15 @@ impl Config {
             .any(|a| !a.keyring && !a.password.is_empty())
         {
             let _ = config.save();
+        }
+        // Once the current file exists, the first version's file (which held
+        // the password in plain text) is obsolete.
+        if let Some(legacy) = legacy
+            && legacy.exists()
+            && path.exists()
+        {
+            let _ = std::fs::remove_file(&legacy);
+            let _ = legacy.parent().map(std::fs::remove_dir);
         }
         config
     }

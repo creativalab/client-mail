@@ -63,7 +63,9 @@ jobs:
         with:
           shared-key: clippy
           save-if: ${{ github.ref == 'refs/heads/master' }}
-      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # The engine as the mobile apps build it (no system keychain).
+      - run: cargo clippy -p ferrowl-core --no-default-features --all-targets --locked -- -D warnings
 
   test:
     name: Test (Linux)
@@ -81,7 +83,7 @@ jobs:
         with:
           shared-key: test
           save-if: ${{ github.ref == 'refs/heads/master' }}
-      - run: cargo test --locked
+      - run: cargo test --workspace --locked
 
   build:
     name: build (${{ matrix.os }}, ${{ matrix.name }}, ${{ matrix.bin }})

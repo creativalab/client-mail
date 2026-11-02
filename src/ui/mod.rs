@@ -368,23 +368,7 @@ pub fn mix(a: Color, b: Color, t: f32) -> Color {
 
 // ---------------------------------------------------------------- text
 
-pub fn initials(s: &str) -> String {
-    let s = s.split('@').next().unwrap_or(s);
-    let words: Vec<&str> = s
-        .split(|c: char| c.is_whitespace() || c == '.' || c == '_' || c == '-')
-        .filter(|w| w.chars().next().is_some_and(char::is_alphanumeric))
-        .collect();
-    let mut out: String = words
-        .iter()
-        .take(2)
-        .filter_map(|w| w.chars().next())
-        .flat_map(char::to_uppercase)
-        .collect();
-    if out.is_empty() {
-        out.push('?');
-    }
-    out
-}
+pub use ferrowl_core::initials;
 
 /// Avatar color, stable per address.
 pub fn avatar_color(key: &str) -> Color {
@@ -698,14 +682,6 @@ pub fn md_settings(p: Palette, size: f32) -> iced::widget::markdown::Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn initials_work() {
-        assert_eq!(initials("Fabio Carli"), "FC");
-        assert_eq!(initials("giulia.ferri@studio.it"), "GF");
-        assert_eq!(initials("Amministrazione"), "A");
-        assert_eq!(initials(""), "?");
-    }
 
     #[test]
     fn trunc_works() {
