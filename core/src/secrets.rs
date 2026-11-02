@@ -10,6 +10,7 @@ use crate::config::Account;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+#[cfg(feature = "keychain")]
 const SERVICE: &str = "ferrowl";
 
 /// Storage behind the secrets: the system keychain, or memory in tests.
@@ -19,8 +20,12 @@ pub trait Store: Send + Sync {
     fn delete(&self, user: &str);
 }
 
+/// The platform keychain. Without the `keychain` feature (mobile builds,
+/// which keep secrets through the platform) every write fails, so secrets
+/// stay in the config file the app provides.
 pub struct SystemKeychain;
 
+#[cfg(feature = "keychain")]
 impl Store for SystemKeychain {
     fn get(&self, user: &str) -> Option<String> {
         keyring::Entry::new(SERVICE, user).ok()?.get_password().ok()
@@ -41,6 +46,17 @@ impl Store for SystemKeychain {
             let _ = e.delete_credential();
         }
     }
+}
+
+#[cfg(not(feature = "keychain"))]
+impl Store for SystemKeychain {
+    fn get(&self, _user: &str) -> Option<String> {
+        None
+    }
+    fn set(&self, _user: &str, _secret: &str) -> bool {
+        false
+    }
+    fn delete(&self, _user: &str) {}
 }
 
 /// Keychain entries of an account: (entry name, secret).
@@ -119,7 +135,7 @@ pub fn store(store: &dyn Store, accounts: &[Account]) -> Vec<Account> {
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use super::*;
 
     #[derive(Default)]

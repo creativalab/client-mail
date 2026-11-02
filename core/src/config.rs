@@ -78,7 +78,7 @@ impl Account {
         } else {
             &self.display_name
         };
-        crate::ui::initials(source)
+        crate::initials(source)
     }
 }
 
@@ -137,9 +137,7 @@ pub struct Config {
 }
 
 fn config_dir() -> Result<PathBuf> {
-    Ok(dirs::config_dir()
-        .context("configuration directory not found")?
-        .join("ferrowl"))
+    crate::paths::config_dir().context("configuration directory not found")
 }
 
 fn config_path() -> Result<PathBuf> {

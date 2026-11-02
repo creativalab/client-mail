@@ -1,6 +1,8 @@
 # Ferrowl per iOS e Android — piano
 
-Stato: proposta, 2 novembre 2026.
+Stato: proposta, 2 novembre 2026. **Fase 0 fatta** (2 novembre 2026): il
+motore è nella libreria `core/` (`ferrowl-core`) del workspace; restano nel
+desktop `theme.rs` e `preview.rs`, da staccare da iced quando servono al mobile.
 
 ## Obiettivo
 

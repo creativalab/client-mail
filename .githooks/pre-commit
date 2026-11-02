@@ -20,7 +20,7 @@ if ! cargo fmt --all --check >/dev/null; then
 fi
 
 echo "pre-commit: cargo clippy"
-if ! cargo clippy --all-targets --quiet -- -D warnings; then
+if ! cargo clippy --workspace --all-targets --quiet -- -D warnings; then
     echo "✗ Clippy found problems (see above). Fix them or run 'cargo clippy --fix'."
     exit 1
 fi

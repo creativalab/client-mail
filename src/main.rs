@@ -2,28 +2,18 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod app;
-mod backend;
-mod cache;
-mod config;
-mod crypto;
 #[cfg(target_os = "linux")]
 mod desktop_entry;
-mod html;
 mod html_view;
-mod i18n;
-mod local;
-mod mail;
-mod markdown;
-mod pop3;
 mod preview;
-mod providers;
 mod push;
-mod secrets;
 mod single_instance;
 mod theme;
 mod ui;
 
 use app::App;
+// The engine lives in `ferrowl-core`; these keep `crate::mail` & co. working.
+use ferrowl_core::{backend, cache, config, crypto, html, i18n, mail, markdown, providers};
 
 fn main() -> iced::Result {
     // A second launch only raises the window that is already open.
