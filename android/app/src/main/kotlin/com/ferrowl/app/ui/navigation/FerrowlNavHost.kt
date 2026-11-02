@@ -11,6 +11,7 @@ import com.ferrowl.app.ui.conversation.ConversationScreen
 import com.ferrowl.app.ui.mailbox.MailboxScreen
 import com.ferrowl.app.ui.message.MessageScreen
 import com.ferrowl.app.ui.message.ReplyKind
+import com.ferrowl.app.ui.settings.SettingsScreen
 import com.ferrowl.app.ui.setup.SetupScreen
 import com.ferrowl.app.ui.start.StartScreen
 import com.ferrowl.app.ui.start.StartViewModel
@@ -21,6 +22,7 @@ import kotlinx.serialization.Serializable
 @Serializable object Start
 @Serializable object Setup
 @Serializable object Mailbox
+@Serializable object Settings
 @Serializable data class Read(val folderId: String, val uid: Long)
 
 /** A conversation; `uids` are comma-separated, oldest first. */
@@ -48,8 +50,10 @@ fun FerrowlNavHost() {
                 onOpen = { folderId, uid -> nav.navigate(Read(folderId, uid.toLong())) },
                 onOpenConversation = { folderId, uids -> nav.navigate(Thread(folderId, uids.joinToString(","))) },
                 onCompose = { nav.navigate(Write()) },
+                onSettings = { nav.navigate(Settings) },
             )
         }
+        composable<Settings> { SettingsScreen(onBack = { nav.popBackStack() }) }
         composable<Thread> { entry ->
             val route = entry.toRoute<Thread>()
             ConversationScreen(

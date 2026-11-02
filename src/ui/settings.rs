@@ -785,6 +785,23 @@ fn appearance(app: &App, p: Palette) -> Element<'_, Message> {
     .padding(3)
     .style(chip_box(p.chip, p.text2, 9.0));
 
+    // Conversations or one row per message.
+    let mode = |on: bool, label: &'static str| {
+        let selected = app.config.ui.threaded == on;
+        button(
+            text(label)
+                .size(13)
+                .font(if selected { semibold() } else { INTER }),
+        )
+        .padding([6, 12])
+        .style(segment(p, selected))
+        .on_press(Message::SetThreaded(on))
+    };
+    let view_mode =
+        container(row![mode(true, t("view_threads")), mode(false, t("view_messages"))].spacing(4))
+            .padding(3)
+            .style(chip_box(p.chip, p.text2, 9.0));
+
     let preview = toggler(app.config.ui.show_preview)
         .on_toggle(Message::TogglePreview)
         .size(24)
@@ -817,6 +834,7 @@ fn appearance(app: &App, p: Palette) -> Element<'_, Message> {
         group(
             vec![
                 setting_row(t("density"), t("density_desc"), density.into(), p, false),
+                setting_row(t("list_view"), t("list_view_desc"), view_mode.into(), p, false),
                 setting_row(t("preview"), t("preview_desc"), preview.into(), p, true),
             ],
             p
