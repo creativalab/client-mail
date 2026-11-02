@@ -1,0 +1,39 @@
+# systemd unit for the Ferrowl push relay.
+# Install: copy the binary to /usr/local/bin/ferrowl-push, this file to
+# /etc/systemd/system/, the Firebase key to /etc/ferrowl-push/firebase.json
+# (owner ferrowl-push, mode 600), then:
+#   sudo useradd --system --home /var/lib/ferrowl-push --create-home ferrowl-push
+#   sudo systemctl enable --now ferrowl-push
+[Unit]
+Description=Ferrowl push relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ferrowl-push
+Environment=FERROWL_PUSH_DB=/var/lib/ferrowl-push/push.sqlite
+Environment=FERROWL_PUSH_BIND=127.0.0.1:8080
+Environment=GOOGLE_APPLICATION_CREDENTIALS=/etc/ferrowl-push/firebase.json
+ExecStart=/usr/local/bin/ferrowl-push
+Restart=always
+RestartSec=5
+
+# Hardening: the service only needs network access and its database.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/ferrowl-push
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target
