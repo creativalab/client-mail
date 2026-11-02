@@ -1,7 +1,7 @@
 name: Checks
 
-# Code quality gates: they run on every pull request and on pushes to master.
-# Mark them as required in Settings > Branches to block merging on failure.
+# Fast quality gates on every pull request and push to master. Clippy and
+# tests live in build.yml (they need a compile and are skipped for docs-only PRs).
 on:
   push:
     branches: [master]
@@ -21,21 +21,6 @@ jobs:
         with:
           components: rustfmt
       - run: cargo fmt --all --check
-
-  clippy:
-    name: Lints (clippy)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - name: System dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libfontconfig1-dev
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --all-targets --locked -- -D warnings
 
   deny:
     name: Dependency advisories (cargo-deny)
