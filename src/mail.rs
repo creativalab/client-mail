@@ -373,7 +373,7 @@ pub struct Outgoing {
 
 // ---------------------------------------------------------------- connection
 
-fn tls_config() -> Arc<rustls::ClientConfig> {
+pub(crate) fn tls_config() -> Arc<rustls::ClientConfig> {
     let roots = rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     let config =
         rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
@@ -577,49 +577,55 @@ fn fetch_range(
     let query = format!("(UID FLAGS BODY.PEEK[HEADER] BODY.PEEK[TEXT]<0.{PREVIEW_BYTES}>)");
     let fetches = session.fetch(range, query)?;
 
-    let parser = MessageParser::default();
     let mut headers: Vec<Header> = fetches
         .iter()
         .filter_map(|f| {
             let uid = f.uid?;
-            let head = f.header().unwrap_or_default();
-            // Headers + start of the body: enough for mail-parser to build the preview.
-            let mut raw = head.to_vec();
+            // Headers + start of the body: enough to build the preview.
+            let mut raw = f.header().unwrap_or_default().to_vec();
             raw.extend_from_slice(f.text().unwrap_or_default());
-            let msg = parser.parse(&raw[..]);
-            let msg = msg.as_ref();
-            let (from, _) = first_addr(msg.and_then(|m| m.from()));
-            let content_type = msg
-                .and_then(|m| m.content_type())
-                .map(|ct| format!("{}/{}", ct.ctype(), ct.subtype().unwrap_or_default()))
-                .unwrap_or_default()
-                .to_lowercase();
-            let has_attachment =
-                content_type == "multipart/mixed" || msg.map(|m| m.attachments().len() > 0).unwrap_or(false);
-            Some(Header {
+            Some(header_from_raw(
                 uid,
-                from,
-                subject: msg
-                    .and_then(|m| m.subject())
-                    .unwrap_or(t("no_subject"))
-                    .to_string(),
-                preview: msg
-                    .and_then(|m| m.body_text(0))
-                    .map(|t| one_line(&t, 140))
-                    .unwrap_or_default(),
-                timestamp: msg.and_then(|m| m.date()).map(|d| d.to_timestamp()).unwrap_or(0),
-                seen: f.flags().contains(&imap::types::Flag::Seen),
-                has_attachment,
-                text: msg
-                    .and_then(|m| m.body_text(0))
-                    .map(|t| t.into_owned())
-                    .unwrap_or_default(),
-            })
+                &raw,
+                f.flags().contains(&imap::types::Flag::Seen),
+            ))
         })
         .collect();
     headers.sort_by(|a, b| b.timestamp.cmp(&a.timestamp).then(b.uid.cmp(&a.uid)));
     page.headers = headers;
     Ok(page)
+}
+
+/// List entry (sender, subject, preview, attachments) from a raw message,
+/// or from its headers plus the start of the body.
+pub fn header_from_raw(uid: u32, raw: &[u8], seen: bool) -> Header {
+    let parsed = MessageParser::default().parse(raw);
+    let msg = parsed.as_ref();
+    let (from, _) = first_addr(msg.and_then(|m| m.from()));
+    let content_type = msg
+        .and_then(|m| m.content_type())
+        .map(|ct| format!("{}/{}", ct.ctype(), ct.subtype().unwrap_or_default()))
+        .unwrap_or_default()
+        .to_lowercase();
+    let has_attachment =
+        content_type == "multipart/mixed" || msg.map(|m| m.attachments().len() > 0).unwrap_or(false);
+    let text = msg
+        .and_then(|m| m.body_text(0))
+        .map(|t| t.into_owned())
+        .unwrap_or_default();
+    Header {
+        uid,
+        from,
+        subject: msg
+            .and_then(|m| m.subject())
+            .unwrap_or(t("no_subject"))
+            .to_string(),
+        preview: one_line(&text, 140),
+        timestamp: msg.and_then(|m| m.date()).map(|d| d.to_timestamp()).unwrap_or(0),
+        seen,
+        has_attachment,
+        text: text.chars().take(4000).collect(),
+    }
 }
 
 /// Downloads the full message (marks it as read on the server).

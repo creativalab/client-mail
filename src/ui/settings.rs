@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::app::{App, Conn, Field, Section};
-use crate::config::Density;
+use crate::config::{Density, Protocol};
 use crate::i18n::{self, LANGS, t, tf};
 use crate::providers::{Login, PROVIDERS, guide_url};
 use iced::widget::{Column, column, pick_list, row, scrollable, space, toggler};
@@ -339,6 +339,20 @@ fn security(app: &App, p: Palette) -> Element<'_, Message> {
 
 // ---------------------------------------------------------------- Accounts
 
+/// POP3: how long downloaded messages stay on the server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct KeepChoice(Option<u32>);
+
+impl std::fmt::Display for KeepChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            None => f.write_str(t("keep_forever")),
+            Some(0) => f.write_str(t("keep_none")),
+            Some(n) => f.write_str(&tf("keep_days", &[("n", &n.to_string())])),
+        }
+    }
+}
+
 /// Id of the e-mail field, focused when adding an account.
 pub const EMAIL_FIELD: &str = "account-email";
 
@@ -585,6 +599,32 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
             form = form.push(dir_row(row_items).spacing(8).align_y(Alignment::Center).wrap());
         }
     } else {
+        let pop3 = d.protocol == Protocol::Pop3;
+        let kind_chip = |label: &'static str, proto: Protocol| -> Element<'_, Message> {
+            let selected = d.protocol == proto;
+            button(text(label).size(13).font(medium()))
+                .padding([8, 14])
+                .style(move |theme, status| {
+                    if selected {
+                        accent_btn(p)(theme, status)
+                    } else {
+                        outline_btn(p, p.text)(theme, status)
+                    }
+                })
+                .on_press(Message::SetProtocol(proto))
+                .into()
+        };
+        form = form.push(
+            column![
+                text(t("account_type")).size(13).font(medium()).color(p.text2),
+                dir_row(vec![
+                    kind_chip("IMAP", Protocol::Imap),
+                    kind_chip("POP3", Protocol::Pop3)
+                ])
+                .spacing(8),
+            ]
+            .spacing(8),
+        );
         form = form
             .push(pair(
                 column![
@@ -598,7 +638,13 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
             ))
             .push(
                 dir_row(vec![
-                    field(t("imap_server"), &d.imap_host, Field::ImapHost, false, true),
+                    field(
+                        if pop3 { t("pop3_server") } else { t("imap_server") },
+                        &d.imap_host,
+                        Field::ImapHost,
+                        false,
+                        true,
+                    ),
                     port(t("port"), &d.imap_port, Field::ImapPort),
                 ])
                 .spacing(16),
@@ -610,7 +656,34 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
                 ])
                 .spacing(16),
             )
-            .push(text(t("server_hint")).size(12).color(p.muted));
+            .push(
+                text(if pop3 {
+                    t("server_hint_pop3")
+                } else {
+                    t("server_hint")
+                })
+                .size(12)
+                .color(p.muted),
+            );
+        if pop3 {
+            let choices: Vec<KeepChoice> = [None, Some(30), Some(7), Some(0)]
+                .into_iter()
+                .map(KeepChoice)
+                .collect();
+            form = form.push(
+                column![
+                    text(t("keep_on_server")).size(13).font(medium()).color(p.text2),
+                    pick_list(choices, Some(KeepChoice(d.pop3_keep_days)), |c: KeepChoice| {
+                        Message::SetKeepDays(c.0)
+                    })
+                    .text_size(14)
+                    .padding([10, 12])
+                    .width(280),
+                    text(t("pop3_local_note")).size(12).color(p.muted),
+                ]
+                .spacing(6),
+            );
+        }
     }
 
     form = form.push(

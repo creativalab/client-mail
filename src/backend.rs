@@ -5,6 +5,7 @@
 use crate::cache;
 use crate::config::Account;
 use crate::i18n::{generic_error, t};
+use crate::local;
 use crate::mail::{self, Folder, FolderKind, FullMessage, Header, ImapSession, Outgoing};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -79,6 +80,11 @@ impl Backend {
         self.inner.lock().unwrap_or_else(|p| p.into_inner())
     }
 
+    /// The connected account, if it reads mail with POP3.
+    fn pop3_account(&self) -> Option<Account> {
+        self.lock().account.clone().filter(Account::is_pop3)
+    }
+
     async fn blocking<T, F>(&self, f: F) -> Res<T>
     where
         T: Send + 'static,
@@ -126,6 +132,18 @@ impl Backend {
     /// Connects an account (replaces any previous session).
     pub async fn connect(&self, account: Account) -> Res<Vec<Folder>> {
         self.blocking(move |b| {
+            if account.is_pop3() {
+                // Checks the login; the mailbox itself is local.
+                crate::pop3::Pop3::connect(&account)
+                    .and_then(|p| p.quit())
+                    .map_err(text)?;
+                let mut g = b.lock();
+                if let Some(mut old) = g.session.take() {
+                    let _ = old.logout();
+                }
+                g.account = Some(account);
+                return Ok(local::folders());
+            }
             let mut session = mail::connect(&account).map_err(text)?;
             let folders = mail::list_folders(&mut session).map_err(text)?;
             let mut g = b.lock();
@@ -140,12 +158,19 @@ impl Backend {
     }
 
     /// Tests the credentials without touching the current session.
-    pub async fn test(account: Account) -> Res<usize> {
+    /// Returns the message to show.
+    pub async fn test(account: Account) -> Res<String> {
         tokio::task::spawn_blocking(move || {
+            if account.is_pop3() {
+                let mut p = crate::pop3::Pop3::connect(&account).map_err(text)?;
+                let n = p.uidl().map_err(text)?.len();
+                let _ = p.quit();
+                return Ok(crate::i18n::tf("test_ok_pop3", &[("n", &n.to_string())]));
+            }
             let mut s = mail::connect(&account).map_err(text)?;
             let n = mail::list_folders(&mut s).map_err(text)?.len();
             let _ = s.logout();
-            Ok(n)
+            Ok(crate::i18n::tf("test_ok", &[("n", &n.to_string())]))
         })
         .await
         .map_err(|e| format!("{}\n({e})", generic_error()))?
@@ -170,6 +195,11 @@ impl Backend {
     /// sequence number to continue indexing from (see `index_older`).
     pub async fn headers(&self, folder: String) -> Res<(Vec<Header>, u32)> {
         self.blocking(move |b| {
+            if let Some(account) = b.pop3_account() {
+                // Newest messages first; the rest continues in `index_older`.
+                let left = pop3_sync(&account, POP3_FIRST_BATCH).map_err(text)?;
+                return Ok((local_headers(&account, &folder), if left > 0 { 2 } else { 0 }));
+            }
             let page = b.with_session_sync(|s| mail::fetch_headers(s, &folder))?;
             b.cache(|c, key| {
                 if let Some(v) = page.uidvalidity {
@@ -192,6 +222,10 @@ impl Backend {
     /// (or the cache already holds as many messages as the server).
     pub async fn index_older(&self, folder: String, before: u32, count: u32) -> Res<Option<u32>> {
         self.blocking(move |b| {
+            if let Some(account) = b.pop3_account() {
+                let left = pop3_sync(&account, count as usize).map_err(text)?;
+                return Ok((left > 0).then_some(2));
+            }
             if before <= 1 {
                 return Ok(None);
             }
@@ -210,6 +244,9 @@ impl Backend {
 
     /// Cached list of a folder (instant, before the server answers).
     pub fn cached_headers(account: &Account, folder: &str) -> Vec<Header> {
+        if account.is_pop3() {
+            return local_headers(account, folder);
+        }
         cache::get()
             .and_then(|c| {
                 c.headers(&cache::account_key(account), folder, mail::PAGE_SIZE)
@@ -220,14 +257,29 @@ impl Backend {
 
     /// Full-text search in the cached messages of a folder.
     pub fn search(account: &Account, folder: &str, words: &[String]) -> Vec<Header> {
+        if account.is_pop3() {
+            return local::get()
+                .and_then(|s| s.search(&cache::account_key(account), folder, words, 500).ok())
+                .unwrap_or_default();
+        }
         cache::get()
             .and_then(|c| c.search(&cache::account_key(account), folder, words, 500).ok())
             .unwrap_or_default()
     }
 
     pub async fn unseen(&self, folders: Vec<String>) -> Res<HashMap<String, u32>> {
-        self.blocking(move |b| b.with_session_sync(|s| Ok(mail::unseen_counts(s, &folders))))
-            .await
+        self.blocking(move |b| {
+            if let Some(account) = b.pop3_account() {
+                let key = cache::account_key(&account);
+                let store = local::get().ok_or_else(generic_error)?;
+                return Ok(folders
+                    .into_iter()
+                    .filter_map(|f| Some((f.clone(), store.unseen(&key, &f).ok()?)))
+                    .collect());
+            }
+            b.with_session_sync(|s| Ok(mail::unseen_counts(s, &folders)))
+        })
+        .await
     }
 
     pub async fn message(&self, folder: String, uid: u32) -> Res<FullMessage> {
@@ -240,6 +292,14 @@ impl Backend {
                 own,
                 contact: &crate::crypto::contact_key,
             };
+            if let Some(account) = b.pop3_account() {
+                let raw = local_op(&account, |s, key| s.raw(key, uid))?
+                    .ok_or_else(|| t("err_not_found").to_string())?;
+                let msg = mail::parse_full(uid, &raw, &keys).map_err(text)?;
+                // Opening reads it, as an IMAP fetch of the body does.
+                local_op(&account, |s, key| s.set_seen(key, uid, true))?;
+                return Ok(msg);
+            }
             let msg = b.with_session_sync(|s| mail::fetch_message(s, &folder, uid, &keys))?;
             b.cache(|c, key| c.store_body(key, &folder, uid, &msg.body));
             Ok(msg)
@@ -249,6 +309,9 @@ impl Backend {
 
     pub async fn set_seen(&self, folder: String, uid: u32, seen: bool) -> Res<()> {
         self.blocking(move |b| {
+            if let Some(account) = b.pop3_account() {
+                return local_op(&account, |s, key| s.set_seen(key, uid, seen));
+            }
             b.with_session_sync(|s| mail::set_seen(s, &folder, uid, seen))?;
             b.cache(|c, key| c.set_seen(key, &folder, uid, seen));
             Ok(())
@@ -258,6 +321,9 @@ impl Backend {
 
     pub async fn move_to(&self, folder: String, uid: u32, target: String) -> Res<()> {
         self.blocking(move |b| {
+            if let Some(account) = b.pop3_account() {
+                return local_op(&account, |s, key| s.move_to(key, uid, &target));
+            }
             b.with_session_sync(|s| mail::move_message(s, &folder, uid, &target))?;
             b.cache(|c, key| c.remove(key, &folder, uid));
             Ok(())
@@ -269,6 +335,10 @@ impl Backend {
     /// Returns the name of the folder used.
     pub async fn archive(&self, folder: String, uid: u32, folders: Vec<Folder>) -> Res<String> {
         self.blocking(move |b| {
+            if let Some(account) = b.pop3_account() {
+                return local_op(&account, |s, key| s.move_to(key, uid, local::ARCHIVE))
+                    .map(|_| local::ARCHIVE.to_string());
+            }
             b.with_session_sync(|s| {
                 let target = match folders.iter().find(|f| f.kind == FolderKind::Archive) {
                     Some(f) => f.name.clone(),
@@ -284,6 +354,9 @@ impl Backend {
 
     pub async fn delete_forever(&self, folder: String, uid: u32) -> Res<()> {
         self.blocking(move |b| {
+            if let Some(account) = b.pop3_account() {
+                return local_op(&account, |s, key| s.delete(key, uid));
+            }
             b.with_session_sync(|s| mail::delete_permanently(s, &folder, uid))?;
             b.cache(|c, key| c.remove(key, &folder, uid));
             Ok(())
@@ -300,6 +373,10 @@ impl Backend {
                 .clone()
                 .ok_or_else(|| t("err_no_account").to_string())?;
             let raw = mail::send(&account, &mail).map_err(text)?;
+            if account.is_pop3() {
+                // Sent copy in the local mailbox.
+                return Ok(local_op(&account, |s, key| s.insert(key, local::SENT, &raw, true)).err());
+            }
             let Some(folder) = sent_folder else {
                 return Ok(None);
             };
@@ -310,6 +387,69 @@ impl Backend {
         })
         .await
     }
+}
+
+// ---------------------------------------------------------------- POP3
+
+/// Runs an operation on the local mailbox of a POP3 account.
+fn local_op<T>(account: &Account, f: impl FnOnce(&local::Store, &str) -> anyhow::Result<T>) -> Res<T> {
+    let store = local::get().ok_or_else(generic_error)?;
+    f(store, &cache::account_key(account)).map_err(text)
+}
+
+fn local_headers(account: &Account, folder: &str) -> Vec<Header> {
+    local_op(account, |s, key| s.headers(key, folder, 2000)).unwrap_or_default()
+}
+
+/// New POP3 messages downloaded before the list is shown.
+const POP3_FIRST_BATCH: usize = 40;
+
+/// Downloads up to `max` new messages (newest first) into the local inbox
+/// and deletes from the server those kept longer than the account allows.
+/// Returns how many new messages are still to download.
+fn pop3_sync(account: &Account, max: usize) -> anyhow::Result<usize> {
+    // POP3 servers lock the mailbox: one session at a time.
+    static RUNNING: Mutex<()> = Mutex::new(());
+    let _one = RUNNING.lock().unwrap_or_else(|p| p.into_inner());
+
+    let store = local::get().ok_or_else(|| anyhow::anyhow!(generic_error()))?;
+    let key = cache::account_key(account);
+    let mut pop = crate::pop3::Pop3::connect(account)?;
+    let listing = pop.uidl()?;
+    let mut known = store.downloaded(&key)?;
+
+    // Higher numbers are newer messages.
+    let pending: Vec<&crate::pop3::Listing> = listing
+        .iter()
+        .rev()
+        .filter(|l| !known.contains_key(&l.uidl))
+        .collect();
+    for item in pending.iter().take(max) {
+        let raw = pop.retr(item.number)?;
+        store.add_downloaded(&key, &item.uidl, &raw)?;
+        known.insert(item.uidl.clone(), local::now());
+    }
+    let left = pending.len().saturating_sub(max);
+
+    if let Some(days) = account.pop3_keep_days {
+        let limit = i64::from(days) * 86_400;
+        let now = local::now();
+        for item in &listing {
+            if known.get(&item.uidl).is_some_and(|at| now - at >= limit) {
+                pop.dele(item.number)?;
+            }
+        }
+    }
+    pop.quit()?;
+
+    // Forget what is no longer on the server (deleted here or elsewhere).
+    let on_server: std::collections::HashSet<&str> = listing.iter().map(|l| l.uidl.as_str()).collect();
+    let gone: Vec<String> = known
+        .into_keys()
+        .filter(|u| !on_server.contains(u.as_str()))
+        .collect();
+    store.forget_downloaded(&key, &gone)?;
+    Ok(left)
 }
 
 #[cfg(test)]
