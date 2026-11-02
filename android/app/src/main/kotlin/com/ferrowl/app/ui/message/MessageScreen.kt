@@ -1,7 +1,7 @@
 package com.ferrowl.app.ui.message
 
 import android.content.Intent
-import android.net.Uri
+import androidx.core.net.toUri
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -176,7 +176,7 @@ private fun HtmlView(html: String) {
                     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                         val url = request.url
                         if (url.scheme in setOf("http", "https", "mailto")) {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url.toString())))
+                            context.startActivity(Intent(Intent.ACTION_VIEW, url.toString().toUri()))
                         }
                         return true
                     }

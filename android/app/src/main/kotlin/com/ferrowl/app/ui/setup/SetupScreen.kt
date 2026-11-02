@@ -69,14 +69,14 @@ fun SetupScreen(onDone: () -> Unit, vm: SetupViewModel = hiltViewModel()) {
             )
         }
 
-        Field(stringResource(R.string.display_name), s.name, vm::setName)
-        Field(stringResource(R.string.email), s.email, vm::setEmail, KeyboardType.Email)
+        Field(stringResource(R.string.display_name), s.name, vm::setName, Modifier.fillMaxWidth())
+        Field(stringResource(R.string.email), s.email, vm::setEmail, modifier = Modifier.fillMaxWidth(), keyboard = KeyboardType.Email)
 
         val p = s.chosen
         if (p?.login == Login.MICROSOFT_SIGN_IN) {
             Text(stringResource(R.string.ms_signin_hint), color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
-            Field(stringResource(R.string.password), s.password, vm::setPassword, KeyboardType.Password, secret = true)
+            Field(stringResource(R.string.password), s.password, vm::setPassword, modifier = Modifier.fillMaxWidth(), keyboard = KeyboardType.Password, secret = true)
             if (p?.login == Login.APP_PASSWORD) {
                 Text(
                     fill(stringResource(R.string.app_password_hint), "provider" to p.name),
@@ -111,20 +111,20 @@ private fun ManualServers(s: SetupState, vm: SetupViewModel) {
         FilterChip(selected = !s.pop3, onClick = { vm.setPop3(false) }, label = { Text("IMAP") })
         FilterChip(selected = s.pop3, onClick = { vm.setPop3(true) }, label = { Text("POP3") })
     }
-    Field(stringResource(R.string.username), s.username, vm::setUsername)
+    Field(stringResource(R.string.username), s.username, vm::setUsername, Modifier.fillMaxWidth())
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
         Field(
             stringResource(if (s.pop3) R.string.pop3_server else R.string.imap_server),
             s.incomingHost,
             vm::setIncomingHost,
-            KeyboardType.Uri,
             modifier = Modifier.weight(1f),
+            keyboard = KeyboardType.Uri,
         )
-        Field(stringResource(R.string.port), s.incomingPort, vm::setIncomingPort, KeyboardType.Number, modifier = Modifier.width(96.dp))
+        Field(stringResource(R.string.port), s.incomingPort, vm::setIncomingPort, modifier = Modifier.width(96.dp), keyboard = KeyboardType.Number)
     }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Field(stringResource(R.string.smtp_server), s.smtpHost, vm::setSmtpHost, KeyboardType.Uri, modifier = Modifier.weight(1f))
-        Field(stringResource(R.string.port), s.smtpPort, vm::setSmtpPort, KeyboardType.Number, modifier = Modifier.width(96.dp))
+        Field(stringResource(R.string.smtp_server), s.smtpHost, vm::setSmtpHost, modifier = Modifier.weight(1f), keyboard = KeyboardType.Uri)
+        Field(stringResource(R.string.port), s.smtpPort, vm::setSmtpPort, modifier = Modifier.width(96.dp), keyboard = KeyboardType.Number)
     }
     Text(
         stringResource(if (s.pop3) R.string.server_hint_pop3 else R.string.server_hint),
@@ -138,9 +138,9 @@ private fun Field(
     label: String,
     value: String,
     onChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
     keyboard: KeyboardType = KeyboardType.Text,
     secret: Boolean = false,
-    modifier: Modifier = Modifier.fillMaxWidth(),
 ) {
     OutlinedTextField(
         value = value,

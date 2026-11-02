@@ -14,7 +14,7 @@ android {
     defaultConfig {
         applicationId = "com.ferrowl.app"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
         // The ABIs the Rust engine is built for (see ffi/build-android.sh).
@@ -31,6 +31,14 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    lint {
+        // CI treats every warning as an error, so the code stays clean.
+        warningsAsErrors = true
+        abortOnError = true
+        // Version freshness is handled by dependency updates, not by Lint.
+        disable += setOf("AndroidGradlePluginVersion", "GradleDependency", "NewerVersionAvailable")
     }
 }
 
