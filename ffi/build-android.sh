@@ -33,10 +33,15 @@ cargo ndk --platform 26 \
   -o "$OUT/jniLibs" \
   build -p ferrowl-ffi --locked "${flag[@]}"
 
-# Bindings come from the library's metadata (any ABI will do);
+# Kotlin is generated from the host build of the same crate: release
+# Android libraries are stripped (strip = true), which removes the UniFFI
+# metadata. The interface is identical on every platform.
 # ffi/uniffi.toml (package com.ferrowl.core) is read automatically.
+cargo build -q -p ferrowl-ffi --locked
+host_lib=target/debug/libferrowl_ffi.so
+[ "$(uname)" = Darwin ] && host_lib=target/debug/libferrowl_ffi.dylib
 cargo run -q -p ferrowl-ffi --features bindgen --bin uniffi-bindgen -- \
-  generate --library "$OUT/jniLibs/arm64-v8a/libferrowl_ffi.so" \
+  generate --library "$host_lib" \
   --language kotlin --no-format \
   --out-dir "$OUT/kotlin"
 echo "Android engine ready in $OUT"
