@@ -182,3 +182,11 @@ rich_text = "منسق"
 view_html = "منسق"
 view_text = "نص فقط"
 view_toggle_tip = "لا يتم تحميل الصور والمحتوى البعيد أبدًا"
+
+# Multiple accounts
+add_account = "إضافة حساب"
+new_account = "حساب جديد"
+remove_account = "إزالة الحساب"
+confirm_remove_account = "هل تريد إزالة هذا الحساب من Ferrowl؟ لن يتأثر البريد على الخادم."
+use_account = "استخدام"
+account_inactive = "غير مستخدم"

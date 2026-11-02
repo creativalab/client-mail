@@ -182,3 +182,11 @@ rich_text = "Formatted"
 view_html = "Formatted"
 view_text = "Plain text"
 view_toggle_tip = "Images and remote content are never loaded"
+
+# Multiple accounts
+add_account = "Add account"
+new_account = "New account"
+remove_account = "Remove account"
+confirm_remove_account = "Remove this account from Ferrowl? Mail on the server is not touched."
+use_account = "Use"
+account_inactive = "Not in use"

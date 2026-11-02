@@ -182,3 +182,11 @@ rich_text = "Mis en forme"
 view_html = "Mis en forme"
 view_text = "Texte brut"
 view_toggle_tip = "Les images et contenus distants ne sont jamais chargés"
+
+# Multiple accounts
+add_account = "Ajouter un compte"
+new_account = "Nouveau compte"
+remove_account = "Supprimer le compte"
+confirm_remove_account = "Supprimer ce compte de Ferrowl ? Les messages sur le serveur ne sont pas touchés."
+use_account = "Utiliser"
+account_inactive = "Inactif"

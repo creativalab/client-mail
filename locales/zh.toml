@@ -182,3 +182,11 @@ rich_text = "格式文本"
 view_html = "格式视图"
 view_text = "纯文本"
 view_toggle_tip = "从不加载图片和远程内容"
+
+# Multiple accounts
+add_account = "添加账户"
+new_account = "新账户"
+remove_account = "移除账户"
+confirm_remove_account = "要从 Ferrowl 中移除此账户吗？服务器上的邮件不会受影响。"
+use_account = "使用"
+account_inactive = "未使用"

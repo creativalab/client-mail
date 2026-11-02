@@ -9,7 +9,7 @@ use iced::{Alignment, Length::Fill, Padding};
 
 pub fn view(app: &App, section: Section) -> Element<'_, Message> {
     let p = app.palette();
-    let first_run = app.config.account.is_none();
+    let first_run = app.config.account().is_none();
 
     let back: Element<'_, Message> = if first_run {
         row![logo(&p, 32.0), text("Ferrowl").size(18).font(INTER_BOLD).color(p.text)]
@@ -184,7 +184,7 @@ fn general(app: &App, p: Palette) -> Element<'_, Message> {
 // ---------------------------------------------------------------- Accounts
 
 fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
-    let first_run = app.config.account.is_none();
+    let first_run = app.config.account().is_none();
     let heading = if first_run {
         title(t("setup_title"), t("setup_desc"), p)
     } else {
@@ -193,39 +193,75 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
 
     let mut col = column![heading].spacing(28);
 
-    if let Some(acc) = &app.config.account {
-        let (badge_bg, badge_fg, badge) = if app.conn == Conn::Online {
+    // One card per account: click to edit it below. The one in use has a badge.
+    let mut list = Column::new().spacing(10);
+    for (i, acc) in app.config.accounts.iter().enumerate() {
+        let selected = app.editing == Some(i);
+        let in_use = i == app.config.active;
+        let (badge_bg, badge_fg, badge) = if in_use && app.conn == Conn::Online {
             (p.sec_bg, p.sec_text, t("account_connected"))
-        } else {
+        } else if in_use {
             (p.chip, p.text2, t("account_offline"))
+        } else {
+            (p.chip, p.muted, t("account_inactive"))
         };
         let name = if acc.display_name.is_empty() { acc.email.as_str() } else { acc.display_name.as_str() };
-        col = col.push(
-            container(
-                dir_row(vec![
-                    avatar(acc.initials(), p.ink, p.on_ink, 40.0),
-                    column![
-                        text(name).size(15).font(semibold()).color(p.text),
-                        text(format!("{} · IMAP / SMTP", acc.email)).size(13).color(p.muted)
-                    ]
-                    .spacing(2)
-                    .width(Fill)
+        let mut cells: Vec<Element<'_, Message>> = vec![
+            avatar(acc.initials(), if in_use { p.ink } else { p.field }, p.on_ink, 40.0),
+            column![
+                text(name).size(15).font(semibold()).color(p.text),
+                text(format!("{} · {}", acc.email, acc.imap_host)).size(13).color(p.muted)
+            ]
+            .spacing(2)
+            .width(Fill)
+            .into(),
+        ];
+        if !in_use {
+            cells.push(
+                button(text(t("use_account")).size(13).font(medium()))
+                    .padding([6, 12])
+                    .style(outline_btn(p, p.text2))
+                    .on_press(Message::SwitchAccount(i))
                     .into(),
-                    container(text(badge).size(12).font(semibold()))
-                        .padding([4, 10])
-                        .style(chip_box(badge_bg, badge_fg, 999.0))
-                        .into(),
-                ])
-                .spacing(14)
-                .align_y(Alignment::Center),
-            )
-            .padding([14, 16])
-            .style(move |_| container::Style {
-                background: Some(Background::Color(p.soft)),
-                border: Border { color: p.accent, width: 2.0, radius: radius(14.0) },
-                ..Default::default()
-            }),
+            );
+        }
+        cells.push(
+            container(text(badge).size(12).font(semibold()))
+                .padding([4, 10])
+                .style(chip_box(badge_bg, badge_fg, 999.0))
+                .into(),
         );
+        list = list.push(
+            button(dir_row(cells).spacing(14).align_y(Alignment::Center))
+                .width(Fill)
+                .padding([14, 16])
+                .style(move |_, st| button::Style {
+                    background: Some(Background::Color(if selected {
+                        p.soft
+                    } else if matches!(st, button::Status::Hovered) {
+                        p.chip
+                    } else {
+                        p.bg
+                    })),
+                    text_color: p.text,
+                    border: Border {
+                        color: if selected { p.accent } else { p.line },
+                        width: if selected { 2.0 } else { 1.0 },
+                        radius: radius(14.0),
+                    },
+                    ..Default::default()
+                })
+                .on_press(Message::EditAccount(i)),
+        );
+    }
+    if !first_run {
+        list = list.push(
+            button(text(format!("+  {}", t("add_account"))).size(14).font(medium()))
+                .padding([10, 16])
+                .style(outline_btn(p, p.accent_text))
+                .on_press(Message::NewAccount),
+        );
+        col = col.push(list);
     }
 
     let d = &app.draft;
@@ -280,7 +316,10 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
 
     let details = container(
         column![
-            text(t("account_details")).size(16).font(INTER_BOLD).color(p.text),
+            text(if app.editing.is_some() { t("account_details") } else { t("new_account") })
+                .size(16)
+                .font(INTER_BOLD)
+                .color(p.text),
             pair(
                 field(t("display_name"), &d.display_name, Field::DisplayName, false, false),
                 field(t("email"), &d.email, Field::Email, false, false)
@@ -327,7 +366,46 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
     .width(Fill)
     .style(card(p, p.line, 14.0));
 
-    col.push(details).into()
+    col = col.push(details);
+
+    // Remove (with confirmation) for an existing account.
+    if app.editing.is_some() {
+        let remove: Element<'_, Message> = if app.confirm_remove {
+            dir_row(vec![
+                text(t("confirm_remove_account")).size(13).color(p.danger).width(Fill).into(),
+                button(text(t("cancel")).size(13))
+                    .padding([8, 14])
+                    .style(outline_btn(p, p.text))
+                    .on_press(Message::EditAccount(app.editing.unwrap_or(0)))
+                    .into(),
+                button(text(t("remove_account")).size(13).font(semibold()))
+                    .padding([8, 14])
+                    .style(move |_, _| button::Style {
+                        background: Some(Background::Color(p.danger)),
+                        text_color: if p.dark { p.bg } else { Color::WHITE },
+                        border: Border { radius: radius(8.0), ..Default::default() },
+                        ..Default::default()
+                    })
+                    .on_press(Message::RemoveAccount(true))
+                    .into(),
+            ])
+            .spacing(10)
+            .align_y(Alignment::Center)
+            .into()
+        } else {
+            dir_row(vec![
+                space::horizontal().into(),
+                button(text(t("remove_account")).size(13).color(p.danger))
+                    .padding([8, 14])
+                    .style(ghost(p, p.danger))
+                    .on_press(Message::RemoveAccount(false))
+                    .into(),
+            ])
+            .into()
+        };
+        col = col.push(remove);
+    }
+    col.into()
 }
 
 // ---------------------------------------------------------------- Appearance

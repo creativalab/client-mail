@@ -182,3 +182,11 @@ rich_text = "Formattato"
 view_html = "Formattato"
 view_text = "Solo testo"
 view_toggle_tip = "Immagini e contenuti remoti non vengono mai caricati"
+
+# Multiple accounts
+add_account = "Aggiungi account"
+new_account = "Nuovo account"
+remove_account = "Rimuovi account"
+confirm_remove_account = "Rimuovere questo account da Ferrowl? La posta sul server non viene toccata."
+use_account = "Usa"
+account_inactive = "Non in uso"

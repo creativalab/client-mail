@@ -182,3 +182,11 @@ rich_text = "書式あり"
 view_html = "書式表示"
 view_text = "テキストのみ"
 view_toggle_tip = "画像やリモートコンテンツは読み込まれません"
+
+# Multiple accounts
+add_account = "アカウントを追加"
+new_account = "新しいアカウント"
+remove_account = "アカウントを削除"
+confirm_remove_account = "このアカウントを Ferrowl から削除しますか？サーバー上のメールはそのままです。"
+use_account = "使用"
+account_inactive = "未使用"

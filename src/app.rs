@@ -187,6 +187,10 @@ pub struct AccountDraft {
 }
 
 impl AccountDraft {
+    pub fn blank() -> Self {
+        Self { imap_port: "993".into(), smtp_port: "465".into(), ..Default::default() }
+    }
+
     fn from(a: &Account) -> Self {
         Self {
             display_name: a.display_name.clone(),
@@ -264,6 +268,11 @@ pub struct App {
     pub appearance_open: bool,
     pub compose: Option<Compose>,
     pub draft: AccountDraft,
+    /// Account being edited in settings (`None` = new account).
+    pub editing: Option<usize>,
+    pub confirm_remove: bool,
+    /// Bumped on account switch, to drop results of the previous account.
+    pub generation: u64,
     pub testing: bool,
     pub test_result: Option<Res<String>>,
     pub last_sync: Option<chrono::DateTime<chrono::Local>>,
@@ -276,6 +285,8 @@ pub struct App {
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    /// Result of a backend operation started for account generation `.0`.
+    Scoped(u64, Box<Message>),
     // connection and data
     Connected(Res<Vec<Folder>>),
     Unseen(Res<HashMap<String, u32>>),
@@ -318,6 +329,12 @@ pub enum Message {
     TestConnection,
     Tested(Res<usize>),
     SaveAccount,
+    SwitchAccount(usize),
+    EditAccount(usize),
+    NewAccount,
+    /// From the sidebar: open settings on an empty account form.
+    AddAccount,
+    RemoveAccount(bool),
     // compose
     ComposeNew,
     ComposeField(ComposeField, String),
@@ -355,17 +372,10 @@ impl App {
             config.ui.theme = theme;
         }
         i18n::set(Some(&config.ui.language));
-        let draft = config
-            .account
-            .as_ref()
-            .map(AccountDraft::from)
-            .unwrap_or_else(|| AccountDraft {
-                imap_port: "993".into(),
-                smtp_port: "465".into(),
-                ..Default::default()
-            });
+        let draft = config.account().map(AccountDraft::from).unwrap_or_else(AccountDraft::blank);
+        let editing = config.account().map(|_| config.active);
         let mut app = App {
-            screen: if config.account.is_some() {
+            screen: if config.account().is_some() {
                 Screen::Mail
             } else {
                 Screen::Settings(Section::Accounts)
@@ -390,6 +400,9 @@ impl App {
             appearance_open: false,
             compose: None,
             draft,
+            editing,
+            confirm_remove: false,
+            generation: 0,
             testing: false,
             test_result: None,
             last_sync: None,
@@ -454,13 +467,48 @@ impl App {
 
     // ------------------------------------------------------------ helper
 
+    /// Runs a backend operation; its result is dropped if the account
+    /// changes in the meantime.
+    fn perform<T: Send + 'static>(
+        &self,
+        fut: impl std::future::Future<Output = T> + Send + 'static,
+        f: impl Fn(T) -> Message + Send + 'static,
+    ) -> Task<Message> {
+        let generation = self.generation;
+        Task::perform(fut, move |r| Message::Scoped(generation, Box::new(f(r))))
+    }
+
+    fn reset_mailbox(&mut self) {
+        self.folders.clear();
+        self.headers.clear();
+        self.current_folder = None;
+        self.selected = None;
+        self.message = None;
+        self.body_md.clear();
+        self.unseen.clear();
+        self.confirm_delete = false;
+        self.last_sync = None;
+    }
+
+    /// Shows account `i` in the main window, with a fresh IMAP session.
+    /// Results still in flight for the previous account go to the old backend
+    /// and are ignored (see `stale`).
+    fn switch_account(&mut self, i: usize) -> Task<Message> {
+        self.config.active = i;
+        self.generation += 1;
+        self.backend = Backend::default();
+        self.reset_mailbox();
+        self.screen = Screen::Mail;
+        self.connect()
+    }
+
     fn connect(&mut self) -> Task<Message> {
-        let Some(acc) = self.config.account.clone() else {
+        let Some(acc) = self.config.account().cloned() else {
             return Task::none();
         };
         self.conn = Conn::Connecting;
         let b = self.backend.clone();
-        Task::perform(async move { b.connect(acc).await }, Message::Connected)
+        self.perform(async move { b.connect(acc).await }, Message::Connected)
     }
 
     fn load_folder(&mut self, folder: String, silent: bool) -> Task<Message> {
@@ -469,7 +517,7 @@ impl App {
         }
         let b = self.backend.clone();
         let f = folder.clone();
-        Task::perform(async move { b.headers(f).await }, move |result| {
+        self.perform(async move { b.headers(f).await }, move |result| {
             Message::HeadersLoaded { folder: folder.clone(), silent, result }
         })
     }
@@ -487,7 +535,7 @@ impl App {
             }
         }
         let b = self.backend.clone();
-        Task::perform(async move { b.unseen(names).await }, Message::Unseen)
+        self.perform(async move { b.unseen(names).await }, Message::Unseen)
     }
 
     pub fn folder_by_kind(&self, kind: FolderKind) -> Option<&Folder> {
@@ -566,7 +614,7 @@ impl App {
         self.loading_message = true;
         self.confirm_delete = false;
         let b = self.backend.clone();
-        Task::perform(async move { b.message(folder, uid).await }, Message::Loaded)
+        self.perform(async move { b.message(folder, uid).await }, Message::Loaded)
     }
 
     /// After removing a message from the list, opens the next one.
@@ -662,6 +710,13 @@ impl App {
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
+            Message::Scoped(generation, inner) => {
+                if generation == self.generation {
+                    self.update(*inner)
+                } else {
+                    Task::none()
+                }
+            }
             Message::Connected(Ok(folders)) => {
                 self.conn = Conn::Online;
                 self.folders = folders;
@@ -786,7 +841,7 @@ impl App {
                     return Task::none();
                 }
                 if let Some(rest) = url.strip_prefix("mailto:") {
-                    if self.compose.is_none() && self.config.account.is_some() {
+                    if self.compose.is_none() && self.config.account().is_some() {
                         let mut c = Compose::new(ComposeMode::New);
                         c.rich = self.config.ui.rich_compose;
                         let (to, query) = rest.split_once('?').unwrap_or((rest, ""));
@@ -834,7 +889,7 @@ impl App {
                 let uid = msg.uid;
                 let b = self.backend.clone();
                 let folders = self.folders.clone();
-                Task::perform(async move { b.archive(folder, uid, folders).await }, move |result| {
+                self.perform(async move { b.archive(folder, uid, folders).await }, move |result| {
                     Message::Archived { uid, result }
                 })
             }
@@ -843,10 +898,10 @@ impl App {
                     if self.folder_by_kind(FolderKind::Archive).is_none() {
                         // Folder just created: reload the folder list in the background.
                         let b = self.backend.clone();
-                        let acc = self.config.account.clone();
+                        let acc = self.config.account().cloned();
                         let _ = target;
                         let reload = match acc {
-                            Some(a) => Task::perform(async move { b.connect(a).await }, Message::Connected),
+                            Some(a) => self.perform(async move { b.connect(a).await }, Message::Connected),
                             None => Task::none(),
                         };
                         let next = self.remove_and_advance(uid);
@@ -868,7 +923,7 @@ impl App {
                     // Outside Trash: move to Trash (recoverable).
                     Some(trash) if trash != folder => {
                         let b = self.backend.clone();
-                        Task::perform(async move { b.move_to(folder, uid, trash).await }, move |result| {
+                        self.perform(async move { b.move_to(folder, uid, trash).await }, move |result| {
                             Message::Done { uid, note: "moved_to_trash", result }
                         })
                     }
@@ -889,7 +944,7 @@ impl App {
                 };
                 let uid = msg.uid;
                 let b = self.backend.clone();
-                Task::perform(async move { b.delete_forever(folder, uid).await }, move |result| {
+                self.perform(async move { b.delete_forever(folder, uid).await }, move |result| {
                     Message::Done { uid, note: "deleted_forever", result }
                 })
             }
@@ -913,7 +968,7 @@ impl App {
                     *n = if seen { n.saturating_sub(1) } else { *n + 1 };
                 }
                 let b = self.backend.clone();
-                Task::perform(async move { b.set_seen(folder, uid, seen).await }, Message::SeenChanged)
+                self.perform(async move { b.set_seen(folder, uid, seen).await }, Message::SeenChanged)
             }
             Message::SeenChanged(Ok(())) => Task::none(),
             Message::SeenChanged(Err(e)) => self.toast(e, true),
@@ -957,17 +1012,19 @@ impl App {
             }
             Message::OpenSettings(section) => {
                 self.appearance_open = false;
-                if let Some(a) = &self.config.account {
-                    if self.screen == Screen::Mail {
-                        self.draft = AccountDraft::from(a);
-                    }
+                if let Some(a) = self.config.account()
+                    && self.screen == Screen::Mail
+                {
+                    self.draft = AccountDraft::from(a);
+                    self.editing = Some(self.config.active);
                 }
+                self.confirm_remove = false;
                 self.test_result = None;
                 self.screen = Screen::Settings(section);
                 Task::none()
             }
             Message::CloseSettings => {
-                if self.config.account.is_some() {
+                if self.config.account().is_some() {
                     self.screen = Screen::Mail;
                 }
                 Task::none()
@@ -1010,23 +1067,101 @@ impl App {
                 let Some(acc) = self.draft.to_account() else {
                     return Task::none();
                 };
-                let changed = self.config.account.as_ref() != Some(&acc);
-                self.config.account = Some(acc);
+                let index = match self.editing {
+                    Some(i) if i < self.config.accounts.len() => {
+                        if self.config.accounts[i] == acc && i == self.config.active {
+                            // Unchanged active account: just go back to the mail.
+                            self.screen = Screen::Mail;
+                            if self.conn == Conn::Online {
+                                return Task::none();
+                            }
+                        }
+                        self.config.accounts[i] = acc;
+                        i
+                    }
+                    _ => {
+                        self.config.accounts.push(acc);
+                        self.config.accounts.len() - 1
+                    }
+                };
+                self.editing = Some(index);
                 let save = self.save_config();
-                self.screen = Screen::Mail;
-                if !changed && self.conn == Conn::Online {
-                    return save;
+                Task::batch([save, self.switch_account(index)])
+            }
+            Message::SwitchAccount(i) => {
+                if i >= self.config.accounts.len() || (i == self.config.active && self.conn != Conn::Offline) {
+                    return Task::none();
                 }
-                self.folders.clear();
-                self.headers.clear();
-                self.current_folder = None;
-                self.selected = None;
-                self.message = None;
-                self.unseen.clear();
-                Task::batch([save, self.connect()])
+                let save = {
+                    self.config.active = i;
+                    self.save_config()
+                };
+                Task::batch([save, self.switch_account(i)])
+            }
+            Message::EditAccount(i) => {
+                if let Some(a) = self.config.accounts.get(i) {
+                    self.draft = AccountDraft::from(a);
+                    self.editing = Some(i);
+                    self.test_result = None;
+                    self.confirm_remove = false;
+                }
+                Task::none()
+            }
+            Message::AddAccount => {
+                self.appearance_open = false;
+                self.screen = Screen::Settings(Section::Accounts);
+                self.update(Message::NewAccount)
+            }
+            Message::NewAccount => {
+                self.draft = AccountDraft::blank();
+                self.editing = None;
+                self.test_result = None;
+                self.confirm_remove = false;
+                Task::none()
+            }
+            Message::RemoveAccount(confirmed) => {
+                let Some(i) = self.editing else {
+                    return Task::none();
+                };
+                if !confirmed {
+                    self.confirm_remove = true;
+                    return Task::none();
+                }
+                self.confirm_remove = false;
+                if i >= self.config.accounts.len() {
+                    return Task::none();
+                }
+                self.config.accounts.remove(i);
+                let was_active = i == self.config.active;
+                if self.config.active > i || self.config.active >= self.config.accounts.len() {
+                    self.config.active = self.config.active.saturating_sub(1);
+                }
+                let save = self.save_config();
+                match self.config.account().cloned() {
+                    Some(a) => {
+                        self.draft = AccountDraft::from(&a);
+                        self.editing = Some(self.config.active);
+                        if was_active {
+                            let active = self.config.active;
+                            let task = self.switch_account(active);
+                            // Stay in settings after removing.
+                            self.screen = Screen::Settings(Section::Accounts);
+                            return Task::batch([save, task]);
+                        }
+                        save
+                    }
+                    None => {
+                        self.draft = AccountDraft::blank();
+                        self.editing = None;
+                        self.reset_mailbox();
+                        self.backend = Backend::default();
+                        self.conn = Conn::Offline;
+                        save
+                    }
+                }
             }
             Message::ComposeNew => {
-                if self.compose.is_none() && self.config.account.is_some() {
+                if self.compose.is_none() && self.config.account().is_some() {
                     let mut c = Compose::new(ComposeMode::New);
                     c.rich = self.config.ui.rich_compose;
                     self.compose = Some(c);

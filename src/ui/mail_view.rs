@@ -95,8 +95,7 @@ fn top_bar<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
 
     let initials = app
         .config
-        .account
-        .as_ref()
+        .account()
         .map(|a| a.initials())
         .unwrap_or_else(|| "?".into());
     let me = button(avatar(initials, p.ink, p.on_ink, 36.0))
@@ -150,7 +149,7 @@ fn sidebar<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     .width(Fill)
     .height(44)
     .style(accent_btn(p))
-    .on_press_maybe(app.config.account.as_ref().map(|_| Message::ComposeNew));
+    .on_press_maybe(app.config.account().map(|_| Message::ComposeNew));
 
     let mut specials = Column::new().spacing(2);
     for kind in FolderKind::SPECIAL {
@@ -173,23 +172,51 @@ fn sidebar<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         Conn::Offline => (p.field, t("status_offline").into()),
         Conn::Error(_) => (p.danger, t("status_error").into()),
     };
-    let email = app
-        .config
-        .account
-        .as_ref()
-        .map(|a| a.email.clone())
-        .unwrap_or_default();
-    let account = column![
-        section_label(t("section_account"), p),
-        row![
-            container(space().width(8).height(8)).style(chip_box(dot, dot, 4.0)),
-            text(trunc(&email, 26)).size(14).color(p.text2)
-        ]
+    // Accounts: the active one first-class, the others one click away.
+    let multi = app.config.accounts.len() > 1;
+    let mut accounts = Column::new().spacing(2);
+    for (i, acc) in app.config.accounts.iter().enumerate() {
+        let active = i == app.config.active;
+        let color = if active { dot } else { p.field };
+        let row_el = dir_row(vec![
+            container(space().width(8).height(8)).style(chip_box(color, color, 4.0)).into(),
+            text(trunc(&acc.email, 24))
+                .size(14)
+                .font(if active && multi { medium() } else { INTER })
+                .color(if active { p.text } else { p.text2 })
+                .width(Fill)
+                .into(),
+        ])
         .spacing(10)
-        .align_y(Alignment::Center)
-        .padding([8, 12]),
+        .align_y(Alignment::Center);
+        accounts = accounts.push(
+            button(row_el)
+                .width(Fill)
+                .padding([7, 12])
+                .style(nav_item(p, active && multi))
+                .on_press_maybe((!active).then_some(Message::SwitchAccount(i))),
+        );
+    }
+    let add = tooltip(
+        button(text("+").size(16).color(p.muted))
+            .padding([0, 8])
+            .style(ghost(p, p.muted))
+            .on_press(Message::AddAccount),
+        t("add_account"),
+        p,
+    );
+    let account = column![
+        dir_row(vec![
+            container(text(t("section_account").to_uppercase()).size(12).font(semibold()).color(p.muted))
+                .padding([0, 12])
+                .width(Fill)
+                .into(),
+            add,
+        ])
+        .align_y(Alignment::Center),
+        accounts,
     ]
-    .spacing(6);
+    .spacing(4);
 
     let status = container(
         column![

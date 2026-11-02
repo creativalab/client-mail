@@ -42,8 +42,7 @@ pub fn view<'a>(app: &'a App, c: &'a Compose, p: Palette) -> Element<'a, Message
 
     let from = app
         .config
-        .account
-        .as_ref()
+        .account()
         .map(|a| {
             if a.display_name.is_empty() {
                 a.email.clone()

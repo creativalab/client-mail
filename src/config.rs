@@ -91,7 +91,12 @@ impl Default for Ui {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    pub account: Option<Account>,
+    pub accounts: Vec<Account>,
+    /// Index into `accounts` of the account shown in the main window.
+    pub active: usize,
+    /// Single-account format of earlier versions: read, moved into `accounts`.
+    #[serde(rename = "account", skip_serializing)]
+    legacy_account: Option<Account>,
     pub ui: Ui,
 }
 
@@ -118,7 +123,25 @@ impl Config {
         let text = std::fs::read_to_string(&path)
             .ok()
             .or_else(|| legacy.and_then(|l| std::fs::read_to_string(l).ok()));
-        text.and_then(|s| toml::from_str(&s).ok()).unwrap_or_default()
+        let config: Config = text.and_then(|s| toml::from_str(&s).ok()).unwrap_or_default();
+        config.migrated()
+    }
+
+    fn migrated(mut self) -> Self {
+        if let Some(acc) = self.legacy_account.take()
+            && self.accounts.is_empty()
+        {
+            self.accounts.push(acc);
+        }
+        if self.active >= self.accounts.len() {
+            self.active = 0;
+        }
+        self
+    }
+
+    /// The account shown in the main window.
+    pub fn account(&self) -> Option<&Account> {
+        self.accounts.get(self.active)
     }
 
     pub fn save(&self) -> Result<()> {
@@ -132,5 +155,30 @@ impl Config {
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_single_account_is_migrated() {
+        let text = r#"
+            [account]
+            display_name = "A"
+            email = "a@x.it"
+            username = "a@x.it"
+            password = "p"
+            imap_host = "imap.x.it"
+            imap_port = 993
+            smtp_host = "smtp.x.it"
+            smtp_port = 465
+        "#;
+        let c = toml::from_str::<Config>(text).unwrap().migrated();
+        assert_eq!(c.accounts.len(), 1);
+        assert_eq!(c.account().unwrap().email, "a@x.it");
+        let out = toml::to_string_pretty(&c).unwrap();
+        assert!(out.contains("[[accounts]]") && !out.contains("[account]"));
     }
 }

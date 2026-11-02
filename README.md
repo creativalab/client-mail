@@ -6,7 +6,7 @@ A fast desktop email client written in Rust, with a native UI built on [iced](ht
 
 ## Features
 
-- **IMAP + SMTP** accounts (IMAP over TLS on 993; SMTP on 465 TLS or 587 STARTTLS), pure-Rust TLS (rustls)
+- **Multiple IMAP + SMTP accounts**: switch from the sidebar, add/edit/remove in Settings (IMAP over TLS on 993; SMTP on 465 TLS or 587 STARTTLS), pure-Rust TLS (rustls)
 - Three-pane window: folders · message list · reader
 - Special folders detected automatically (Inbox, Sent, Drafts, Archive, Spam, Trash), unread counters, collapsible tree for all other folders
 - List filters (All / Unread / Attachments) and search with `from:`, `has:attachment`, `is:unread`
@@ -86,7 +86,7 @@ The design handoff (mockups, tokens, icon) is in [`design/`](design/).
 - Optional image loading per sender
 - IMAP IDLE (push), notifications, tray icon
 - OpenPGP signing/encryption
-- Multiple accounts, JMAP
+- Unified inbox across accounts, JMAP
 
 ## Support
 

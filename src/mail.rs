@@ -719,7 +719,7 @@ mod tests {
     #[ignore]
     fn live_account() {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let acc = crate::config::Config::load().account.expect("no account");
+        let acc = crate::config::Config::load().account().cloned().expect("no account");
         let mut s = connect(&acc).unwrap_or_else(|e| panic!("IMAP ERROR: {e:#}"));
         let folders = list_folders(&mut s).unwrap();
         for f in folders.iter().filter(|f| f.kind != FolderKind::Other) {
