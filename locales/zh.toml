@@ -190,3 +190,8 @@ remove_account = "移除账户"
 confirm_remove_account = "要从 Ferrowl 中移除此账户吗？服务器上的邮件不会受影响。"
 use_account = "使用"
 account_inactive = "未使用"
+
+# Push notifications
+notifications = "桌面通知"
+notifications_desc = "服务器一报告收件箱有新邮件就通知"
+notif_many = "{n} 封新邮件"

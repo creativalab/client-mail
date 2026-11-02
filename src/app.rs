@@ -262,6 +262,8 @@ pub struct App {
     pub search_results: Option<Vec<Header>>,
     /// Folders already indexed (or being indexed) in this session.
     pub indexed: HashSet<String>,
+    /// Highest inbox UID seen so far: newer unseen messages are "new mail".
+    pub inbox_max_uid: Option<u32>,
     pub selected: Option<u32>,
     pub message: Option<FullMessage>,
     pub body: text_editor::Content,
@@ -299,6 +301,11 @@ pub enum Message {
     HeadersLoaded { folder: String, silent: bool, result: Res<(Vec<Header>, u32)> },
     /// A background indexing step finished; `Some(seq)` = continue from there.
     Indexed { folder: String, result: Res<Option<u32>> },
+    /// The IDLE connection saw a change in the inbox (account generation).
+    Push(u64),
+    /// Inbox checked after a push while another folder is open.
+    PushChecked(Res<(Vec<Header>, u32)>),
+    ToggleNotifications(bool),
     Sync,
     Tick,
     // list
@@ -399,6 +406,7 @@ impl App {
             search: String::new(),
             search_results: None,
             indexed: HashSet::new(),
+            inbox_max_uid: None,
             selected: None,
             message: None,
             body: text_editor::Content::new(),
@@ -470,6 +478,16 @@ impl App {
                 .unwrap_or(8);
             subs.push(iced::time::every(Duration::from_secs(delay)).map(|_| Message::DevScreenshot));
         }
+        // Push: IDLE on the inbox of the account in use.
+        if self.conn == Conn::Online
+            && let (Some(account), Some(inbox)) = (self.config.account(), self.folder_by_kind(FolderKind::Inbox))
+        {
+            subs.push(crate::push::subscription(crate::push::Watch {
+                account: account.clone(),
+                folder: inbox.name.clone(),
+                generation: self.generation,
+            }));
+        }
         Subscription::batch(subs)
     }
 
@@ -484,6 +502,35 @@ impl App {
     ) -> Task<Message> {
         let generation = self.generation;
         Task::perform(fut, move |r| Message::Scoped(generation, Box::new(f(r))))
+    }
+
+    /// Compares an inbox listing with the last one: unseen messages with a
+    /// higher UID are new mail and get a desktop notification. The first
+    /// listing only sets the baseline.
+    fn note_new_mail(&mut self, headers: &[Header]) -> Task<Message> {
+        let Some(max) = headers.iter().map(|h| h.uid).max() else {
+            return Task::none();
+        };
+        let Some(previous) = self.inbox_max_uid.replace(max.max(self.inbox_max_uid.unwrap_or(0))) else {
+            return Task::none();
+        };
+        let new: Vec<&Header> = headers.iter().filter(|h| h.uid > previous && !h.seen).collect();
+        if new.is_empty() || !self.config.ui.notifications {
+            return Task::none();
+        }
+        let (summary, body) = match new.as_slice() {
+            [one] => (one.from.clone(), one.subject.clone()),
+            many => (
+                tf("notif_many", &[("n", &many.len().to_string())]),
+                many.iter().take(3).map(|h| format!("{} — {}", h.from, h.subject)).collect::<Vec<_>>().join("\n"),
+            ),
+        };
+        Task::perform(
+            async move {
+                let _ = tokio::task::spawn_blocking(move || crate::push::notify(summary, body)).await;
+            },
+            |_| Message::Noop,
+        )
     }
 
     fn header_mut(&mut self, uid: u32) -> Option<&mut Header> {
@@ -530,6 +577,7 @@ impl App {
         self.headers.clear();
         self.search_results = None;
         self.indexed.clear();
+        self.inbox_max_uid = None;
         self.current_folder = None;
         self.selected = None;
         self.message = None;
@@ -841,6 +889,11 @@ impl App {
                 match result {
                     Ok((headers, first_seq)) => {
                         self.conn = Conn::Online;
+                        let notify = if self.folder_by_kind(FolderKind::Inbox).is_some_and(|f| f.name == folder) {
+                            self.note_new_mail(&headers)
+                        } else {
+                            Task::none()
+                        };
                         self.headers = headers;
                         self.last_sync = Some(chrono::Local::now());
                         self.run_search();
@@ -849,7 +902,7 @@ impl App {
                         } else {
                             Task::none()
                         };
-                        Task::batch([self.refresh_unseen(), index])
+                        Task::batch([self.refresh_unseen(), index, notify])
                     }
                     Err(e) => {
                         if !silent {
@@ -872,6 +925,31 @@ impl App {
                 self.search = s;
                 self.run_search();
                 Task::none()
+            }
+            Message::Push(generation) => {
+                let Some(inbox) = self.folder_by_kind(FolderKind::Inbox).map(|f| f.name.clone()) else {
+                    return Task::none();
+                };
+                if generation != self.generation || self.conn != Conn::Online {
+                    return Task::none();
+                }
+                if self.current_folder.as_deref() == Some(&inbox) {
+                    if self.loading_list {
+                        return Task::none();
+                    }
+                    return self.load_folder(inbox, true);
+                }
+                let b = self.backend.clone();
+                self.perform(async move { b.headers(inbox).await }, Message::PushChecked)
+            }
+            Message::PushChecked(Ok((headers, _))) => {
+                let notify = self.note_new_mail(&headers);
+                Task::batch([notify, self.refresh_unseen()])
+            }
+            Message::PushChecked(Err(_)) => Task::none(),
+            Message::ToggleNotifications(on) => {
+                self.config.ui.notifications = on;
+                self.save_config()
             }
             Message::Indexed { folder, result } => match result {
                 // Only the open folder keeps indexing (one step at a time,

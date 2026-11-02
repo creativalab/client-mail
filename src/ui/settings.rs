@@ -175,7 +175,19 @@ fn general(app: &App, p: Palette) -> Element<'_, Message> {
 
     column![
         title(t("section_general"), t("general_desc"), p),
-        group(vec![setting_row(t("language"), t("language_desc"), picker.into(), p, true)], p),
+        group(
+            vec![
+                setting_row(t("language"), t("language_desc"), picker.into(), p, false),
+                setting_row(
+                    t("notifications"),
+                    t("notifications_desc"),
+                    switch(p, app.config.ui.notifications, Message::ToggleNotifications),
+                    p,
+                    true,
+                ),
+            ],
+            p,
+        ),
     ]
     .spacing(28)
     .into()
@@ -465,4 +477,30 @@ fn appearance(app: &App, p: Palette) -> Element<'_, Message> {
     ]
     .spacing(28)
     .into()
+}
+
+/// On/off switch in the theme's colors.
+fn switch<'a>(p: Palette, on: bool, msg: fn(bool) -> Message) -> Element<'a, Message> {
+    toggler(on)
+        .on_toggle(msg)
+        .size(24)
+        .style(move |_, st| {
+            let on = matches!(
+                st,
+                iced::widget::toggler::Status::Active { is_toggled: true }
+                    | iced::widget::toggler::Status::Hovered { is_toggled: true }
+            );
+            iced::widget::toggler::Style {
+                background: Background::Color(if on { p.accent } else { p.knob_off }),
+                background_border_width: 0.0,
+                background_border_color: Color::TRANSPARENT,
+                foreground: Background::Color(Color::WHITE),
+                foreground_border_width: 0.0,
+                foreground_border_color: Color::TRANSPARENT,
+                text_color: None,
+                border_radius: None,
+                padding_ratio: 0.12,
+            }
+        })
+        .into()
 }

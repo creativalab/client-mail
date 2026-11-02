@@ -190,3 +190,8 @@ remove_account = "إزالة الحساب"
 confirm_remove_account = "هل تريد إزالة هذا الحساب من Ferrowl؟ لن يتأثر البريد على الخادم."
 use_account = "استخدام"
 account_inactive = "غير مستخدم"
+
+# Push notifications
+notifications = "إشعارات سطح المكتب"
+notifications_desc = "بريد جديد في صندوق الوارد فور إبلاغ الخادم به"
+notif_many = "{n} رسائل جديدة"

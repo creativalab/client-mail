@@ -190,3 +190,8 @@ remove_account = "Remove account"
 confirm_remove_account = "Remove this account from Ferrowl? Mail on the server is not touched."
 use_account = "Use"
 account_inactive = "Not in use"
+
+# Push notifications
+notifications = "Desktop notifications"
+notifications_desc = "New mail in the inbox, as soon as the server reports it"
+notif_many = "{n} new messages"

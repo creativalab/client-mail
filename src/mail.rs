@@ -11,7 +11,30 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-type TlsStream = rustls::StreamOwned<rustls::ClientConnection, TcpStream>;
+/// TLS over TCP. A newtype so it can implement imap's `SetReadTimeout`
+/// (needed by IDLE, which waits with a timeout).
+pub struct TlsStream(rustls::StreamOwned<rustls::ClientConnection, TcpStream>);
+
+impl std::io::Read for TlsStream {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.0.read(buf)
+    }
+}
+
+impl std::io::Write for TlsStream {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.write(buf)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.flush()
+    }
+}
+
+impl imap::extensions::idle::SetReadTimeout for TlsStream {
+    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> imap::Result<()> {
+        self.0.sock.set_read_timeout(timeout).map_err(imap::Error::Io)
+    }
+}
 pub type ImapSession = imap::Session<TlsStream>;
 
 /// How many messages (the most recent) to load per folder.
@@ -246,7 +269,7 @@ pub fn connect(account: &Account) -> Result<ImapSession> {
     let server_name = rustls::pki_types::ServerName::try_from(account.imap_host.clone())
         .context("invalid IMAP host name")?;
     let conn = rustls::ClientConnection::new(tls_config(), server_name)?;
-    let tls = rustls::StreamOwned::new(conn, tcp);
+    let tls = TlsStream(rustls::StreamOwned::new(conn, tcp));
 
     let mut client = imap::Client::new(tls);
     client.read_greeting().context("IMAP greeting")?;
@@ -260,6 +283,19 @@ pub fn connect(account: &Account) -> Result<ImapSession> {
                 anyhow!(tf("err_login", &[("msg", &msg)]))
             }
         })
+}
+
+/// Whether the server supports IMAP IDLE (push).
+pub fn supports_idle(session: &mut ImapSession) -> Result<bool> {
+    Ok(session.capabilities()?.has_str("IDLE"))
+}
+
+/// Waits (IDLE) until `folder` changes or `timeout` passes.
+/// Returns `true` if the server reported a change.
+pub fn idle_wait(session: &mut ImapSession, folder: &str, timeout: Duration) -> Result<bool> {
+    session.select(folder)?;
+    let outcome = session.idle()?.wait_with_timeout(timeout)?;
+    Ok(matches!(outcome, imap::extensions::idle::WaitOutcome::MailboxChanged))
 }
 
 pub fn list_folders(session: &mut ImapSession) -> Result<Vec<Folder>> {
@@ -776,5 +812,20 @@ mod tests {
                 m.preview
             );
         }
+    }
+
+    #[test]
+    #[ignore = "uses the configured account"]
+    fn live_idle() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let acc = crate::config::Config::load().account().cloned().expect("no account");
+        let mut s = connect(&acc).unwrap();
+        assert!(supports_idle(&mut s).unwrap(), "server without IDLE");
+        let t = std::time::Instant::now();
+        let changed = idle_wait(&mut s, "INBOX", Duration::from_secs(5)).unwrap();
+        println!("idle: changed={changed} after {:?}", t.elapsed());
+        // The session is still usable after IDLE.
+        assert!(s.select("INBOX").unwrap().exists > 0);
+        let _ = s.logout();
     }
 }

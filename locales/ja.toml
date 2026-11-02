@@ -190,3 +190,8 @@ remove_account = "アカウントを削除"
 confirm_remove_account = "このアカウントを Ferrowl から削除しますか？サーバー上のメールはそのままです。"
 use_account = "使用"
 account_inactive = "未使用"
+
+# Push notifications
+notifications = "デスクトップ通知"
+notifications_desc = "サーバーが受信トレイの新着メールを知らせたらすぐに通知"
+notif_many = "新着メッセージ {n} 件"

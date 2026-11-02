@@ -8,6 +8,7 @@ mod config;
 mod html;
 mod i18n;
 mod mail;
+mod push;
 mod markdown;
 mod theme;
 mod ui;

@@ -73,6 +73,8 @@ pub struct Ui {
     pub rich_compose: bool,
     /// Show the HTML version of messages (converted, images blocked) when present.
     pub prefer_html: bool,
+    /// Desktop notification for new mail in the inbox.
+    pub notifications: bool,
 }
 
 impl Default for Ui {
@@ -84,6 +86,7 @@ impl Default for Ui {
             show_preview: true,
             rich_compose: true,
             prefer_html: true,
+            notifications: true,
         }
     }
 }
