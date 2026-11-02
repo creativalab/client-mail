@@ -35,6 +35,9 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -72,6 +75,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun MailboxScreen(
     onOpen: (folderId: String, uid: UInt) -> Unit,
+    onOpenConversation: (folderId: String, uids: List<UInt>) -> Unit,
     onCompose: () -> Unit,
     vm: MailboxViewModel = hiltViewModel(),
 ) {
@@ -164,25 +168,33 @@ fun MailboxScreen(
             },
             snackbarHost = { SnackbarHost(snackbar) },
         ) { padding ->
-            PullToRefreshBox(
-                isRefreshing = s.refreshing,
-                onRefresh = vm::refresh,
-                modifier = Modifier.fillMaxSize().padding(padding),
-            ) {
-                val list = s.shown
-                when {
-                    s.error != null && list.isEmpty() -> Centered(s.error!!, MaterialTheme.colorScheme.error)
-                    list.isEmpty() && !s.refreshing && !s.searching -> Centered(stringResource(R.string.list_empty))
-                    else -> LazyColumn(Modifier.fillMaxSize()) {
-                        items(list, key = { it.uid.toLong() }) { h ->
-                            MessageRow(h) {
-                                vm.opened(h.uid)
-                                onOpen(s.folderId, h.uid)
+            Column(Modifier.fillMaxSize().padding(padding)) {
+                ViewModeSwitch(threaded = s.threaded, onChange = vm::setThreaded)
+                PullToRefreshBox(
+                    isRefreshing = s.refreshing,
+                    onRefresh = vm::refresh,
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    val rows = s.rows
+                    when {
+                        s.error != null && rows.isEmpty() -> Centered(s.error!!, MaterialTheme.colorScheme.error)
+                        rows.isEmpty() && !s.refreshing && !s.searching -> Centered(stringResource(R.string.list_empty))
+                        else -> LazyColumn(Modifier.fillMaxSize()) {
+                            items(rows, key = { it.latest.uid.toLong() }) { c ->
+                                MessageRow(c.latest, count = c.uids.size, unread = c.unread > 0u) {
+                                    if (c.uids.size > 1) {
+                                        onOpenConversation(s.folderId, c.uids)
+                                    } else {
+                                        // Opening reads it: update the dot right away.
+                                        vm.opened(c.latest.uid)
+                                        onOpen(s.folderId, c.latest.uid)
+                                    }
+                                }
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             }
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            // Room for the compose button over the last row.
+                            item { Spacer(Modifier.height(88.dp)) }
                         }
-                        // Room for the compose button over the last row.
-                        item { Spacer(Modifier.height(88.dp)) }
                     }
                 }
             }
@@ -190,9 +202,28 @@ fun MailboxScreen(
     }
 }
 
+/** "Conversations | Messages" above the list. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MessageRow(h: Header, onClick: () -> Unit) {
-    val weight = if (h.seen) FontWeight.Normal else FontWeight.SemiBold
+private fun ViewModeSwitch(threaded: Boolean, onChange: (Boolean) -> Unit) {
+    SingleChoiceSegmentedButtonRow(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        SegmentedButton(
+            selected = threaded,
+            onClick = { onChange(true) },
+            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+        ) { Text(stringResource(R.string.view_threads)) }
+        SegmentedButton(
+            selected = !threaded,
+            onClick = { onChange(false) },
+            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+        ) { Text(stringResource(R.string.view_messages)) }
+    }
+}
+
+/** One list row: a message, or the newest message of a conversation of [count]. */
+@Composable
+internal fun MessageRow(h: Header, count: Int = 1, unread: Boolean = !h.seen, onClick: () -> Unit) {
+    val weight = if (!unread) FontWeight.Normal else FontWeight.SemiBold
     Column(
         Modifier
             .fillMaxWidth()
@@ -201,10 +232,21 @@ private fun MessageRow(h: Header, onClick: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (!h.seen) {
+            if (unread) {
                 Box(Modifier.size(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
             }
             Text(h.from, fontWeight = weight, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            if (count > 1) {
+                Text(
+                    count.toString(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(horizontal = 7.dp, vertical = 1.dp),
+                )
+            }
             Text(
                 DateUtils.getRelativeTimeSpanString(h.timestamp * 1000).toString(),
                 style = MaterialTheme.typography.labelSmall,

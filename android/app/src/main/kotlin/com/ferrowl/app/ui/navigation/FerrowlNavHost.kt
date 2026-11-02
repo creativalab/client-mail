@@ -7,6 +7,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.ferrowl.app.ui.compose.ComposeScreen
+import com.ferrowl.app.ui.conversation.ConversationScreen
 import com.ferrowl.app.ui.mailbox.MailboxScreen
 import com.ferrowl.app.ui.message.MessageScreen
 import com.ferrowl.app.ui.message.ReplyKind
@@ -21,6 +22,9 @@ import kotlinx.serialization.Serializable
 @Serializable object Setup
 @Serializable object Mailbox
 @Serializable data class Read(val folderId: String, val uid: Long)
+
+/** A conversation; `uids` are comma-separated, oldest first. */
+@Serializable data class Thread(val folderId: String, val uids: String)
 
 /** Write a message; `kind` is a [ReplyKind] name, or null for a new one. */
 @Serializable data class Write(val kind: String? = null, val folderId: String = "", val uid: Long = 0)
@@ -42,7 +46,17 @@ fun FerrowlNavHost() {
         composable<Mailbox> {
             MailboxScreen(
                 onOpen = { folderId, uid -> nav.navigate(Read(folderId, uid.toLong())) },
+                onOpenConversation = { folderId, uids -> nav.navigate(Thread(folderId, uids.joinToString(","))) },
                 onCompose = { nav.navigate(Write()) },
+            )
+        }
+        composable<Thread> { entry ->
+            val route = entry.toRoute<Thread>()
+            ConversationScreen(
+                folderId = route.folderId,
+                uids = route.uids.split(',').mapNotNull { it.toUIntOrNull() },
+                onBack = { nav.popBackStack() },
+                onOpen = { uid -> nav.navigate(Read(route.folderId, uid.toLong())) },
             )
         }
         composable<Read> { entry ->
