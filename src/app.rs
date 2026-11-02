@@ -2268,6 +2268,9 @@ impl App {
             }
             Message::DevScreenshot => {
                 // Open the first message so the reader pane is populated.
+                if std::env::var_os("FERROWL_DEV_CONFIRM").is_some() && self.selected.is_some() {
+                    self.confirm_delete = true;
+                }
                 if std::env::var_os("FERROWL_DEV_MENU").is_some()
                     && self.menu.is_none()
                     && let Some(uid) = self.visible().get(1).map(|h| h.uid)
@@ -2321,6 +2324,14 @@ impl App {
         let keyboard::Event::KeyPressed { key, modifiers, .. } = event else {
             return Task::none();
         };
+        // Delete dialog open: Enter confirms, Esc cancels, other keys do nothing.
+        if self.confirm_delete {
+            return match key {
+                Key::Named(Named::Enter) => self.update(Message::ConfirmDelete(true)),
+                Key::Named(Named::Escape) => self.update(Message::ConfirmDelete(false)),
+                _ => Task::none(),
+            };
+        }
         if let Key::Named(Named::Escape) = key {
             if self.preview.is_some() {
                 self.preview = None;

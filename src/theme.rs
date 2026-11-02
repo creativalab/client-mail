@@ -34,7 +34,6 @@ pub struct Palette {
     pub knob_off: Color,
     pub logo: Color,
     pub danger: Color,
-    pub danger_line: Color,
 }
 
 #[derive(Debug, Clone)]
@@ -72,7 +71,6 @@ struct RawTheme {
     knob_off: String,
     logo: String,
     danger: String,
-    danger_line: String,
 }
 
 #[derive(Deserialize)]
@@ -123,7 +121,6 @@ fn all() -> &'static Vec<ThemeDef> {
                         knob_off: hex(&r.knob_off),
                         logo: hex(&r.logo),
                         danger: hex(&r.danger),
-                        danger_line: hex(&r.danger_line),
                     },
                 })
             })
