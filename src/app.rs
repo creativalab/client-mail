@@ -238,6 +238,8 @@ pub struct AccountDraft {
     pub preset: Option<usize>,
     pub protocol: crate::config::Protocol,
     pub pop3_keep_days: Option<u32>,
+    /// Carried through (see `config::Account::keyring`).
+    pub keyring: bool,
 }
 
 impl AccountDraft {
@@ -278,6 +280,7 @@ impl AccountDraft {
             preset: None,
             protocol: a.protocol,
             pop3_keep_days: a.pop3_keep_days,
+            keyring: a.keyring,
         }
     }
 
@@ -294,6 +297,7 @@ impl AccountDraft {
             pgp_passphrase: self.pgp_passphrase.clone(),
             protocol: self.protocol,
             pop3_keep_days: self.pop3_keep_days,
+            keyring: self.keyring,
         };
         a.is_complete().then_some(a)
     }
