@@ -28,7 +28,7 @@ A fast desktop email client written in Rust, with a native UI built on [iced](ht
 
 ## Download
 
-Prebuilt packages are attached to each [release](https://github.com/creativalab/client-mail/releases):
+Prebuilt packages are attached to each [release](https://github.com/creativalab/ferrowl/releases):
 
 | System | Package |
 |---|---|
