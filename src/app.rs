@@ -14,6 +14,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 pub const SEARCH_ID: &str = "search";
+/// Background indexing: wait before the first chunk and between chunks.
+const INDEX_FIRST_PAUSE: Duration = Duration::from_secs(3);
+const INDEX_PAUSE: Duration = Duration::from_millis(1500);
 /// Scrollable of the reading pane.
 pub const READER_ID: &str = "reader";
 const AUTO_REFRESH: Duration = Duration::from_secs(120);
@@ -905,11 +908,17 @@ impl App {
         };
     }
 
-    fn index_step(&self, folder: String, before: u32) -> Task<Message> {
+    /// One background indexing step, after a pause: the first one leaves the
+    /// server to the user's own actions for a few seconds, the next ones are
+    /// spaced out so busy servers are not hammered.
+    fn index_step(&self, folder: String, before: u32, pause: Duration) -> Task<Message> {
         let b = self.backend.clone();
         let f = folder.clone();
         self.perform(
-            async move { b.index_older(f, before, 150).await },
+            async move {
+                tokio::time::sleep(pause).await;
+                b.index_older(f, before, 150).await
+            },
             move |result| Message::Indexed {
                 folder: folder.clone(),
                 result,
@@ -1315,7 +1324,7 @@ impl App {
                         self.last_sync = Some(chrono::Local::now());
                         self.run_search();
                         let index = if self.indexed.insert(folder.clone()) {
-                            self.index_step(folder, first_seq)
+                            self.index_step(folder, first_seq, INDEX_FIRST_PAUSE)
                         } else {
                             Task::none()
                         };
@@ -1495,7 +1504,7 @@ impl App {
                 // Only the open folder keeps indexing (one step at a time,
                 // so user actions are not stuck behind a long download).
                 Ok(Some(next)) if self.current_folder.as_deref() == Some(&folder) => {
-                    self.index_step(folder, next)
+                    self.index_step(folder, next, INDEX_PAUSE)
                 }
                 Ok(Some(_)) => {
                     self.indexed.remove(&folder);
