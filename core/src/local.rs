@@ -34,7 +34,9 @@ CREATE TABLE IF NOT EXISTS local_messages (
     seen    INTEGER NOT NULL,
     attach  INTEGER NOT NULL,
     text    TEXT NOT NULL,
-    raw     BLOB NOT NULL
+    raw     BLOB NOT NULL,
+    msgid   TEXT NOT NULL DEFAULT '',
+    parents TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS local_list ON local_messages (account, folder, ts DESC);
 CREATE TABLE IF NOT EXISTS pop3_downloaded (
@@ -110,6 +112,20 @@ impl Store {
 
     fn with_connection(conn: Connection) -> Result<Store> {
         conn.execute_batch(SCHEMA).context("creating local mailbox")?;
+        for (column, ddl) in [
+            (
+                "msgid",
+                "ALTER TABLE local_messages ADD COLUMN msgid TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "parents",
+                "ALTER TABLE local_messages ADD COLUMN parents TEXT NOT NULL DEFAULT ''",
+            ),
+        ] {
+            if !crate::cache::has_column(&conn, "local_messages", column)? {
+                conn.execute_batch(ddl)?;
+            }
+        }
         Ok(Store {
             conn: Mutex::new(conn),
         })
@@ -168,7 +184,7 @@ impl Store {
     pub fn headers(&self, account: &str, folder: &str, limit: u32) -> Result<Vec<Header>> {
         let conn = self.lock();
         let mut stmt = conn.prepare_cached(
-            "SELECT id, sender, subject, preview, ts, seen, attach FROM local_messages
+            "SELECT id, sender, subject, preview, ts, seen, attach, msgid, parents FROM local_messages
              WHERE account = ?1 AND folder = ?2 ORDER BY ts DESC, id DESC LIMIT ?3",
         )?;
         let rows = stmt.query_map(params![account, folder, limit], row_to_header)?;
@@ -179,7 +195,7 @@ impl Store {
     pub fn search(&self, account: &str, folder: &str, words: &[String], limit: u32) -> Result<Vec<Header>> {
         let conn = self.lock();
         let mut sql = String::from(
-            "SELECT id, sender, subject, preview, ts, seen, attach FROM local_messages
+            "SELECT id, sender, subject, preview, ts, seen, attach, msgid, parents FROM local_messages
              WHERE account = ?1 AND folder = ?2",
         );
         let patterns: Vec<String> = words
@@ -254,8 +270,8 @@ fn insert(conn: &Connection, account: &str, folder: &str, raw: &[u8], seen: bool
     // Messages without a Date header sort as "now".
     let ts = if h.timestamp > 0 { h.timestamp } else { now() };
     conn.execute(
-        "INSERT INTO local_messages (account, folder, sender, subject, preview, ts, seen, attach, text, raw)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        "INSERT INTO local_messages (account, folder, sender, subject, preview, ts, seen, attach, text, raw, msgid, parents)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
             account,
             folder,
@@ -266,7 +282,9 @@ fn insert(conn: &Connection, account: &str, folder: &str, raw: &[u8], seen: bool
             seen,
             h.has_attachment,
             h.text,
-            raw
+            raw,
+            h.message_id,
+            h.parents.join(" ")
         ],
     )?;
     u32::try_from(conn.last_insert_rowid()).context("local mailbox is full")
@@ -282,6 +300,12 @@ fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<Header> {
         seen: r.get(5)?,
         has_attachment: r.get(6)?,
         text: String::new(),
+        message_id: r.get(7)?,
+        parents: r
+            .get::<_, String>(8)?
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect(),
     })
 }
 

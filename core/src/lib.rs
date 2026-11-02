@@ -16,6 +16,7 @@ pub mod paths;
 pub mod pop3;
 pub mod providers;
 pub mod secrets;
+pub mod threads;
 
 /// Initials for an avatar, e.g. "Fabio Carli" -> "FC", "giulia.ferri@x.it" -> "GF".
 pub fn initials(s: &str) -> String {

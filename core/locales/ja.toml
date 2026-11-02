@@ -266,3 +266,6 @@ preview_cut = "プレビューは途中までです：ファイルはもっと�
 preview_failed = "このファイルはプレビューできません。"
 confirm_delete_title = "完全に削除しますか？"
 cannot_undo = "この操作は元に戻せません。"
+view_threads = "スレッド"
+view_messages = "メッセージ"
+conversation_count = "このスレッドのメッセージ {n} 件"

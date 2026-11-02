@@ -445,6 +445,8 @@ pub enum Message {
     // list
     Search(String),
     SetFilter(ListFilter),
+    /// Conversations (true) or one row per message (false).
+    SetThreaded(bool),
     Open(u32),
     Loaded(Res<FullMessage>),
     ToggleHtml,
@@ -1134,6 +1136,20 @@ impl App {
     }
 
     /// Messages visible after filter and search (`from:`, `has:attachment`, `is:unread`).
+    /// The conversation the message belongs to, oldest first (just the
+    /// message itself when conversations are off or it has no replies).
+    pub fn conversation(&self, uid: u32) -> Vec<&Header> {
+        let list = self.search_results.as_ref().unwrap_or(&self.headers);
+        if !self.config.ui.threaded {
+            return list.iter().filter(|h| h.uid == uid).collect();
+        }
+        ferrowl_core::threads::group(list)
+            .into_iter()
+            .find(|t| t.members.iter().any(|&i| list[i].uid == uid))
+            .map(|t| t.members.iter().rev().map(|&i| &list[i]).collect())
+            .unwrap_or_default()
+    }
+
     pub fn visible(&self) -> Vec<&Header> {
         let tokens: Vec<String> = self.search.split_whitespace().map(str::to_lowercase).collect();
         // Free words were already matched by the full-text index.
@@ -2018,6 +2034,10 @@ impl App {
             }
             Message::SetDensity(d) => {
                 self.config.ui.density = d;
+                self.save_config()
+            }
+            Message::SetThreaded(on) => {
+                self.config.ui.threaded = on;
                 self.save_config()
             }
             Message::TogglePreview(on) => {

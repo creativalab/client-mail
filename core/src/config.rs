@@ -107,6 +107,8 @@ pub struct Ui {
     pub notifications: bool,
     /// Load remote images/styles in HTML mail (senders can see when it is opened).
     pub load_remote_images: bool,
+    /// Message lists grouped into conversations (false: one row per message).
+    pub threaded: bool,
 }
 
 impl Default for Ui {
@@ -120,6 +122,7 @@ impl Default for Ui {
             prefer_html: true,
             notifications: true,
             load_remote_images: true,
+            threaded: true,
         }
     }
 }
