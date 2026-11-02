@@ -338,6 +338,16 @@ fn security(app: &App, p: Palette) -> Element<'_, Message> {
 
 // ---------------------------------------------------------------- Accounts
 
+/// Id of the e-mail field, focused when adding an account.
+pub const EMAIL_FIELD: &str = "account-email";
+
+fn field_id(f: Field) -> iced::widget::Id {
+    match f {
+        Field::Email => iced::widget::Id::new(EMAIL_FIELD),
+        _ => iced::widget::Id::unique(),
+    }
+}
+
 fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
     let first_run = app.config.account().is_none();
     let heading = if first_run {
@@ -420,7 +430,16 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
                 .on_press(Message::EditAccount(i)),
         );
     }
-    if !first_run {
+    // Adding an account: the form replaces the list, so it is in view at once.
+    let adding = !first_run && app.editing.is_none();
+    if adding {
+        col = col.push(
+            button(text(t("cancel")).size(14).font(medium()))
+                .padding([10, 16])
+                .style(outline_btn(p, p.text))
+                .on_press(Message::EditAccount(app.config.active)),
+        );
+    } else if !first_run {
         list = list.push(
             button(text(format!("+  {}", t("add_account"))).size(14).font(medium()))
                 .padding([10, 16])
@@ -436,6 +455,7 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
             column![
                 text(label).size(13).font(medium()).color(p.text2),
                 text_input("", value)
+                    .id(field_id(f))
                     .on_input(move |v| Message::Draft(f, v))
                     .secure(secure)
                     .size(14)

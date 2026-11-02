@@ -6,6 +6,8 @@ mod backend;
 mod cache;
 mod config;
 mod crypto;
+#[cfg(target_os = "linux")]
+mod desktop_entry;
 mod html;
 mod html_view;
 mod i18n;
@@ -13,12 +15,21 @@ mod mail;
 mod markdown;
 mod preview;
 mod push;
+mod single_instance;
 mod theme;
 mod ui;
 
 use app::App;
 
 fn main() -> iced::Result {
+    // A second launch only raises the window that is already open.
+    let _instance = match single_instance::start() {
+        single_instance::Role::Primary(guard) => guard,
+        single_instance::Role::Secondary => return Ok(()),
+    };
+    #[cfg(target_os = "linux")]
+    desktop_entry::integrate_appimage();
+
     // lettre uses rustls' default crypto provider: pin it to ring.
     let _ = rustls::crypto::ring::default_provider().install_default();
     i18n::set(Some(&config::Config::load().ui.language));
