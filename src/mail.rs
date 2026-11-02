@@ -1188,4 +1188,37 @@ mod tests {
         let contact = |_: &str| None;
         assert!(protect_with(&out, content, &alice, "a", &contact).is_err());
     }
+
+    /// Sends a test message from the configured account to itself and saves
+    /// the copy in Sent, exactly like the app does.
+    #[test]
+    #[ignore = "sends a real email from the configured account"]
+    fn live_send_to_self() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let acc = crate::config::Config::load().account().cloned().expect("no account");
+        let dir = std::env::temp_dir().join("ferrowl-live-send");
+        std::fs::create_dir_all(&dir).unwrap();
+        let att = dir.join("ferrowl-test.txt");
+        std::fs::write(&att, "Allegato di prova inviato da Ferrowl.\n").unwrap();
+        let body = "Ciao,\n\nquesta è una **mail di prova** inviata da _Ferrowl_.\n\n- testo formattato (HTML + testo)\n- un allegato\n- copia salvata in Inviati\n\nFerrowl";
+        let out = Outgoing {
+            to: acc.email.clone(),
+            subject: format!("Ferrowl: mail di prova {}", chrono::Local::now().format("%H:%M")),
+            body: body.into(),
+            html: Some(crate::markdown::to_html_document(body)),
+            attachments: vec![att],
+            ..Default::default()
+        };
+        let raw = send(&acc, &out).expect("SMTP send");
+        println!("sent: {} bytes", raw.len());
+        let mut s = connect(&acc).unwrap();
+        let sent = list_folders(&mut s)
+            .unwrap()
+            .into_iter()
+            .find(|f| f.kind == FolderKind::Sent)
+            .expect("no Sent folder");
+        append_sent(&mut s, &sent.name, &raw).expect("append to Sent");
+        println!("copy saved in {}", sent.name);
+        let _ = s.logout();
+    }
 }
