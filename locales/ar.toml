@@ -229,3 +229,16 @@ pgp_exported = "تم حفظ المفتاح العام في {path}"
 pgp_passphrase_mismatch = "عبارة المرور المحفوظة لا تفتح هذا المفتاح."
 pgp_passphrase_saved = "تم حفظ عبارة المرور."
 pgp_save = "حفظ"
+
+# HTML view
+html_loading = "جارٍ تحميل الرسالة…"
+images_blocked = "الصور البعيدة في هذه الرسالة محظورة."
+load_images = "تحميل الصور"
+remote_images = "تحميل الصور البعيدة"
+remote_images_desc = "تُنزَّل صور رسائل HTML من خوادم المرسل، ما قد يتيح له معرفة وقت فتحك للرسالة."
+reply_all = "الرد على الكل"
+
+# Context menu, drag and drop
+open = "فتح"
+move_to = "نقل إلى"
+moved_ok = "تم نقل الرسالة."

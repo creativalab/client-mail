@@ -14,6 +14,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 pub const SEARCH_ID: &str = "search";
+/// Scrollable of the reading pane.
+pub const READER_ID: &str = "reader";
 const AUTO_REFRESH: Duration = Duration::from_secs(120);
 
 // ---------------------------------------------------------------- state
@@ -74,6 +76,39 @@ pub struct Compose {
     pub encrypt: bool,
     /// Rendered preview, shown instead of the editor while `Some`.
     pub preview: Option<Vec<iced::widget::markdown::Item>>,
+}
+
+/// Actions of the message context menu.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CtxAction {
+    Open,
+    Reply,
+    ReplyAll,
+    Forward,
+    ToggleRead,
+    Archive,
+    Delete,
+    /// Show the folder list inside the menu.
+    MoveMenu,
+    Move(String),
+}
+
+/// Right-click menu on a message row.
+#[derive(Debug, Clone)]
+pub struct ContextMenu {
+    pub uid: u32,
+    pub at: iced::Point,
+    pub folders: bool,
+}
+
+/// A message being dragged from the list to a folder.
+#[derive(Debug, Clone)]
+pub struct Drag {
+    pub uid: u32,
+    pub start: iced::Point,
+    /// Became a drag (moved far enough), not just a click.
+    pub active: bool,
+    pub label: String,
 }
 
 /// Formatting actions of the compose toolbar (they insert Markdown).
@@ -281,8 +316,27 @@ pub struct App {
     pub selected: Option<u32>,
     pub message: Option<FullMessage>,
     pub body: text_editor::Content,
-    /// Parsed Markdown of the open message's HTML body.
-    pub body_md: Vec<iced::widget::markdown::Item>,
+    /// The open message's HTML, rendered into image tiles.
+    pub html_render: Option<crate::html_view::Rendered>,
+    pub html_rendering: bool,
+    /// Remote content loaded for this message despite the setting.
+    pub html_force_remote: Option<u32>,
+    /// Link under the pointer in the HTML view (shown at the bottom).
+    pub hover_link: Option<String>,
+    /// Last pointer position over the HTML view (logical, document coords).
+    pub html_pointer: Option<(f32, f32)>,
+    /// Where the hover link was last looked up (throttles hit tests).
+    hover_probe: Option<(f32, f32)>,
+    pub window_width: f32,
+    pub window_height: f32,
+    pub scale_factor: f32,
+    pub cursor: iced::Point,
+    pub menu: Option<ContextMenu>,
+    pub drag: Option<Drag>,
+    pub hover_row: Option<u32>,
+    pub drop_folder: Option<String>,
+    /// Action waiting for the message to load (reply/forward from the menu).
+    pending_action: Option<(u32, CtxAction)>,
     pub loading_message: bool,
     pub confirm_delete: bool,
     pub appearance_open: bool,
@@ -341,10 +395,33 @@ pub enum Message {
     Open(u32),
     Loaded(Res<FullMessage>),
     ToggleHtml,
+    HtmlRendered(Option<crate::html_view::Rendered>),
+    LoadRemoteImages,
+    ToggleRemoteImages(bool),
+    /// Pointer moved over the HTML view (document coordinates).
+    HtmlPointer(f32, f32),
+    HoverLink(Option<String>),
+    HtmlLeave,
+    HtmlClick,
+    WindowResized(iced::Size),
+    HtmlResizeSettled(f32),
+    ScaleFactor(f32),
+    // pointer, context menu, drag and drop
+    CursorMoved(iced::Point),
+    MouseDown,
+    MouseUp,
+    RowEnter(u32),
+    RowExit(u32),
+    FolderEnter(String),
+    FolderExit(String),
+    OpenMenu(u32),
+    CloseMenu,
+    MenuAction(u32, CtxAction),
     OpenLink(String),
     BodyAction(text_editor::Action),
     // message actions
     Reply,
+    ReplyAll,
     Forward,
     Archive,
     Delete,
@@ -440,7 +517,21 @@ impl App {
             selected: None,
             message: None,
             body: text_editor::Content::new(),
-            body_md: Vec::new(),
+            html_render: None,
+            html_rendering: false,
+            html_force_remote: None,
+            hover_link: None,
+            html_pointer: None,
+            hover_probe: None,
+            window_width: 1440.0,
+            window_height: 900.0,
+            scale_factor: 1.0,
+            cursor: iced::Point::ORIGIN,
+            menu: None,
+            drag: None,
+            hover_row: None,
+            drop_folder: None,
+            pending_action: None,
             loading_message: false,
             confirm_delete: false,
             appearance_open: false,
@@ -478,7 +569,10 @@ impl App {
             _ => {}
         }
         app.refresh_pgp();
-        let task = app.connect();
+        let scale = iced::window::latest()
+            .and_then(iced::window::scale_factor)
+            .map(Message::ScaleFactor);
+        let task = Task::batch([app.connect(), scale]);
         (app, task)
     }
 
@@ -502,6 +596,19 @@ impl App {
         let mut subs = vec![
             keyboard::listen().map(Message::Key),
             iced::time::every(AUTO_REFRESH).map(|_| Message::Tick),
+            iced::window::resize_events().map(|(_, size)| Message::WindowResized(size)),
+            iced::event::listen_with(|event, _status, _window| match event {
+                iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
+                    Some(Message::CursorMoved(position))
+                }
+                iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)) => {
+                    Some(Message::MouseDown)
+                }
+                iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)) => {
+                    Some(Message::MouseUp)
+                }
+                _ => None,
+            }),
         ];
         if std::env::var_os("FERROWL_SCREENSHOT").is_some() {
             let delay = std::env::var("FERROWL_SCREENSHOT_DELAY")
@@ -565,6 +672,101 @@ impl App {
         )
     }
 
+    // -------------------------------------------------------- message actions
+    // By UID, so they work on any row (context menu, drag and drop), not only
+    // on the open message.
+
+    fn run_action(&mut self, uid: u32, action: CtxAction) -> Task<Message> {
+        match action {
+            CtxAction::Open => self.open(uid),
+            CtxAction::Reply | CtxAction::ReplyAll | CtxAction::Forward => {
+                // These need the full message: open it first if needed.
+                if self.message.as_ref().is_some_and(|m| m.uid == uid) {
+                    self.update(match action {
+                        CtxAction::Reply => Message::Reply,
+                        CtxAction::ReplyAll => Message::ReplyAll,
+                        _ => Message::Forward,
+                    })
+                } else {
+                    self.pending_action = Some((uid, action));
+                    self.open(uid)
+                }
+            }
+            CtxAction::ToggleRead => self.toggle_read(uid),
+            CtxAction::Archive => self.archive(uid),
+            CtxAction::Delete => self.delete(uid),
+            CtxAction::Move(target) => self.move_message(uid, target),
+            CtxAction::MoveMenu => Task::none(),
+        }
+    }
+
+    fn archive(&mut self, uid: u32) -> Task<Message> {
+        let Some(folder) = self.current_folder.clone() else {
+            return Task::none();
+        };
+        if self.current_kind() == FolderKind::Archive {
+            return Task::none();
+        }
+        let b = self.backend.clone();
+        let folders = self.folders.clone();
+        self.perform(async move { b.archive(folder, uid, folders).await }, move |result| {
+            Message::Archived { uid, result }
+        })
+    }
+
+    fn delete(&mut self, uid: u32) -> Task<Message> {
+        let Some(folder) = self.current_folder.clone() else {
+            return Task::none();
+        };
+        match self.folder_by_kind(FolderKind::Trash).map(|f| f.name.clone()) {
+            // Outside Trash: move to Trash (recoverable).
+            Some(trash) if trash != folder => {
+                let b = self.backend.clone();
+                self.perform(async move { b.move_to(folder, uid, trash).await }, move |result| {
+                    Message::Done { uid, note: "moved_to_trash", result }
+                })
+            }
+            // In Trash (or no Trash folder): open it and ask for confirmation.
+            _ => {
+                let open = if self.selected != Some(uid) { self.open(uid) } else { Task::none() };
+                self.confirm_delete = true;
+                open
+            }
+        }
+    }
+
+    fn move_message(&mut self, uid: u32, target: String) -> Task<Message> {
+        let Some(folder) = self.current_folder.clone().filter(|f| *f != target) else {
+            return Task::none();
+        };
+        let b = self.backend.clone();
+        let refresh = self.refresh_unseen();
+        let mv = self.perform(async move { b.move_to(folder, uid, target).await }, move |result| {
+            Message::Done { uid, note: "moved_ok", result }
+        });
+        Task::batch([mv, refresh])
+    }
+
+    fn toggle_read(&mut self, uid: u32) -> Task<Message> {
+        let Some(folder) = self.current_folder.clone() else {
+            return Task::none();
+        };
+        let Some(seen) = self.header_mut(uid).map(|h| !h.seen) else {
+            return Task::none();
+        };
+        if let Some(h) = self.headers.iter_mut().find(|h| h.uid == uid) {
+            h.seen = seen;
+        }
+        if let Some(h) = self.search_results.iter_mut().flatten().find(|h| h.uid == uid) {
+            h.seen = seen;
+        }
+        if let Some(n) = self.unseen.get_mut(&folder) {
+            *n = if seen { n.saturating_sub(1) } else { *n + 1 };
+        }
+        let b = self.backend.clone();
+        self.perform(async move { b.set_seen(folder, uid, seen).await }, Message::SeenChanged)
+    }
+
     fn header_mut(&mut self, uid: u32) -> Option<&mut Header> {
         if self.headers.iter().any(|h| h.uid == uid) {
             self.headers.iter_mut().find(|h| h.uid == uid)
@@ -618,6 +820,42 @@ impl App {
         self.pgp_contacts = crate::crypto::contact_count();
     }
 
+    /// Logical width available to the message in the reader.
+    pub fn html_width(&self) -> u32 {
+        // sidebar 240 + list 410 + reader padding.
+        let w = (self.window_width - 650.0 - 80.0).clamp(320.0, 820.0);
+        (w as u32) / 20 * 20
+    }
+
+    /// Renders the open message's HTML in the background, if it has one and
+    /// the formatted view is selected.
+    fn start_html_render(&mut self) -> Task<Message> {
+        let Some(msg) = &self.message else {
+            return Task::none();
+        };
+        let Some(html) = msg.html.clone().filter(|_| self.config.ui.prefer_html) else {
+            return Task::none();
+        };
+        self.html_rendering = true;
+        let job = crate::html_view::Job {
+            uid: msg.uid,
+            html,
+            width: self.html_width(),
+            scale: self.scale_factor,
+            allow_remote: self.config.ui.load_remote_images || self.html_force_remote == Some(msg.uid),
+            inline: msg.inline.clone(),
+        };
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || crate::html_view::render(job))
+                    .await
+                    .ok()
+                    .flatten()
+            },
+            Message::HtmlRendered,
+        )
+    }
+
     fn reset_mailbox(&mut self) {
         self.folders.clear();
         self.headers.clear();
@@ -627,7 +865,8 @@ impl App {
         self.current_folder = None;
         self.selected = None;
         self.message = None;
-        self.body_md.clear();
+        self.html_render = None;
+        self.hover_link = None;
         self.unseen.clear();
         self.confirm_delete = false;
         self.last_sync = None;
@@ -767,6 +1006,9 @@ impl App {
         };
         self.selected = Some(uid);
         self.message = None;
+        self.html_render = None;
+        self.hover_link = None;
+        self.html_rendering = false;
         self.loading_message = true;
         self.confirm_delete = false;
         let b = self.backend.clone();
@@ -1164,13 +1406,17 @@ impl App {
                     }
                 }
                 self.body = text_editor::Content::with_text(&msg.body);
-                self.body_md = msg
-                    .html_md
-                    .as_deref()
-                    .map(|md| iced::widget::markdown::parse(md).collect())
-                    .unwrap_or_default();
                 self.message = Some(msg);
-                Task::none()
+                self.html_render = None;
+                self.hover_link = None;
+                let top = operation::snap_to(READER_ID, iced::widget::scrollable::RelativeOffset::START);
+                let pending = match self.pending_action.take() {
+                    Some((uid, action)) if self.message.as_ref().is_some_and(|m| m.uid == uid) => {
+                        self.run_action(uid, action)
+                    }
+                    _ => Task::none(),
+                };
+                Task::batch([top, self.start_html_render(), pending])
             }
             Message::Loaded(Err(e)) => {
                 self.loading_message = false;
@@ -1178,7 +1424,172 @@ impl App {
             }
             Message::ToggleHtml => {
                 self.config.ui.prefer_html = !self.config.ui.prefer_html;
+                let render = if self.html_render.is_none() { self.start_html_render() } else { Task::none() };
+                Task::batch([self.save_config(), render])
+            }
+            Message::HtmlRendered(rendered) => {
+                // Ignore results for a message that is no longer open.
+                if rendered.as_ref().map(|r| r.uid) == self.message.as_ref().map(|m| m.uid) {
+                    self.html_rendering = false;
+                    // First render of this message: start from the top (a re-render
+                    // after a resize keeps the position).
+                    let first = self.html_render.is_none();
+                    self.html_render = rendered;
+                    if first {
+                        return operation::snap_to(READER_ID, iced::widget::scrollable::RelativeOffset::START);
+                    }
+                }
+                Task::none()
+            }
+            Message::LoadRemoteImages => {
+                self.html_force_remote = self.message.as_ref().map(|m| m.uid);
+                self.start_html_render()
+            }
+            Message::ToggleRemoteImages(on) => {
+                self.config.ui.load_remote_images = on;
                 self.save_config()
+            }
+            Message::HtmlPointer(x, y) => {
+                self.html_pointer = Some((x, y));
+                if self.hover_probe.is_some_and(|(px, py)| (px - x).abs() + (py - y).abs() < 6.0) {
+                    return Task::none();
+                }
+                self.hover_probe = Some((x, y));
+                let Some(uid) = self.html_render.as_ref().map(|r| r.uid) else {
+                    return Task::none();
+                };
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || crate::html_view::link_at(uid, x, y))
+                            .await
+                            .ok()
+                            .flatten()
+                    },
+                    Message::HoverLink,
+                )
+            }
+            Message::HoverLink(link) => {
+                self.hover_link = link;
+                Task::none()
+            }
+            Message::HtmlLeave => {
+                self.hover_link = None;
+                self.html_pointer = None;
+                self.hover_probe = None;
+                Task::none()
+            }
+            Message::HtmlClick => {
+                let (Some((x, y)), Some(uid)) = (self.html_pointer, self.html_render.as_ref().map(|r| r.uid)) else {
+                    return Task::none();
+                };
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || crate::html_view::link_at(uid, x, y))
+                            .await
+                            .ok()
+                            .flatten()
+                    },
+                    |link| match link {
+                        Some(url) => Message::OpenLink(url),
+                        None => Message::Noop,
+                    },
+                )
+            }
+            Message::WindowResized(size) => {
+                self.window_width = size.width;
+                self.window_height = size.height;
+                // Re-layout the open HTML message for the new reader width (debounced).
+                match &self.html_render {
+                    Some(r) if r.width.abs_diff(self.html_width()) >= 40 => {
+                        let w = size.width;
+                        Task::perform(tokio::time::sleep(Duration::from_millis(250)), move |_| {
+                            Message::HtmlResizeSettled(w)
+                        })
+                    }
+                    _ => Task::none(),
+                }
+            }
+            Message::HtmlResizeSettled(w) => {
+                if (w - self.window_width).abs() < 1.0 && !self.html_rendering {
+                    self.start_html_render()
+                } else {
+                    Task::none()
+                }
+            }
+            Message::CursorMoved(at) => {
+                self.cursor = at;
+                if let Some(d) = self.drag.as_mut()
+                    && !d.active
+                    && (at.x - d.start.x).abs() + (at.y - d.start.y).abs() > 8.0
+                {
+                    d.active = true;
+                }
+                Task::none()
+            }
+            Message::MouseDown => {
+                // A press on a row may become a drag.
+                if self.menu.is_none()
+                    && self.compose.is_none()
+                    && let Some(uid) = self.hover_row
+                {
+                    let label = self
+                        .visible()
+                        .iter()
+                        .find(|h| h.uid == uid)
+                        .map(|h| ui::trunc(&h.subject, 40))
+                        .unwrap_or_default();
+                    self.drag = Some(Drag { uid, start: self.cursor, active: false, label });
+                }
+                Task::none()
+            }
+            Message::MouseUp => {
+                match (self.drag.take(), self.drop_folder.clone()) {
+                    (Some(d), Some(target)) if d.active => self.move_message(d.uid, target),
+                    _ => Task::none(),
+                }
+            }
+            Message::RowEnter(uid) => {
+                self.hover_row = Some(uid);
+                Task::none()
+            }
+            Message::RowExit(uid) => {
+                if self.hover_row == Some(uid) {
+                    self.hover_row = None;
+                }
+                Task::none()
+            }
+            Message::FolderEnter(name) => {
+                self.drop_folder = Some(name);
+                Task::none()
+            }
+            Message::FolderExit(name) => {
+                if self.drop_folder.as_deref() == Some(&name) {
+                    self.drop_folder = None;
+                }
+                Task::none()
+            }
+            Message::OpenMenu(uid) => {
+                self.drag = None;
+                self.menu = Some(ContextMenu { uid, at: self.cursor, folders: false });
+                Task::none()
+            }
+            Message::CloseMenu => {
+                self.menu = None;
+                Task::none()
+            }
+            Message::MenuAction(uid, action) => {
+                if action == CtxAction::MoveMenu {
+                    if let Some(m) = self.menu.as_mut() {
+                        m.folders = true;
+                    }
+                    return Task::none();
+                }
+                self.menu = None;
+                self.run_action(uid, action)
+            }
+            Message::ScaleFactor(f) => {
+                self.scale_factor = f;
+                Task::none()
             }
             Message::OpenLink(url) => {
                 if !crate::html::is_openable(&url) {
@@ -1217,26 +1628,38 @@ impl App {
                 }
                 Task::none()
             }
+            Message::ReplyAll => {
+                if let Some(m) = &self.message {
+                    let mut c = self.reply_draft(m);
+                    // Everyone else on the thread, without ourselves or duplicates.
+                    let me = self.config.account().map(|a| a.email.to_lowercase()).unwrap_or_default();
+                    let mut seen: HashSet<String> = [me, m.from_address.to_lowercase()].into_iter().collect();
+                    let mut keep = |list: &[String]| -> Vec<String> {
+                        list.iter().filter(|a| seen.insert(a.to_lowercase())).cloned().collect()
+                    };
+                    let to = keep(&m.to_addrs);
+                    let cc = keep(&m.cc_addrs);
+                    if !to.is_empty() {
+                        c.to = format!("{}, {}", c.to, to.join(", "));
+                    }
+                    if !cc.is_empty() {
+                        c.cc = cc.join(", ");
+                        c.show_cc = true;
+                    }
+                    self.compose = Some(c);
+                }
+                Task::none()
+            }
             Message::Forward => {
                 if let Some(m) = &self.message {
                     self.compose = Some(self.forward_draft(m));
                 }
                 Task::none()
             }
-            Message::Archive => {
-                let (Some(msg), Some(folder)) = (&self.message, self.current_folder.clone()) else {
-                    return Task::none();
-                };
-                if self.current_kind() == FolderKind::Archive {
-                    return Task::none();
-                }
-                let uid = msg.uid;
-                let b = self.backend.clone();
-                let folders = self.folders.clone();
-                self.perform(async move { b.archive(folder, uid, folders).await }, move |result| {
-                    Message::Archived { uid, result }
-                })
-            }
+            Message::Archive => match self.selected {
+                Some(uid) => self.archive(uid),
+                None => Task::none(),
+            },
             Message::Archived { uid, result } => match result {
                 Ok(target) => {
                     if self.folder_by_kind(FolderKind::Archive).is_none() {
@@ -1257,36 +1680,15 @@ impl App {
                 }
                 Err(e) => self.toast(e, true),
             },
-            Message::Delete => {
-                let (Some(msg), Some(folder)) = (&self.message, self.current_folder.clone()) else {
-                    return Task::none();
-                };
-                let uid = msg.uid;
-                let trash = self.folder_by_kind(FolderKind::Trash).map(|f| f.name.clone());
-                match trash {
-                    // Outside Trash: move to Trash (recoverable).
-                    Some(trash) if trash != folder => {
-                        let b = self.backend.clone();
-                        self.perform(async move { b.move_to(folder, uid, trash).await }, move |result| {
-                            Message::Done { uid, note: "moved_to_trash", result }
-                        })
-                    }
-                    // In Trash (or no Trash folder): ask for confirmation.
-                    _ => {
-                        self.confirm_delete = true;
-                        Task::none()
-                    }
-                }
-            }
+            Message::Delete => match self.selected {
+                Some(uid) => self.delete(uid),
+                None => Task::none(),
+            },
             Message::ConfirmDelete(yes) => {
                 self.confirm_delete = false;
-                if !yes {
-                    return Task::none();
-                }
-                let (Some(msg), Some(folder)) = (&self.message, self.current_folder.clone()) else {
+                let (true, Some(uid), Some(folder)) = (yes, self.selected, self.current_folder.clone()) else {
                     return Task::none();
                 };
-                let uid = msg.uid;
                 let b = self.backend.clone();
                 self.perform(async move { b.delete_forever(folder, uid).await }, move |result| {
                     Message::Done { uid, note: "deleted_forever", result }
@@ -1299,25 +1701,10 @@ impl App {
                 }
                 Err(e) => self.toast(e, true),
             },
-            Message::ToggleRead => {
-                let (Some(uid), Some(folder)) = (self.selected, self.current_folder.clone()) else {
-                    return Task::none();
-                };
-                let Some(seen) = self.header_mut(uid).map(|h| !h.seen) else {
-                    return Task::none();
-                };
-                if let Some(h) = self.headers.iter_mut().find(|h| h.uid == uid) {
-                    h.seen = seen;
-                }
-                if let Some(h) = self.search_results.iter_mut().flatten().find(|h| h.uid == uid) {
-                    h.seen = seen;
-                }
-                if let Some(n) = self.unseen.get_mut(&folder) {
-                    *n = if seen { n.saturating_sub(1) } else { *n + 1 };
-                }
-                let b = self.backend.clone();
-                self.perform(async move { b.set_seen(folder, uid, seen).await }, Message::SeenChanged)
-            }
+            Message::ToggleRead => match self.selected {
+                Some(uid) => self.toggle_read(uid),
+                None => Task::none(),
+            },
             Message::SeenChanged(Ok(())) => Task::none(),
             Message::SeenChanged(Err(e)) => self.toast(e, true),
             Message::SaveAttachment(i) => {
@@ -1668,6 +2055,11 @@ impl App {
             }
             Message::DevScreenshot => {
                 // Open the first message so the reader pane is populated.
+                if std::env::var_os("FERROWL_DEV_MENU").is_some() && self.menu.is_none() {
+                    if let Some(uid) = self.visible().get(1).map(|h| h.uid) {
+                        self.menu = Some(ContextMenu { uid, at: iced::Point::new(420.0, 260.0), folders: false });
+                    }
+                }
                 if std::env::var_os("FERROWL_SCREENSHOT_OPEN").is_some() && self.selected.is_none() {
                     if let Some(uid) = self.visible().first().map(|h| h.uid) {
                         return self.open(uid);
@@ -1704,7 +2096,11 @@ impl App {
             return Task::none();
         };
         if let Key::Named(Named::Escape) = key {
-            if self.appearance_open {
+            if self.menu.is_some() {
+                self.menu = None;
+            } else if self.drag.is_some() {
+                self.drag = None;
+            } else if self.appearance_open {
                 self.appearance_open = false;
             } else if self.confirm_delete {
                 self.confirm_delete = false;
@@ -1726,6 +2122,7 @@ impl App {
         match key.as_ref() {
             Key::Character("c") => self.update(Message::ComposeNew),
             Key::Character("r") => self.update(Message::Reply),
+            Key::Character("a") => self.update(Message::ReplyAll),
             Key::Character("f") => self.update(Message::Forward),
             Key::Character("e") => self.update(Message::Archive),
             Key::Character("u") => self.update(Message::ToggleRead),

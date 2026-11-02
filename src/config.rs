@@ -79,6 +79,8 @@ pub struct Ui {
     pub prefer_html: bool,
     /// Desktop notification for new mail in the inbox.
     pub notifications: bool,
+    /// Load remote images/styles in HTML mail (senders can see when it is opened).
+    pub load_remote_images: bool,
 }
 
 impl Default for Ui {
@@ -91,6 +93,7 @@ impl Default for Ui {
             rich_compose: true,
             prefer_html: true,
             notifications: true,
+            load_remote_images: true,
         }
     }
 }

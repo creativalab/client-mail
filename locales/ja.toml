@@ -229,3 +229,16 @@ pgp_exported = "公開鍵を {path} に保存しました"
 pgp_passphrase_mismatch = "保存されたパスフレーズではこの鍵を解除できません。"
 pgp_passphrase_saved = "パスフレーズを保存しました。"
 pgp_save = "保存"
+
+# HTML view
+html_loading = "メッセージを読み込み中…"
+images_blocked = "このメッセージのリモート画像はブロックされています。"
+load_images = "画像を読み込む"
+remote_images = "リモート画像を読み込む"
+remote_images_desc = "HTML メールの画像は送信者のサーバーからダウンロードされるため、開封したことが相手に分かる場合があります。"
+reply_all = "全員に返信"
+
+# Context menu, drag and drop
+open = "開く"
+move_to = "移動先"
+moved_ok = "メッセージを移動しました。"

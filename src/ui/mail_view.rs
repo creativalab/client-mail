@@ -1,7 +1,7 @@
 //! Main window: top bar · folders · list · reader (Main.dc.html).
 
 use super::*;
-use crate::app::{App, Conn, ListFilter, SEARCH_ID, Section};
+use crate::app::{App, Conn, ListFilter, READER_ID, SEARCH_ID, Section};
 use crate::i18n::{self, SUPPORT_EMAIL, t, tf};
 use crate::mail::{Folder, FolderKind};
 use crate::theme;
@@ -30,6 +30,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let mut layers: Vec<Element<'_, Message>> = vec![base.into()];
     if app.appearance_open {
         layers.push(appearance_popover(app, p));
+    }
+    if let Some(d) = app.drag.as_ref().filter(|d| d.active) {
+        layers.push(drag_label(app, d, p));
+    }
+    if let Some(m) = &app.menu {
+        layers.push(context_menu(app, m, p));
     }
     if let Some(c) = &app.compose {
         layers.push(super::compose::view(app, c, p));
@@ -259,7 +265,33 @@ fn section_label<'a>(s: &str, p: Palette) -> Element<'a, Message> {
         .into()
 }
 
+/// Drop target highlight while a message is dragged over a folder.
+fn droppable<'a>(app: &App, name: &str, content: Element<'a, Message>, p: Palette) -> Element<'a, Message> {
+    let dragging = app.drag.as_ref().is_some_and(|d| d.active);
+    let over = dragging && app.drop_folder.as_deref() == Some(name);
+    let content: Element<'a, Message> = if over {
+        container(content)
+            .style(move |_| container::Style {
+                background: Some(Background::Color(p.soft)),
+                border: Border { color: p.accent, width: 2.0, radius: radius(9.0) },
+                ..Default::default()
+            })
+            .into()
+    } else {
+        content
+    };
+    mouse_area(content)
+        .on_enter(Message::FolderEnter(name.to_string()))
+        .on_exit(Message::FolderExit(name.to_string()))
+        .into()
+}
+
 fn folder_item<'a>(app: &App, p: Palette, f: &Folder, label: String, count: u32) -> Element<'a, Message> {
+    let item = folder_button(app, p, f, label, count);
+    droppable(app, &f.name, item, p)
+}
+
+fn folder_button<'a>(app: &App, p: Palette, f: &Folder, label: String, count: u32) -> Element<'a, Message> {
     let active = app.current_folder.as_deref() == Some(f.name.as_str());
     let fg = if active { p.active_text } else { p.text2 };
     let count = if count > 0 { count.to_string() } else { String::new() };
@@ -376,7 +408,10 @@ fn push_node<'a>(app: &App, p: Palette, rows: &mut Vec<Element<'a, Message>>, no
         dir_row(vec![
             space().width(depth as f32 * 14.0).into(),
             chevron,
-            label.into(),
+            match &node.folder {
+                Some(f) => droppable(app, f, label.into(), p),
+                None => label.into(),
+            },
         ])
         .align_y(Alignment::Center)
         .into(),
@@ -518,6 +553,12 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             } else {
                 row_btn.into()
             };
+            // Hover tracking (drag start) and right-click menu.
+            let uid = h.uid;
+            let item = mouse_area(item)
+                .on_enter(Message::RowEnter(uid))
+                .on_exit(Message::RowExit(uid))
+                .on_right_press(Message::OpenMenu(uid));
             col = col.push(item).push(hline(p.line_soft));
         }
         scrollable(col).height(Fill).style(scroll_style(p)).into()
@@ -572,10 +613,11 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             .into();
     };
 
-    let show_html = app.config.ui.prefer_html && msg.html_md.is_some();
+    let show_html = app.config.ui.prefer_html && msg.html.is_some();
     let kind = app.current_kind();
     let mut tools = vec![
         tool_btn(p, icons::REPLY, Some(t("reply")), Message::Reply),
+        tooltip(tool_btn(p, icons::REPLY_ALL, None, Message::ReplyAll), t("reply_all"), p),
         tool_btn(p, icons::FORWARD, Some(t("forward")), Message::Forward),
     ];
     if kind != FolderKind::Archive {
@@ -589,7 +631,7 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     tools.push(tooltip(tool_btn(p, icons::TRASH, None, Message::Delete), delete_tip, p));
     tools.push(tooltip(tool_btn(p, icons::MAIL, None, Message::ToggleRead), t("mark_unread"), p));
     tools.push(space::horizontal().into());
-    if msg.html_md.is_some() {
+    if msg.html.is_some() {
         let label = if show_html { t("view_text") } else { t("view_html") };
         tools.push(tooltip(
             button(text(label).size(12).font(medium()))
@@ -603,7 +645,7 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     if let Some(pgp) = &msg.pgp {
         let chip = |label: &'static str, bg: Color, fg: Color| -> Element<'a, Message> {
             container(
-                row![icon(icons::LOCK, 14.0, fg), text(label).size(12).font(medium())]
+                row![icon(icons::LOCK, 14.0, fg), text(label).size(12).font(medium()).wrapping(Wrapping::None)]
                     .spacing(6)
                     .align_y(Alignment::Center),
             )
@@ -627,7 +669,7 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     if msg.dkim_pass {
         tools.push(
             container(
-                row![icon(icons::LOCK, 14.0, p.sec_text), text(t("dkim_ok")).size(12).font(medium())]
+                row![icon(icons::LOCK, 14.0, p.sec_text), text(t("dkim_ok")).size(12).font(medium()).wrapping(Wrapping::None)]
                     .spacing(6)
                     .align_y(Alignment::Center),
             )
@@ -696,11 +738,7 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     .align_y(Alignment::Center);
 
     let body: Element<'a, Message> = if show_html {
-        container(
-            iced::widget::markdown::view(&app.body_md, md_settings(p, 15.0)).map(Message::OpenLink),
-        )
-        .style(move |_| container::Style { text_color: Some(p.text2), ..Default::default() })
-        .into()
+        html_body(app, p)
     } else {
         text_editor(&app.body)
             .on_action(Message::BodyAction)
@@ -772,40 +810,124 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         );
     }
 
-    let quick = button(
-        dir_row(vec![
-            icon(icons::REPLY, 18.0, p.muted),
-            text(tf("quick_reply", &[("name", &msg.from)])).size(14).color(p.muted).width(Fill).into(),
-            kbd("R", p),
-        ])
-        .spacing(12)
-        .align_y(Alignment::Center),
+    // Sticky Reply / Forward, centered at the bottom of the reading pane.
+    let action = |svg: &'static str, label: &'static str, key: &'static str, msg: Message| {
+        button(
+            row![
+                icon(svg, 16.0, p.text),
+                text(label).size(14).font(medium()).color(p.text),
+                kbd(key, p),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center),
+        )
+        .padding([10, 16])
+        .style(move |_, st| button::Style {
+            background: Some(Background::Color(if matches!(st, button::Status::Hovered) {
+                p.chip
+            } else {
+                p.bg
+            })),
+            text_color: p.text,
+            border: Border { color: p.field, width: 1.0, radius: radius(999.0) },
+            shadow: Shadow {
+                color: Color::from_rgba(0.0, 0.0, 0.0, 0.12),
+                offset: Vector::new(0.0, 4.0),
+                blur_radius: 14.0,
+            },
+            ..Default::default()
+        })
+        .on_press(msg)
+    };
+    let actions = container(
+        row![
+            action(icons::REPLY, t("reply"), "R", Message::Reply),
+            action(icons::REPLY_ALL, t("reply_all"), "A", Message::ReplyAll),
+            action(icons::FORWARD, t("forward"), "F", Message::Forward),
+        ]
+        .spacing(12),
     )
-    .width(Fill)
-    .padding([14, 16])
-    .style(move |_, st| button::Style {
-        background: Some(Background::Color(if matches!(st, button::Status::Hovered) {
-            p.chip
-        } else {
-            p.bg
-        })),
-        text_color: p.muted,
-        border: Border { color: p.field, width: 1.0, radius: radius(12.0) },
-        ..Default::default()
-    })
-    .on_press(Message::Reply);
-    content = content.push(quick);
+    .center_x(Fill)
+    .align_bottom(Fill)
+    .padding(Padding { top: 0.0, right: 0.0, bottom: 18.0, left: 0.0 });
+    // Room so the end of the message is not hidden behind the buttons.
+    content = content.push(space().height(56));
 
     let mut col = column![toolbar, hline(p.line)];
     if let Some(c) = confirm {
         col = col.push(c);
     }
-    col = col.push(
-        scrollable(container(content).padding([28, 40]).width(Fill))
-            .height(Fill)
-            .style(scroll_style(p)),
-    );
+    let scroll = scrollable(container(content).padding([28, 40]).width(Fill))
+        .id(READER_ID)
+        .height(Fill)
+        .style(scroll_style(p));
+    // Destination of the link under the pointer, like a browser's status bar.
+    let status: Element<'a, Message> = match &app.hover_link {
+        Some(url) if show_html => container(
+            container(text(trunc(url, 70)).size(12).font(MONO).color(p.text2))
+                .padding([4, 10])
+                .style(chip_box(p.chip, p.text2, 6.0)),
+        )
+        .padding(8)
+        .align_bottom(Fill)
+        .into(),
+        _ => space().into(),
+    };
+    col = col.push(stack![scroll, actions, status]);
     container(col).width(Fill).height(Fill).style(panel(p.bg)).into()
+}
+
+/// The HTML message as rendered tiles, with link hover/click.
+fn html_body<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
+    let Some(r) = &app.html_render else {
+        return container(text(t("html_loading")).size(14).color(p.muted))
+            .padding([24, 0])
+            .into();
+    };
+    let pointer = app.hover_link.is_some();
+    let mut tiles = Column::new();
+    let mut offset = 0.0;
+    for (handle, h) in &r.tiles {
+        let top = offset;
+        tiles = tiles.push(
+            mouse_area(iced::widget::image(handle.clone()).width(r.width as f32).height(*h))
+                .on_move(move |pt| Message::HtmlPointer(pt.x, pt.y + top))
+                .on_press(Message::HtmlClick)
+                .on_exit(Message::HtmlLeave)
+                .interaction(if pointer {
+                    iced::mouse::Interaction::Pointer
+                } else {
+                    iced::mouse::Interaction::Idle
+                }),
+        );
+        offset += h;
+    }
+    let page = container(tiles)
+        .clip(true)
+        .style(move |_| container::Style {
+            border: Border { color: p.line_soft, width: 1.0, radius: radius(10.0) },
+            ..Default::default()
+        });
+    let mut col = Column::new().spacing(12);
+    if r.blocked_remote {
+        col = col.push(
+            container(
+                dir_row(vec![
+                    text(t("images_blocked")).size(13).color(p.text2).width(Fill).into(),
+                    button(text(t("load_images")).size(13).font(medium()))
+                        .padding([6, 12])
+                        .style(outline_btn(p, p.text))
+                        .on_press(Message::LoadRemoteImages)
+                        .into(),
+                ])
+                .spacing(10)
+                .align_y(Alignment::Center),
+            )
+            .padding([8, 12])
+            .style(chip_box(p.chip, p.text2, 10.0)),
+        );
+    }
+    col.push(page).into()
 }
 
 // ---------------------------------------------------------------- Appearance panel
@@ -965,4 +1087,109 @@ pub fn toast_layer<'a>(app: &'a App, p: Palette) -> Option<Element<'a, Message>>
             .padding(24)
             .into(),
     )
+}
+
+// ---------------------------------------------------------------- drag and drop
+
+/// Label following the pointer while a message is dragged.
+fn drag_label<'a>(app: &'a App, d: &'a crate::app::Drag, p: Palette) -> Element<'a, Message> {
+    let chip = container(
+        row![icon(icons::MAIL, 14.0, p.on_accent), text(d.label.clone()).size(13).font(medium())]
+            .spacing(8)
+            .align_y(Alignment::Center),
+    )
+    .padding([6, 12])
+    .style(move |_| container::Style {
+        background: Some(Background::Color(p.accent)),
+        text_color: Some(p.on_accent),
+        border: Border { radius: radius(999.0), ..Default::default() },
+        shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.2), offset: Vector::new(0.0, 4.0), blur_radius: 12.0 },
+        ..Default::default()
+    });
+    container(chip)
+        .padding(Padding { top: app.cursor.y + 14.0, left: app.cursor.x + 14.0, right: 0.0, bottom: 0.0 })
+        .width(Fill)
+        .height(Fill)
+        .into()
+}
+
+// ---------------------------------------------------------------- context menu
+
+fn context_menu<'a>(app: &'a App, m: &'a crate::app::ContextMenu, p: Palette) -> Element<'a, Message> {
+    use crate::app::CtxAction;
+    let uid = m.uid;
+    let item = |svg: &'static str, label: String, action: CtxAction, danger: bool| -> Element<'a, Message> {
+        let fg = if danger { p.danger } else { p.text };
+        button(
+            row![icon(svg, 15.0, fg), text(label).size(13).color(fg)]
+                .spacing(10)
+                .align_y(Alignment::Center),
+        )
+        .width(Fill)
+        .padding([7, 12])
+        .style(ghost(p, fg))
+        .on_press(Message::MenuAction(uid, action))
+        .into()
+    };
+    let sep = || container(space().height(1)).width(Fill).style(panel(p.line_soft)).into();
+
+    let header = app.visible().into_iter().find(|h| h.uid == uid).cloned();
+    let seen = header.as_ref().is_some_and(|h| h.seen);
+    let kind = app.current_kind();
+
+    let items: Vec<Element<'a, Message>> = if m.folders {
+        // "Move to…": every selectable folder but the current one.
+        let mut list = Column::new().spacing(2);
+        for f in app.folders.iter().filter(|f| f.selectable && Some(&f.name) != app.current_folder.as_ref()) {
+            list = list.push(item(kind_icon(f.kind), trunc(&f.display(), 32), CtxAction::Move(f.name.clone()), false));
+        }
+        vec![
+            container(text(t("move_to")).size(12).font(semibold()).color(p.muted)).padding([6, 12]).into(),
+            scrollable(list).height(iced::Length::Shrink).style(scroll_style(p)).into(),
+        ]
+    } else {
+        let mut v = vec![
+            item(icons::MAIL, t("open").into(), CtxAction::Open, false),
+            sep(),
+            item(icons::REPLY, t("reply").into(), CtxAction::Reply, false),
+            item(icons::REPLY_ALL, t("reply_all").into(), CtxAction::ReplyAll, false),
+            item(icons::FORWARD, t("forward").into(), CtxAction::Forward, false),
+            sep(),
+            item(icons::MAIL, if seen { t("mark_unread") } else { t("mark_read") }.into(), CtxAction::ToggleRead, false),
+        ];
+        if kind != FolderKind::Archive {
+            v.push(item(icons::ARCHIVE, t("archive").into(), CtxAction::Archive, false));
+        }
+        v.push(item(icons::FOLDER, format!("{}…", t("move_to")), CtxAction::MoveMenu, false));
+        v.push(sep());
+        let delete = if kind == FolderKind::Trash { t("delete_forever") } else { t("delete") };
+        v.push(item(icons::TRASH, delete.into(), CtxAction::Delete, true));
+        v
+    };
+
+    let menu = container(Column::with_children(items).spacing(2))
+        .width(240)
+        .max_height(420)
+        .padding(6)
+        .style(move |_| container::Style {
+            background: Some(Background::Color(p.bg)),
+            border: Border { color: p.line, width: 1.0, radius: radius(10.0) },
+            shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.18), offset: Vector::new(0.0, 8.0), blur_radius: 24.0 },
+            ..Default::default()
+        });
+    // Keep the menu inside the window.
+    let x = m.at.x.min(app.window_width - 250.0).max(0.0);
+    let y = m.at.y.min(app.window_height - 400.0).max(0.0);
+    let placed = container(opaque(menu))
+        .padding(Padding { top: y, left: x, right: 0.0, bottom: 0.0 });
+    // Click anywhere else closes it.
+    stack![
+        mouse_area(container(space()).width(Fill).height(Fill))
+            .on_press(Message::CloseMenu)
+            .on_right_press(Message::CloseMenu),
+        placed,
+    ]
+    .width(Fill)
+    .height(Fill)
+    .into()
 }

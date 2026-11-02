@@ -11,7 +11,8 @@ A fast desktop email client written in Rust, with a native UI built on [iced](ht
 - Special folders detected automatically (Inbox, Sent, Drafts, Archive, Spam, Trash), unread counters, collapsible tree for all other folders
 - List filters (All / Unread / Attachments) and search with `from:`, `has:attachment`, `is:unread`
 - **Local cache + full-text search** (SQLite FTS5): folders open instantly from the cache, older messages are indexed in the background, and search covers sender, subject and text of every cached message (prefix matching, accents ignored)
-- Reply, forward (with original attachments), archive, mark as unread
+- Reply, reply all, forward (with original attachments), archive, mark as unread — also from sticky buttons at the bottom of the message and from the **right-click menu** on any message (open, reply, reply all, forward, read/unread, archive, move to…, delete)
+- **Drag and drop** messages onto a folder in the sidebar to move them
 - **Delete moves to Trash**; deleting inside Trash asks for confirmation and removes the message for good
 - Sent messages are saved to the Sent folder
 - Compose with Cc/Bcc and file attachments
@@ -19,10 +20,10 @@ A fast desktop email client written in Rust, with a native UI built on [iced](ht
 - Attachments saved to the Downloads folder with one click
 - DKIM badge when the server reports `dkim=pass`
 - **OpenPGP** (pure Rust, [rPGP](https://github.com/rpgp/rpgp)): create or import a key in Settings › Security, then *Sign* / *Encrypt* in the composer. PGP/MIME (RFC 3156) out, PGP/MIME and inline PGP in, with badges for encrypted / signed / invalid signature / unknown key. Public keys travel automatically in the `Autocrypt` header; others can be imported from `.asc` files. Replies to encrypted mail are encrypted by default. Interoperability checked against GnuPG 2.4 (both directions, signatures and encryption)
-- HTML mail shown formatted (headings, emphasis, lists, quotes, links, tables) without a web engine: scripts, styles and forms are dropped and **images/remote content are never loaded**, so tracking pixels don't fire. One click switches to plain text. Links open in the browser; `mailto:` links open a new message.
+- **HTML mail rendered like a browser** with [Blitz](https://github.com/DioxusLabs/blitz) (Firefox's Stylo CSS engine, no JavaScript): layout, colors, tables and images. Remote images can be turned off in Settings › Security (they let senders know when you open a message); `cid:` inline images always work. Links show their destination on hover and open in the browser; `mailto:` opens a new message. One click switches to plain text
 - **6 color themes** (Ruggine, Ardesia, Bosco, Lavanda, Sabbia, Notte) defined in [`design/themes.json`](design/themes.json)
 - **10 languages**: English, Italiano, Français, Deutsch, Español, Português, 中文, 日本語, 한국어, العربية (right-to-left layout). The system language is used by default, falling back to English.
-- Keyboard shortcuts: `C` compose · `R` reply · `F` forward · `E` archive · `U` mark unread · `J`/`K` or ↓/↑ next/previous · `Del` delete · `Ctrl K` or `/` search · `Ctrl Enter` send · `Esc` close
+- Keyboard shortcuts: `C` compose · `R` reply · `A` reply all · `F` forward · `E` archive · `U` mark unread · `J`/`K` or ↓/↑ next/previous · `Del` delete · `Ctrl K` or `/` search · `Ctrl Enter` send · `Esc` close
 - **Push**: a second IMAP connection waits in IDLE on the inbox, so new mail shows up as soon as the server reports it, with a desktop notification (can be turned off in Settings › General). Servers without IDLE fall back to the refresh every 2 minutes
 
 ## Download
@@ -39,7 +40,7 @@ The binaries are not signed yet:
 cargo run --release
 ```
 
-Requires Rust 1.85+ (edition 2024). On Linux no extra system packages are needed besides a graphics driver; the app runs on Wayland and X11.
+Requires Rust 1.91+ (edition 2024). On Linux the build needs the fontconfig headers (`sudo apt install libfontconfig1-dev` on Debian/Ubuntu); at runtime only a graphics driver and fontconfig (present on every desktop) are needed. The app runs on Wayland and X11.
 
 ## Configuration
 

@@ -229,3 +229,16 @@ pgp_exported = "Clé publique enregistrée dans {path}"
 pgp_passphrase_mismatch = "La phrase secrète enregistrée ne déverrouille pas cette clé."
 pgp_passphrase_saved = "Phrase secrète enregistrée."
 pgp_save = "Enregistrer"
+
+# HTML view
+html_loading = "Chargement du message…"
+images_blocked = "Les images distantes de ce message sont bloquées."
+load_images = "Charger les images"
+remote_images = "Charger les images distantes"
+remote_images_desc = "Les images des e-mails HTML sont téléchargées depuis les serveurs de l'expéditeur, qui peut ainsi savoir quand vous ouvrez le message."
+reply_all = "Répondre à tous"
+
+# Context menu, drag and drop
+open = "Ouvrir"
+move_to = "Déplacer vers"
+moved_ok = "Message déplacé."

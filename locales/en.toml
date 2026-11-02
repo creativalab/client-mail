@@ -229,3 +229,16 @@ pgp_exported = "Public key saved to {path}"
 pgp_passphrase_mismatch = "The saved passphrase does not unlock this key."
 pgp_passphrase_saved = "Passphrase saved."
 pgp_save = "Save"
+
+# HTML view
+html_loading = "Loading message…"
+images_blocked = "Remote images are blocked for this message."
+load_images = "Load images"
+remote_images = "Load remote images"
+remote_images_desc = "Pictures in HTML mail are downloaded from the sender's servers, which can tell when you open a message."
+reply_all = "Reply all"
+
+# Context menu, drag and drop
+open = "Open"
+move_to = "Move to"
+moved_ok = "Message moved."

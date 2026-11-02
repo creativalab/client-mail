@@ -229,3 +229,16 @@ pgp_exported = "Öffentlicher Schlüssel gespeichert unter {path}"
 pgp_passphrase_mismatch = "Die gespeicherte Passphrase entsperrt diesen Schlüssel nicht."
 pgp_passphrase_saved = "Passphrase gespeichert."
 pgp_save = "Speichern"
+
+# HTML view
+html_loading = "Nachricht wird geladen…"
+images_blocked = "Externe Bilder dieser Nachricht sind blockiert."
+load_images = "Bilder laden"
+remote_images = "Externe Bilder laden"
+remote_images_desc = "Bilder in HTML-Mails werden von den Servern des Absenders geladen, der so erkennen kann, wann Sie die Nachricht öffnen."
+reply_all = "Allen antworten"
+
+# Context menu, drag and drop
+open = "Öffnen"
+move_to = "Verschieben nach"
+moved_ok = "Nachricht verschoben."

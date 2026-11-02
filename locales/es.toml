@@ -229,3 +229,16 @@ pgp_exported = "Clave pública guardada en {path}"
 pgp_passphrase_mismatch = "La frase guardada no desbloquea esta clave."
 pgp_passphrase_saved = "Frase de contraseña guardada."
 pgp_save = "Guardar"
+
+# HTML view
+html_loading = "Cargando mensaje…"
+images_blocked = "Las imágenes remotas de este mensaje están bloqueadas."
+load_images = "Cargar imágenes"
+remote_images = "Cargar imágenes remotas"
+remote_images_desc = "Las imágenes del correo HTML se descargan de los servidores del remitente, que así puede saber cuándo abres el mensaje."
+reply_all = "Responder a todos"
+
+# Context menu, drag and drop
+open = "Abrir"
+move_to = "Mover a"
+moved_ok = "Mensaje movido."

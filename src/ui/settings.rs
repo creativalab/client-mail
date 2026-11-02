@@ -268,7 +268,17 @@ fn security(app: &App, p: Palette) -> Element<'_, Message> {
     .width(Fill)
     .style(card(p, p.line, 14.0));
 
-    column![title(t("section_security"), t("security_desc"), p), own, contacts]
+    let privacy = group(
+        vec![setting_row(
+            t("remote_images"),
+            t("remote_images_desc"),
+            switch(p, app.config.ui.load_remote_images, Message::ToggleRemoteImages),
+            p,
+            true,
+        )],
+        p,
+    );
+    column![title(t("section_security"), t("security_desc"), p), privacy, own, contacts]
         .spacing(28)
         .into()
 }

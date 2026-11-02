@@ -7,6 +7,7 @@ mod cache;
 mod config;
 mod crypto;
 mod html;
+mod html_view;
 mod i18n;
 mod mail;
 mod push;

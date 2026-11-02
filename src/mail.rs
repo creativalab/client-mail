@@ -214,13 +214,18 @@ pub struct FullMessage {
     pub from_address: String,
     pub to: String,
     pub cc: String,
+    /// Bare addresses of To and Cc (for "Reply all").
+    pub to_addrs: Vec<String>,
+    pub cc_addrs: Vec<String>,
     pub subject: String,
     pub timestamp: i64,
     pub message_id: Option<String>,
     pub references: Vec<String>,
     pub body: String,
-    /// HTML body converted to Markdown (only when the message has an HTML part).
-    pub html_md: Option<String>,
+    /// HTML body as sent (only when the message has an HTML part).
+    pub html: Option<String>,
+    /// Inline parts referenced as `cid:` from the HTML, by Content-ID.
+    pub inline: HashMap<String, Vec<u8>>,
     pub attachments: Vec<Attachment>,
     /// DKIM result reported by the server (Authentication-Results header).
     pub dkim_pass: bool,
@@ -497,6 +502,11 @@ fn addr_list(addr: Option<AddressList>) -> String {
         .join(", ")
 }
 
+fn bare_list(addr: Option<AddressList>) -> Vec<String> {
+    addr.map(|a| a.mailboxes().filter_map(|m| m.address().map(str::to_string)).collect())
+        .unwrap_or_default()
+}
+
 fn one_line(s: &str, max: usize) -> String {
     let mut out = String::new();
     for word in s.split_whitespace() {
@@ -638,9 +648,14 @@ pub fn parse_full(uid: u32, raw: &[u8], keys: &PgpKeys) -> Result<FullMessage> {
         .filter(|part| matches!(part.kind(), mail_parser::PartKind::Html))
         .filter_map(|part| part.text().map(|t| t.into_owned()))
         .collect();
-    let html_md = (!html.is_empty())
-        .then(|| crate::html::to_markdown(&html.join("\n")))
-        .filter(|md| !md.is_empty());
+    let html = (!html.is_empty()).then(|| html.join("\n"));
+    let inline: HashMap<String, Vec<u8>> = msg
+        .parts()
+        .filter_map(|part| {
+            let id = part.content_id()?.trim().trim_matches(['<', '>']).to_string();
+            (!id.is_empty()).then(|| (id, part.decoded().into_owned()))
+        })
+        .collect();
     let attachments = msg
         .attachments()
         .enumerate()
@@ -666,12 +681,15 @@ pub fn parse_full(uid: u32, raw: &[u8], keys: &PgpKeys) -> Result<FullMessage> {
         from_address,
         to: addr_list(outer.to()),
         cc: addr_list(outer.cc()),
+        to_addrs: bare_list(outer.to()),
+        cc_addrs: bare_list(outer.cc()),
         subject: outer.subject().unwrap_or(t("no_subject")).to_string(),
         timestamp: outer.date().map(|d| d.to_timestamp()).unwrap_or(0),
         message_id: outer.message_id().map(str::to_string),
         references,
         body,
-        html_md,
+        html,
+        inline,
         attachments,
         dkim_pass,
         pgp,
@@ -1156,7 +1174,7 @@ mod tests {
         let pgp = m.pgp.clone().unwrap();
         assert!(pgp.encrypted && pgp.error.is_none(), "{pgp:?}");
         assert_eq!(pgp.signature, Some(SigState::Valid));
-        assert!(m.body.contains("àccénti") && m.html_md.is_some());
+        assert!(m.body.contains("àccénti") && m.html.is_some());
         assert_eq!(m.attachments.len(), 1);
         // Someone without the key cannot read it.
         let eve = crypto::generate("Eve", "eve@example.com", "").unwrap();

@@ -229,3 +229,16 @@ pgp_exported = "公钥已保存到 {path}"
 pgp_passphrase_mismatch = "保存的口令无法解锁此密钥。"
 pgp_passphrase_saved = "口令已保存。"
 pgp_save = "保存"
+
+# HTML view
+html_loading = "正在加载邮件…"
+images_blocked = "此邮件的远程图片已被阻止。"
+load_images = "加载图片"
+remote_images = "加载远程图片"
+remote_images_desc = "HTML 邮件中的图片从发件人的服务器下载，对方可以由此得知你何时打开了邮件。"
+reply_all = "全部回复"
+
+# Context menu, drag and drop
+open = "打开"
+move_to = "移动到"
+moved_ok = "邮件已移动。"

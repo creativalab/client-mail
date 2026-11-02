@@ -229,3 +229,16 @@ pgp_exported = "공개 키를 {path}에 저장했습니다"
 pgp_passphrase_mismatch = "저장된 암호로 이 키를 열 수 없습니다."
 pgp_passphrase_saved = "암호를 저장했습니다."
 pgp_save = "저장"
+
+# HTML view
+html_loading = "메시지를 불러오는 중…"
+images_blocked = "이 메시지의 원격 이미지가 차단되었습니다."
+load_images = "이미지 불러오기"
+remote_images = "원격 이미지 불러오기"
+remote_images_desc = "HTML 메일의 이미지는 보낸 사람의 서버에서 내려받으므로, 메시지를 연 시점을 상대가 알 수 있습니다."
+reply_all = "전체 답장"
+
+# Context menu, drag and drop
+open = "열기"
+move_to = "이동"
+moved_ok = "메시지를 이동했습니다."
