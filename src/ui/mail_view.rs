@@ -600,6 +600,30 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             p,
         ));
     }
+    if let Some(pgp) = &msg.pgp {
+        let chip = |label: &'static str, bg: Color, fg: Color| -> Element<'a, Message> {
+            container(
+                row![icon(icons::LOCK, 14.0, fg), text(label).size(12).font(medium())]
+                    .spacing(6)
+                    .align_y(Alignment::Center),
+            )
+            .padding([6, 10])
+            .style(chip_box(bg, fg, 8.0))
+            .into()
+        };
+        let warn_bg = mix(p.bg, p.danger, 0.1);
+        if pgp.error.is_some() {
+            tools.push(chip(t("badge_cannot_decrypt"), warn_bg, p.danger));
+        } else if pgp.encrypted {
+            tools.push(chip(t("badge_encrypted"), p.sec_bg, p.sec_text));
+        }
+        match pgp.signature {
+            Some(crate::mail::SigState::Valid) => tools.push(chip(t("badge_signed"), p.sec_bg, p.sec_text)),
+            Some(crate::mail::SigState::Invalid) => tools.push(chip(t("badge_sig_invalid"), warn_bg, p.danger)),
+            Some(crate::mail::SigState::UnknownKey) => tools.push(chip(t("badge_sig_unknown"), p.chip, p.text2)),
+            None => {}
+        }
+    }
     if msg.dkim_pass {
         tools.push(
             container(

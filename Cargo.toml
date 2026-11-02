@@ -9,6 +9,7 @@ readme = "README.md"
 
 [dependencies]
 anyhow = "1.0.104"
+base64 = "0.22"
 chrono = "0.4.45"
 dirs = "7.0.0"
 htmd = "0.5"
@@ -18,8 +19,10 @@ lettre = { version = "0.11.23", default-features = false, features = ["builder",
 mail-parser = "1.0.0"
 notify-rust = "4"
 open = "5"
+pgp = "0.21"
 png = "0.18"
 pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }
+rand = "0.8"
 rfd = "0.17.2"
 rusqlite = { version = "0.37", features = ["bundled"] }
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "logging", "tls12"] }

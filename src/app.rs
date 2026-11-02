@@ -28,6 +28,7 @@ pub enum Screen {
 pub enum Section {
     General,
     Accounts,
+    Security,
     Appearance,
 }
 
@@ -68,6 +69,9 @@ pub struct Compose {
     pub error: Option<String>,
     /// Markdown formatting on: the message also gets an HTML part.
     pub rich: bool,
+    /// OpenPGP options for this message.
+    pub sign: bool,
+    pub encrypt: bool,
     /// Rendered preview, shown instead of the editor while `Some`.
     pub preview: Option<Vec<iced::widget::markdown::Item>>,
 }
@@ -102,6 +106,8 @@ impl Compose {
             sending: false,
             error: None,
             rich: true,
+            sign: false,
+            encrypt: false,
             preview: None,
         }
     }
@@ -184,6 +190,8 @@ pub struct AccountDraft {
     pub imap_port: String,
     pub smtp_host: String,
     pub smtp_port: String,
+    /// Not shown in the form (edited under Security): carried through.
+    pub pgp_passphrase: String,
 }
 
 impl AccountDraft {
@@ -201,6 +209,7 @@ impl AccountDraft {
             imap_port: a.imap_port.to_string(),
             smtp_host: a.smtp_host.clone(),
             smtp_port: a.smtp_port.to_string(),
+            pgp_passphrase: a.pgp_passphrase.clone(),
         }
     }
 
@@ -214,6 +223,7 @@ impl AccountDraft {
             imap_port: self.imap_port.trim().parse().ok()?,
             smtp_host: self.smtp_host.trim().to_string(),
             smtp_port: self.smtp_port.trim().parse().ok()?,
+            pgp_passphrase: self.pgp_passphrase.clone(),
         };
         a.is_complete().then_some(a)
     }
@@ -264,6 +274,10 @@ pub struct App {
     pub indexed: HashSet<String>,
     /// Highest inbox UID seen so far: newer unseen messages are "new mail".
     pub inbox_max_uid: Option<u32>,
+    /// Fingerprint of the active account's OpenPGP key, if any.
+    pub pgp_fpr: Option<String>,
+    pub pgp_pass_draft: String,
+    pub pgp_contacts: usize,
     pub selected: Option<u32>,
     pub message: Option<FullMessage>,
     pub body: text_editor::Content,
@@ -306,6 +320,19 @@ pub enum Message {
     /// Inbox checked after a push while another folder is open.
     PushChecked(Res<(Vec<Header>, u32)>),
     ToggleNotifications(bool),
+    // OpenPGP
+    PgpGenerate,
+    PgpImportOwn,
+    PgpImportOwnPicked(Option<PathBuf>),
+    PgpExport,
+    PgpImportContacts,
+    PgpImportContactsPicked(Option<Vec<PathBuf>>),
+    PgpPassphrase(String),
+    PgpSavePassphrase,
+    /// Result of a key operation: toast text.
+    PgpDone(Res<String>),
+    ComposeToggleSign,
+    ComposeToggleEncrypt,
     Sync,
     Tick,
     // list
@@ -407,6 +434,9 @@ impl App {
             search_results: None,
             indexed: HashSet::new(),
             inbox_max_uid: None,
+            pgp_fpr: None,
+            pgp_pass_draft: String::new(),
+            pgp_contacts: 0,
             selected: None,
             message: None,
             body: text_editor::Content::new(),
@@ -431,6 +461,7 @@ impl App {
             Ok("settings") => app.screen = Screen::Settings(Section::Accounts),
             Ok("appearance") => app.screen = Screen::Settings(Section::Appearance),
             Ok("general") => app.screen = Screen::Settings(Section::General),
+            Ok("security") => app.screen = Screen::Settings(Section::Security),
             Ok("popover") => app.appearance_open = true,
             Ok("compose") => {
                 let mut c = Compose::new(ComposeMode::New);
@@ -446,6 +477,7 @@ impl App {
             }
             _ => {}
         }
+        app.refresh_pgp();
         let task = app.connect();
         (app, task)
     }
@@ -572,6 +604,20 @@ impl App {
         })
     }
 
+    /// Re-reads the OpenPGP state of the active account.
+    fn refresh_pgp(&mut self) {
+        self.refresh_pgp_for(self.config.active);
+    }
+
+    fn refresh_pgp_for(&mut self, i: usize) {
+        let account = self.config.accounts.get(i);
+        self.pgp_fpr = account
+            .and_then(|a| crate::crypto::own_key(&a.email))
+            .map(|k| crate::crypto::fingerprint(&k.to_public_key()));
+        self.pgp_pass_draft = account.map(|a| a.pgp_passphrase.clone()).unwrap_or_default();
+        self.pgp_contacts = crate::crypto::contact_count();
+    }
+
     fn reset_mailbox(&mut self) {
         self.folders.clear();
         self.headers.clear();
@@ -592,6 +638,7 @@ impl App {
     /// and are ignored (see `stale`).
     fn switch_account(&mut self, i: usize) -> Task<Message> {
         self.config.active = i;
+        self.refresh_pgp_for(i);
         self.generation += 1;
         self.backend = Backend::default();
         self.reset_mailbox();
@@ -782,6 +829,8 @@ impl App {
             &[("date", &ui::long_date(msg.timestamp)), ("name", &msg.from)],
         );
         c.body = text_editor::Content::with_text(&format!("\n\n{header}\n{quoted}"));
+        // Encrypted conversation stays encrypted.
+        c.encrypt = msg.pgp.as_ref().is_some_and(|p| p.encrypted) && self.pgp_fpr.is_some();
         c.in_reply_to = msg.message_id.clone();
         c.references = msg.references.clone();
         c
@@ -947,6 +996,129 @@ impl App {
                 Task::batch([notify, self.refresh_unseen()])
             }
             Message::PushChecked(Err(_)) => Task::none(),
+            Message::PgpGenerate => {
+                let Some(a) = self.config.account().cloned() else {
+                    return Task::none();
+                };
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || -> Res<String> {
+                            let key = crate::crypto::generate(&a.display_name, &a.email, &a.pgp_passphrase)
+                                .map_err(|e| format!("{e:#}"))?;
+                            crate::crypto::save_own_key(&a.email, &key).map_err(|e| format!("{e:#}"))?;
+                            Ok(t("pgp_generated").to_string())
+                        })
+                        .await
+                        .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    Message::PgpDone,
+                )
+            }
+            Message::PgpImportOwn => Task::perform(
+                async {
+                    rfd::AsyncFileDialog::new()
+                        .add_filter("OpenPGP", &["asc", "gpg", "pgp", "key"])
+                        .pick_file()
+                        .await
+                        .map(|f| f.path().to_path_buf())
+                },
+                Message::PgpImportOwnPicked,
+            ),
+            Message::PgpImportOwnPicked(Some(path)) => {
+                let Some(a) = self.config.account().cloned() else {
+                    return Task::none();
+                };
+                let result = crate::crypto::import_own_key(&a.email, &path)
+                    .map_err(|e| format!("{e:#}"))
+                    .and_then(|key| {
+                        // The saved passphrase must unlock the key, or signing would fail later.
+                        crate::crypto::sign(b"check", &key, &a.pgp_passphrase)
+                            .map(|_| t("pgp_imported_own").to_string())
+                            .map_err(|_| t("pgp_passphrase_mismatch").to_string())
+                    });
+                self.update(Message::PgpDone(result))
+            }
+            Message::PgpImportOwnPicked(None) | Message::PgpImportContactsPicked(None) => Task::none(),
+            Message::PgpExport => {
+                let Some(a) = self.config.account() else {
+                    return Task::none();
+                };
+                let result = match crate::crypto::own_public_armored(&a.email) {
+                    Some(armored) => save_attachment(&format!("{}.asc", a.email), armored.as_bytes())
+                        .map(|path| tf("pgp_exported", &[("path", &path.display().to_string())]))
+                        .map_err(|e| e.to_string()),
+                    None => Err(t("err_pgp_no_own_key").to_string()),
+                };
+                self.update(Message::PgpDone(result))
+            }
+            Message::PgpImportContacts => Task::perform(
+                async {
+                    rfd::AsyncFileDialog::new()
+                        .add_filter("OpenPGP", &["asc", "gpg", "pgp", "key"])
+                        .pick_files()
+                        .await
+                        .map(|fs| fs.into_iter().map(|f| f.path().to_path_buf()).collect())
+                },
+                Message::PgpImportContactsPicked,
+            ),
+            Message::PgpImportContactsPicked(Some(paths)) => {
+                let mut addresses = Vec::new();
+                let mut errors = Vec::new();
+                for p in paths {
+                    match crate::crypto::import_contact_keys(&p) {
+                        Ok(a) => addresses.extend(a),
+                        Err(e) => errors.push(format!("{}: {e:#}", p.display())),
+                    }
+                }
+                let result = if addresses.is_empty() {
+                    Err(errors.join("\n"))
+                } else {
+                    Ok(tf("pgp_imported", &[("list", &addresses.join(", "))]))
+                };
+                self.update(Message::PgpDone(result))
+            }
+            Message::PgpPassphrase(v) => {
+                self.pgp_pass_draft = v;
+                Task::none()
+            }
+            Message::PgpSavePassphrase => {
+                let i = self.config.active;
+                if let Some(a) = self.config.accounts.get_mut(i) {
+                    a.pgp_passphrase = self.pgp_pass_draft.clone();
+                    self.draft.pgp_passphrase = a.pgp_passphrase.clone();
+                }
+                let save = self.save_config();
+                // If a key exists, tell right away whether the passphrase unlocks it.
+                let check = match self.config.account() {
+                    Some(a) => match crate::crypto::own_key(&a.email) {
+                        Some(k) if crate::crypto::sign(b"check", &k, &a.pgp_passphrase).is_err() => {
+                            self.toast(t("pgp_passphrase_mismatch"), true)
+                        }
+                        _ => self.toast(t("pgp_passphrase_saved"), false),
+                    },
+                    None => Task::none(),
+                };
+                Task::batch([save, check])
+            }
+            Message::PgpDone(result) => {
+                self.refresh_pgp();
+                match result {
+                    Ok(msg) => self.toast(msg, false),
+                    Err(e) => self.toast(e, true),
+                }
+            }
+            Message::ComposeToggleSign => {
+                if let Some(c) = self.compose.as_mut() {
+                    c.sign = !c.sign;
+                }
+                Task::none()
+            }
+            Message::ComposeToggleEncrypt => {
+                if let Some(c) = self.compose.as_mut() {
+                    c.encrypt = !c.encrypt;
+                }
+                Task::none()
+            }
             Message::ToggleNotifications(on) => {
                 self.config.ui.notifications = on;
                 self.save_config()
@@ -1451,6 +1623,8 @@ impl App {
                     in_reply_to: c.in_reply_to.clone(),
                     references: c.references.clone(),
                     attachments: c.attachments.clone(),
+                    sign: c.sign,
+                    encrypt: c.encrypt,
                 };
                 let b = self.backend.clone();
                 Task::perform(async move { b.send(out, sent).await }, Message::ComposeSent)

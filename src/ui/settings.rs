@@ -59,6 +59,7 @@ pub fn view(app: &App, section: Section) -> Element<'_, Message> {
         column![
             nav_btn(Section::General, t("section_general")),
             nav_btn(Section::Accounts, t("section_accounts")),
+            nav_btn(Section::Security, t("section_security")),
             nav_btn(Section::Appearance, t("section_appearance")),
             space::vertical(),
             container(
@@ -79,6 +80,7 @@ pub fn view(app: &App, section: Section) -> Element<'_, Message> {
     let content = match section {
         Section::General => general(app, p),
         Section::Accounts => accounts(app, p),
+        Section::Security => security(app, p),
         Section::Appearance => appearance(app, p),
     };
     let main = scrollable(
@@ -191,6 +193,84 @@ fn general(app: &App, p: Palette) -> Element<'_, Message> {
     ]
     .spacing(28)
     .into()
+}
+
+// ---------------------------------------------------------------- Security
+
+fn security(app: &App, p: Palette) -> Element<'_, Message> {
+    let Some(acc) = app.config.account() else {
+        return title(t("section_security"), t("security_desc"), p);
+    };
+    let btn = |label: &'static str, msg: Message, primary: bool| -> Element<'_, Message> {
+        let b = button(text(label).size(14).font(medium())).height(40).padding([10, 16]).on_press(msg);
+        if primary { b.style(accent_btn(p)).into() } else { b.style(outline_btn(p, p.text)).into() }
+    };
+
+    let key_line: Element<'_, Message> = match &app.pgp_fpr {
+        Some(fpr) => column![
+            text(t("pgp_your_key")).size(13).font(medium()).color(p.text2),
+            text(fpr.clone()).font(MONO).size(13).color(p.text),
+        ]
+        .spacing(4)
+        .into(),
+        None => text(t("pgp_no_key")).size(14).color(p.muted).into(),
+    };
+    let mut actions = vec![];
+    if app.pgp_fpr.is_none() {
+        actions.push(btn(t("pgp_generate"), Message::PgpGenerate, true));
+    } else {
+        actions.push(btn(t("pgp_export"), Message::PgpExport, false));
+    }
+    actions.push(btn(t("pgp_import_own"), Message::PgpImportOwn, false));
+
+    let passphrase = column![
+        text(t("pgp_passphrase")).size(13).font(medium()).color(p.text2),
+        dir_row(vec![
+            text_input("", &app.pgp_pass_draft)
+                .on_input(Message::PgpPassphrase)
+                .on_submit(Message::PgpSavePassphrase)
+                .secure(true)
+                .size(14)
+                .padding([10, 12])
+                .style(input(p, 8.0))
+                .width(Fill)
+                .into(),
+            btn(t("pgp_save"), Message::PgpSavePassphrase, false),
+        ])
+        .spacing(10)
+        .align_y(Alignment::Center),
+        text(t("pgp_passphrase_desc")).size(12).color(p.muted),
+    ]
+    .spacing(6);
+
+    let own = container(
+        column![
+            text(tf("pgp_key_for", &[("email", &acc.email)])).size(16).font(INTER_BOLD).color(p.text),
+            key_line,
+            passphrase,
+            dir_row(actions).spacing(10),
+        ]
+        .spacing(18),
+    )
+    .padding(20)
+    .width(Fill)
+    .style(card(p, p.line, 14.0));
+
+    let contacts = container(
+        column![
+            text(t("pgp_contacts")).size(16).font(INTER_BOLD).color(p.text),
+            text(tf("pgp_contacts_desc", &[("n", &app.pgp_contacts.to_string())])).size(14).color(p.text2),
+            btn(t("pgp_import_contacts"), Message::PgpImportContacts, false),
+        ]
+        .spacing(14),
+    )
+    .padding(20)
+    .width(Fill)
+    .style(card(p, p.line, 14.0));
+
+    column![title(t("section_security"), t("security_desc"), p), own, contacts]
+        .spacing(28)
+        .into()
 }
 
 // ---------------------------------------------------------------- Accounts

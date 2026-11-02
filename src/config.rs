@@ -15,6 +15,9 @@ pub struct Account {
     pub smtp_host: String,
     /// 465 = implicit TLS, 587 = STARTTLS
     pub smtp_port: u16,
+    /// Passphrase of this account's OpenPGP key (empty = none).
+    #[serde(default)]
+    pub pgp_passphrase: String,
 }
 
 impl Default for Account {
@@ -28,6 +31,7 @@ impl Default for Account {
             imap_port: 993,
             smtp_host: String::new(),
             smtp_port: 465,
+            pgp_passphrase: String::new(),
         }
     }
 }

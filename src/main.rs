@@ -5,6 +5,7 @@ mod app;
 mod backend;
 mod cache;
 mod config;
+mod crypto;
 mod html;
 mod i18n;
 mod mail;

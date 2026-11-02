@@ -224,6 +224,118 @@ pub struct FullMessage {
     pub attachments: Vec<Attachment>,
     /// DKIM result reported by the server (Authentication-Results header).
     pub dkim_pass: bool,
+    /// OpenPGP status, if the message is encrypted or signed.
+    pub pgp: Option<PgpStatus>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SigState {
+    /// Signed with the key we hold for the sender.
+    Valid,
+    /// Signature does not match the content or the sender's key.
+    Invalid,
+    /// Signed, but we have no key for the sender.
+    UnknownKey,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PgpStatus {
+    pub encrypted: bool,
+    pub signature: Option<SigState>,
+    /// Decryption failed (reason).
+    pub error: Option<String>,
+}
+
+/// Keys used to open a message: our secret key (+ passphrase) and a lookup
+/// of correspondents' public keys.
+pub struct PgpKeys<'a> {
+    pub own: Option<(pgp::composed::SignedSecretKey, String)>,
+    pub contact: &'a dyn Fn(&str) -> Option<pgp::composed::SignedPublicKey>,
+}
+
+/// Unwraps PGP/MIME (RFC 3156). Returns the entity to display instead of
+/// the raw message (decrypted content, or the signed part without the
+/// signature) and the status; `(None, None)` for ordinary mail.
+pub fn unwrap_pgp(raw: &[u8], from: &str, keys: &PgpKeys) -> (Option<Vec<u8>>, Option<PgpStatus>) {
+    let Some(msg) = MessageParser::default().parse(raw) else {
+        return (None, None);
+    };
+    let Some(ct) = msg.content_type() else {
+        return (None, None);
+    };
+    let sub = ct.subtype().unwrap_or_default().to_ascii_lowercase();
+    if !ct.ctype().eq_ignore_ascii_case("multipart") {
+        return (None, None);
+    }
+    match sub.as_str() {
+        "encrypted" => {
+            let mut status = PgpStatus { encrypted: true, ..Default::default() };
+            let data = msg.parts().find(|p| {
+                p.content_type().is_some_and(|c| {
+                    c.ctype().eq_ignore_ascii_case("application")
+                        && c.subtype().is_some_and(|s| s.eq_ignore_ascii_case("octet-stream"))
+                })
+            });
+            let Some(data) = data.map(|p| p.decoded().into_owned()) else {
+                status.error = Some(t("pgp_malformed").into());
+                return (None, Some(status));
+            };
+            let Some((key, pass)) = &keys.own else {
+                status.error = Some(t("err_pgp_no_own_key").into());
+                return (None, Some(status));
+            };
+            match crate::crypto::decrypt(&data, key, pass) {
+                Ok(plain) => {
+                    // Signed then encrypted: check the inner signature.
+                    let (inner, inner_status) = unwrap_pgp(&plain, from, keys);
+                    status.signature = inner_status.and_then(|s| s.signature);
+                    (Some(inner.unwrap_or(plain)), Some(status))
+                }
+                Err(e) => {
+                    status.error = Some(format!("{e:#}"));
+                    (None, Some(status))
+                }
+            }
+        }
+        "signed" => {
+            // First child: exactly the signed bytes (mail-parser's raw part
+            // excludes the line break before the delimiter, as RFC 3156 wants).
+            let mut parts = msg.parts().skip(1);
+            let Some(signed) = parts.next().map(|p| p.raw().to_vec()) else {
+                return (None, None);
+            };
+            let signature = msg.parts().find(|p| {
+                p.content_type().is_some_and(|c| {
+                    c.subtype().is_some_and(|s| s.eq_ignore_ascii_case("pgp-signature"))
+                })
+            });
+            let Some(signature) = signature.map(|p| p.decoded().into_owned()) else {
+                return (None, None);
+            };
+            let canonical = crlf(&signed);
+            let state = match (keys.contact)(&from.to_lowercase()) {
+                Some(key) if crate::crypto::verify(&canonical, &signature, &key) => SigState::Valid,
+                Some(_) => SigState::Invalid,
+                None => SigState::UnknownKey,
+            };
+            (Some(signed), Some(PgpStatus { signature: Some(state), ..Default::default() }))
+        }
+        _ => (None, None),
+    }
+}
+
+/// Normalizes line endings to CRLF (signatures are over canonical text).
+fn crlf(data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(data.len() + data.len() / 40);
+    let mut prev = 0u8;
+    for &b in data {
+        if b == b'\n' && prev != b'\r' {
+            out.push(b'\r');
+        }
+        out.push(b);
+        prev = b;
+    }
+    out
 }
 
 #[derive(Debug, Clone, Default)]
@@ -238,6 +350,10 @@ pub struct Outgoing {
     pub in_reply_to: Option<String>,
     pub references: Vec<String>,
     pub attachments: Vec<PathBuf>,
+    /// OpenPGP: detached signature (PGP/MIME).
+    pub sign: bool,
+    /// OpenPGP: encrypt to all recipients (and to ourselves, for Sent).
+    pub encrypt: bool,
 }
 
 // ---------------------------------------------------------------- connection
@@ -471,22 +587,52 @@ fn fetch_range(session: &mut ImapSession, mailbox: imap::types::Mailbox, first: 
 }
 
 /// Downloads the full message (marks it as read on the server).
-pub fn fetch_message(session: &mut ImapSession, folder: &str, uid: u32) -> Result<FullMessage> {
+pub fn fetch_message(session: &mut ImapSession, folder: &str, uid: u32, keys: &PgpKeys) -> Result<FullMessage> {
     session.select(folder)?;
     let fetches = session.uid_fetch(uid.to_string(), "BODY[]")?;
     let raw = fetches
         .iter()
         .find_map(|f| f.body())
         .context(t("err_not_found"))?;
-    let msg = MessageParser::default()
+    parse_full(uid, raw, keys)
+}
+
+/// Builds the reader's view of a raw message (OpenPGP unwrapped).
+pub fn parse_full(uid: u32, raw: &[u8], keys: &PgpKeys) -> Result<FullMessage> {
+    let outer = MessageParser::default()
         .parse(raw)
         .context(t("err_unreadable"))?;
+    let (from, from_address) = first_addr(outer.from());
 
-    let (from, from_address) = first_addr(msg.from());
-    let body = msg
+    // Autocrypt: remember the sender's key (before checking signatures).
+    for value in raw_header_values(raw, "autocrypt") {
+        crate::crypto::learn_autocrypt(&from_address, &value);
+    }
+    let (inner, mut pgp) = unwrap_pgp(raw, &from_address, keys);
+    let inner_msg = inner.as_deref().and_then(|bytes| MessageParser::default().parse(bytes));
+    // Body, HTML and attachments come from the unwrapped content if any;
+    // headers always from the outer message.
+    let msg = inner_msg.as_ref().unwrap_or(&outer);
+
+    let mut body = msg
         .body_text(0)
         .map(|b| b.into_owned())
         .unwrap_or_else(|| t("no_text").into());
+    if let Some(status) = pgp.as_ref().and_then(|p| p.error.clone()) {
+        body = format!("{}\n\n{status}", t("pgp_cannot_decrypt"));
+    }
+    // Inline PGP (armored block in a plain-text body).
+    if pgp.is_none()
+        && body.contains("-----BEGIN PGP MESSAGE-----")
+        && let Some((key, pass)) = &keys.own
+    {
+        let mut status = PgpStatus { encrypted: true, ..Default::default() };
+        match crate::crypto::decrypt(body.as_bytes(), key, pass) {
+            Ok(plain) => body = String::from_utf8_lossy(&plain).into_owned(),
+            Err(e) => status.error = Some(format!("{e:#}")),
+        }
+        pgp = Some(status);
+    }
     let html: Vec<String> = msg
         .html_body()
         .filter(|part| matches!(part.kind(), mail_parser::PartKind::Html))
@@ -518,16 +664,17 @@ pub fn fetch_message(session: &mut ImapSession, folder: &str, uid: u32) -> Resul
         uid,
         from,
         from_address,
-        to: addr_list(msg.to()),
-        cc: addr_list(msg.cc()),
-        subject: msg.subject().unwrap_or(t("no_subject")).to_string(),
-        timestamp: msg.date().map(|d| d.to_timestamp()).unwrap_or(0),
-        message_id: msg.message_id().map(str::to_string),
+        to: addr_list(outer.to()),
+        cc: addr_list(outer.cc()),
+        subject: outer.subject().unwrap_or(t("no_subject")).to_string(),
+        timestamp: outer.date().map(|d| d.to_timestamp()).unwrap_or(0),
+        message_id: outer.message_id().map(str::to_string),
         references,
         body,
         html_md,
         attachments,
         dkim_pass,
+        pgp,
     })
 }
 
@@ -614,7 +761,7 @@ pub fn create_folder(session: &mut ImapSession, like: &[Folder], leaf: &str) -> 
 
 /// Sends via SMTP and returns the formatted message (to save it in Sent).
 pub fn send(account: &Account, mail: &Outgoing) -> Result<Vec<u8>> {
-    use lettre::message::{Attachment as LAttachment, Mailbox, MultiPart, SinglePart, header};
+    use lettre::message::Mailbox;
     use lettre::transport::smtp::authentication::Credentials;
     use lettre::{Message, SmtpTransport, Transport};
 
@@ -654,35 +801,14 @@ pub fn send(account: &Account, mail: &Outgoing) -> Result<Vec<u8>> {
         builder = builder.references(refs.join(" "));
     }
 
-    let text = SinglePart::builder()
-        .header(header::ContentType::TEXT_PLAIN)
-        .body(mail.body.clone());
-    let alternative = mail
-        .html
-        .as_ref()
-        .map(|html| MultiPart::alternative_plain_html(mail.body.clone(), html.clone()));
-    let email = if mail.attachments.is_empty() {
-        match alternative {
-            Some(alt) => builder.multipart(alt)?,
-            None => builder.singlepart(text)?,
-        }
-    } else {
-        let mut multi = match alternative {
-            Some(alt) => MultiPart::mixed().multipart(alt),
-            None => MultiPart::mixed().singlepart(text),
-        };
-        for path in &mail.attachments {
-            let data = std::fs::read(path)
-                .with_context(|| tf("err_attach_read", &[("path", &path.display().to_string())]))?;
-            let name = path
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| "attachment".into());
-            let ct = header::ContentType::parse(guess_mime(&name))
-                .unwrap_or(header::ContentType::parse("application/octet-stream").unwrap());
-            multi = multi.singlepart(LAttachment::new(name).body(data, ct));
-        }
-        builder.multipart(multi)?
+    let content = build_content(mail)?;
+    let content = protect(account, mail, content)?;
+    if let Some(value) = crate::crypto::autocrypt_header(&account.email) {
+        builder = builder.header(Autocrypt(value));
+    }
+    let email = match content {
+        Part::Single(p) => builder.singlepart(p)?,
+        Part::Multi(m) => builder.multipart(m)?,
     };
 
     let relay = if account.smtp_port == 465 {
@@ -732,6 +858,147 @@ fn guess_mime(name: &str) -> &'static str {
         "odt" => "application/vnd.oasis.opendocument.text",
         "ods" => "application/vnd.oasis.opendocument.spreadsheet",
         _ => "application/octet-stream",
+    }
+}
+
+/// A MIME body: one part or a multipart tree.
+enum Part {
+    Single(lettre::message::SinglePart),
+    Multi(lettre::message::MultiPart),
+}
+
+impl Part {
+    fn formatted(&self) -> Vec<u8> {
+        match self {
+            Part::Single(p) => p.formatted(),
+            Part::Multi(m) => m.formatted(),
+        }
+    }
+
+    fn into_multi(self, outer: lettre::message::MultiPartBuilder) -> lettre::message::MultiPart {
+        match self {
+            Part::Single(p) => outer.singlepart(p),
+            Part::Multi(m) => outer.multipart(m),
+        }
+    }
+}
+
+/// Text (+ HTML alternative) (+ attachments).
+fn build_content(mail: &Outgoing) -> Result<Part> {
+    use lettre::message::{Attachment as LAttachment, MultiPart, SinglePart, header};
+    let text = SinglePart::builder()
+        .header(header::ContentType::TEXT_PLAIN)
+        .body(mail.body.clone());
+    let alternative = mail
+        .html
+        .as_ref()
+        .map(|html| MultiPart::alternative_plain_html(mail.body.clone(), html.clone()));
+    if mail.attachments.is_empty() {
+        return Ok(match alternative {
+            Some(alt) => Part::Multi(alt),
+            None => Part::Single(text),
+        });
+    }
+    let mut multi = match alternative {
+        Some(alt) => MultiPart::mixed().multipart(alt),
+        None => MultiPart::mixed().singlepart(text),
+    };
+    for path in &mail.attachments {
+        let data = std::fs::read(path)
+            .with_context(|| tf("err_attach_read", &[("path", &path.display().to_string())]))?;
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "attachment".into());
+        let ct = header::ContentType::parse(guess_mime(&name))
+            .unwrap_or(header::ContentType::parse("application/octet-stream").unwrap());
+        multi = multi.singlepart(LAttachment::new(name).body(data, ct));
+    }
+    Ok(Part::Multi(multi))
+}
+
+/// Applies OpenPGP (RFC 3156): sign → multipart/signed; encrypt →
+/// multipart/encrypted (signed first when both).
+fn protect(account: &Account, mail: &Outgoing, content: Part) -> Result<Part> {
+    if !mail.sign && !mail.encrypt {
+        return Ok(content);
+    }
+    let own = crate::crypto::own_key(&account.email).ok_or_else(|| anyhow!(t("err_pgp_no_own_key")))?;
+    protect_with(mail, content, &own, &account.pgp_passphrase, &crate::crypto::contact_key)
+}
+
+fn protect_with(
+    mail: &Outgoing,
+    content: Part,
+    own: &pgp::composed::SignedSecretKey,
+    passphrase: &str,
+    contact: &dyn Fn(&str) -> Option<pgp::composed::SignedPublicKey>,
+) -> Result<Part> {
+    use lettre::message::{MultiPart, SinglePart, header::ContentType};
+    let mut content = content;
+    if mail.sign {
+        // RFC 3156: the line break before the next delimiter belongs to the
+        // delimiter, not to the signed part.
+        let mut signed_bytes = content.formatted();
+        if signed_bytes.ends_with(b"\r\n") {
+            signed_bytes.truncate(signed_bytes.len() - 2);
+        }
+        let signature = crate::crypto::sign(&signed_bytes, own, passphrase)?;
+        let sig_part = SinglePart::builder()
+            .header(ContentType::parse("application/pgp-signature; name=\"signature.asc\"").unwrap())
+            .body(signature);
+        let outer = MultiPart::signed("application/pgp-signature".into(), "pgp-sha256".into());
+        content = Part::Multi(content.into_multi(outer).singlepart(sig_part));
+    }
+    if mail.encrypt {
+        let mut keys = vec![own.to_public_key()];
+        let all = [&mail.to, &mail.cc, &mail.bcc]
+            .iter()
+            .flat_map(|s| s.split([',', ';']))
+            .map(|a| bare_address(a))
+            .filter(|a| !a.is_empty())
+            .collect::<Vec<_>>();
+        for address in all {
+            let key = contact(&address)
+                .ok_or_else(|| anyhow!(tf("err_pgp_no_key", &[("addr", &address)])))?;
+            keys.push(key);
+        }
+        let armored = crate::crypto::encrypt(&content.formatted(), &keys)?;
+        let version = SinglePart::builder()
+            .header(ContentType::parse("application/pgp-encrypted").unwrap())
+            .body(String::from("Version: 1\r\n"));
+        let data = SinglePart::builder()
+            .header(ContentType::parse("application/octet-stream; name=\"encrypted.asc\"").unwrap())
+            .body(armored);
+        content = Part::Multi(
+            MultiPart::encrypted("application/pgp-encrypted".into()).singlepart(version).singlepart(data),
+        );
+    }
+    Ok(content)
+}
+
+/// "Name <a@b.it>" → "a@b.it".
+pub fn bare_address(s: &str) -> String {
+    let s = s.trim();
+    match (s.rfind('<'), s.rfind('>')) {
+        (Some(a), Some(b)) if a < b => s[a + 1..b].trim().to_lowercase(),
+        _ => s.to_lowercase(),
+    }
+}
+
+/// `Autocrypt:` header (lettre has no type for it).
+#[derive(Clone)]
+struct Autocrypt(String);
+
+impl lettre::message::header::Header for Autocrypt {
+    fn name() -> lettre::message::header::HeaderName {
+        lettre::message::header::HeaderName::new_from_ascii_str("Autocrypt")
+    }
+    fn parse(s: &str) -> std::result::Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Autocrypt(s.to_string()))
+    }
+    fn display(&self) -> lettre::message::header::HeaderValue {
+        lettre::message::header::HeaderValue::new(Self::name(), self.0.clone())
     }
 }
 
@@ -827,5 +1094,80 @@ mod tests {
         // The session is still usable after IDLE.
         assert!(s.select("INBOX").unwrap().exists > 0);
         let _ = s.logout();
+    }
+
+    #[test]
+    fn pgp_mime_roundtrip() {
+        use crate::crypto;
+        let alice = crypto::generate("Alice", "alice@example.com", "a").unwrap();
+        let bob = crypto::generate("Bob", "bob@example.com", "").unwrap();
+        let (alice_pub, bob_pub) = (alice.to_public_key(), bob.to_public_key());
+        let mut out = Outgoing {
+            to: "Bob <bob@example.com>".into(),
+            subject: "s".into(),
+            body: "Ciao Bob, **prova** con àccénti.".into(),
+            html: Some("<p>Ciao Bob, <b>prova</b> con àccénti.</p>".into()),
+            sign: true,
+            ..Default::default()
+        };
+        let dir = std::env::temp_dir().join("ferrowl-pgp-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let att = dir.join("note.txt");
+        std::fs::write(&att, b"allegato").unwrap();
+        out.attachments = vec![att];
+
+        let build = |out: &Outgoing| -> Vec<u8> {
+            let content = build_content(out).unwrap();
+            let contact = |a: &str| (a == "bob@example.com").then(|| bob_pub.clone());
+            let content = protect_with(out, content, &alice, "a", &contact).unwrap();
+            let b = lettre::Message::builder()
+                .from("Alice <alice@example.com>".parse().unwrap())
+                .to("Bob <bob@example.com>".parse().unwrap())
+                .subject("s");
+            match content {
+                Part::Single(p) => b.singlepart(p).unwrap(),
+                Part::Multi(m) => b.multipart(m).unwrap(),
+            }
+            .formatted()
+        };
+        let knows_alice = |a: &str| (a == "alice@example.com").then(|| alice_pub.clone());
+        let knows_nobody = |_: &str| None;
+        let bob_keys = PgpKeys { own: Some((bob.clone(), String::new())), contact: &knows_alice };
+
+        // Signed only.
+        let raw = build(&out);
+        let m = parse_full(1, &raw, &bob_keys).unwrap();
+        let pgp = m.pgp.clone().unwrap();
+        assert_eq!(pgp.signature, Some(SigState::Valid), "signed: {pgp:?}");
+        assert!(!pgp.encrypted);
+        assert!(m.body.contains("àccénti"));
+        assert_eq!(m.attachments.len(), 1, "signature.asc must not be listed");
+        let unknown = PgpKeys { own: None, contact: &knows_nobody };
+        assert_eq!(parse_full(1, &raw, &unknown).unwrap().pgp.unwrap().signature, Some(SigState::UnknownKey));
+        // Tampered content → invalid.
+        let tampered = String::from_utf8_lossy(&raw).replace("prova", "PROVA").into_bytes();
+        assert_eq!(parse_full(1, &tampered, &bob_keys).unwrap().pgp.unwrap().signature, Some(SigState::Invalid));
+
+        // Signed and encrypted.
+        out.encrypt = true;
+        let raw = build(&out);
+        assert!(!String::from_utf8_lossy(&raw).contains("prova"), "plaintext leaked");
+        let m = parse_full(1, &raw, &bob_keys).unwrap();
+        let pgp = m.pgp.clone().unwrap();
+        assert!(pgp.encrypted && pgp.error.is_none(), "{pgp:?}");
+        assert_eq!(pgp.signature, Some(SigState::Valid));
+        assert!(m.body.contains("àccénti") && m.html_md.is_some());
+        assert_eq!(m.attachments.len(), 1);
+        // Someone without the key cannot read it.
+        let eve = crypto::generate("Eve", "eve@example.com", "").unwrap();
+        let eve_keys = PgpKeys { own: Some((eve, String::new())), contact: &knows_nobody };
+        let m = parse_full(1, &raw, &eve_keys).unwrap();
+        assert!(m.pgp.unwrap().error.is_some());
+        assert!(!m.body.contains("prova"));
+        // Encrypting to someone without a key fails before sending.
+        out.to = "carol@example.com".into();
+        let content = build_content(&out).unwrap();
+        let contact = |_: &str| None;
+        assert!(protect_with(&out, content, &alice, "a", &contact).is_err());
     }
 }

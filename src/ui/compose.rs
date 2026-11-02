@@ -287,13 +287,48 @@ pub fn view<'a>(app: &'a App, c: &'a Compose, p: Palette) -> Element<'a, Message
         t("discard"),
         p,
     );
+    // OpenPGP toggles (need a key: otherwise they point to Settings › Security).
+    let has_key = app.pgp_fpr.is_some();
+    let pgp_toggle = |label: &'static str, on: bool, msg: Message| -> Element<'a, Message> {
+        let fg = if on { p.accent_text } else { p.muted };
+        let b = button(
+            row![icon(icons::LOCK, 14.0, fg), text(label).size(13).font(medium()).color(fg)]
+                .spacing(6)
+                .align_y(Alignment::Center),
+        )
+        .padding([8, 10])
+        .style(move |_, st| button::Style {
+            background: Some(Background::Color(if on {
+                p.soft
+            } else if matches!(st, button::Status::Hovered) {
+                p.chip
+            } else {
+                Color::TRANSPARENT
+            })),
+            text_color: fg,
+            border: Border {
+                color: if on { mix(p.accent, p.bg, 0.6) } else { Color::TRANSPARENT },
+                width: 1.0,
+                radius: radius(8.0),
+            },
+            ..Default::default()
+        });
+        if has_key {
+            b.on_press(msg).into()
+        } else {
+            tooltip(b.on_press(Message::OpenSettings(crate::app::Section::Security)), t("pgp_needs_key"), p)
+        }
+    };
+    let sign = pgp_toggle(t("pgp_sign"), c.sign, Message::ComposeToggleSign);
+    let encrypt = pgp_toggle(t("pgp_encrypt"), c.encrypt, Message::ComposeToggleEncrypt);
+
     let error: Element<'a, Message> = match &c.error {
         Some(e) => text(trunc(e, 90)).size(13).color(p.danger).width(Fill).into(),
         None => space::horizontal().into(),
     };
     let footer = column![
         hline(p.line_soft),
-        container(dir_row(vec![send.into(), attach, error, discard]).spacing(8).align_y(Alignment::Center))
+        container(dir_row(vec![send.into(), attach, sign, encrypt, error, discard]).spacing(8).align_y(Alignment::Center))
             .padding([12, 16])
             .width(Fill)
             .style(panel(p.chrome)),
