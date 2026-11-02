@@ -20,6 +20,7 @@ open = "5"
 png = "0.18"
 pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }
 rfd = "0.17.2"
+rusqlite = { version = "0.37", features = ["bundled"] }
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "logging", "tls12"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"

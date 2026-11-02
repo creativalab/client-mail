@@ -258,6 +258,10 @@ pub struct App {
     pub loading_list: bool,
     pub filter: ListFilter,
     pub search: String,
+    /// Full-text matches from the local index while searching.
+    pub search_results: Option<Vec<Header>>,
+    /// Folders already indexed (or being indexed) in this session.
+    pub indexed: HashSet<String>,
     pub selected: Option<u32>,
     pub message: Option<FullMessage>,
     pub body: text_editor::Content,
@@ -292,7 +296,9 @@ pub enum Message {
     Unseen(Res<HashMap<String, u32>>),
     SelectFolder(String),
     ToggleNode(String),
-    HeadersLoaded { folder: String, silent: bool, result: Res<Vec<Header>> },
+    HeadersLoaded { folder: String, silent: bool, result: Res<(Vec<Header>, u32)> },
+    /// A background indexing step finished; `Some(seq)` = continue from there.
+    Indexed { folder: String, result: Res<Option<u32>> },
     Sync,
     Tick,
     // list
@@ -391,6 +397,8 @@ impl App {
             loading_list: false,
             filter: ListFilter::All,
             search: String::new(),
+            search_results: None,
+            indexed: HashSet::new(),
             selected: None,
             message: None,
             body: text_editor::Content::new(),
@@ -478,9 +486,50 @@ impl App {
         Task::perform(fut, move |r| Message::Scoped(generation, Box::new(f(r))))
     }
 
+    fn header_mut(&mut self, uid: u32) -> Option<&mut Header> {
+        if self.headers.iter().any(|h| h.uid == uid) {
+            self.headers.iter_mut().find(|h| h.uid == uid)
+        } else {
+            self.search_results.iter_mut().flatten().find(|h| h.uid == uid)
+        }
+    }
+
+    /// Words of the search box that are not operators (`from:`, `is:`, `has:`).
+    fn free_words(&self) -> Vec<String> {
+        self.search
+            .split_whitespace()
+            .filter(|w| !w.contains(':'))
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// Searches the local index (all cached messages of the folder, not only
+    /// the ones loaded). Falls back to in-memory matching if the index has
+    /// nothing (e.g. cache unavailable).
+    fn run_search(&mut self) {
+        let words = self.free_words();
+        self.search_results = match (self.config.account(), &self.current_folder) {
+            (Some(acc), Some(folder)) if !words.is_empty() => {
+                let found = Backend::search(acc, folder, &words);
+                (!found.is_empty() || crate::cache::get().is_some()).then_some(found)
+            }
+            _ => None,
+        };
+    }
+
+    fn index_step(&self, folder: String, before: u32) -> Task<Message> {
+        let b = self.backend.clone();
+        let f = folder.clone();
+        self.perform(async move { b.index_older(f, before, 150).await }, move |result| {
+            Message::Indexed { folder: folder.clone(), result }
+        })
+    }
+
     fn reset_mailbox(&mut self) {
         self.folders.clear();
         self.headers.clear();
+        self.search_results = None;
+        self.indexed.clear();
         self.current_folder = None;
         self.selected = None;
         self.message = None;
@@ -514,6 +563,12 @@ impl App {
     fn load_folder(&mut self, folder: String, silent: bool) -> Task<Message> {
         if !silent {
             self.loading_list = true;
+            // Show the cached list right away; the server's answer replaces it.
+            if self.headers.is_empty()
+                && let Some(acc) = self.config.account()
+            {
+                self.headers = Backend::cached_headers(acc, &folder);
+            }
         }
         let b = self.backend.clone();
         let f = folder.clone();
@@ -561,7 +616,11 @@ impl App {
     /// Messages visible after filter and search (`from:`, `has:attachment`, `is:unread`).
     pub fn visible(&self) -> Vec<&Header> {
         let tokens: Vec<String> = self.search.split_whitespace().map(str::to_lowercase).collect();
-        self.headers
+        // Free words were already matched by the full-text index.
+        let indexed = self.search_results.is_some();
+        self.search_results
+            .as_ref()
+            .unwrap_or(&self.headers)
             .iter()
             .filter(|h| match self.filter {
                 ListFilter::All => true,
@@ -578,6 +637,8 @@ impl App {
                         !h.seen
                     } else if tok == "is:read" {
                         h.seen
+                    } else if indexed {
+                        true
                     } else {
                         h.subject.to_lowercase().contains(tok)
                             || h.from.to_lowercase().contains(tok)
@@ -622,6 +683,9 @@ impl App {
         let visible: Vec<u32> = self.visible().iter().map(|h| h.uid).collect();
         let pos = visible.iter().position(|&u| u == uid);
         self.headers.retain(|h| h.uid != uid);
+        if let Some(r) = self.search_results.as_mut() {
+            r.retain(|h| h.uid != uid);
+        }
         if self.selected != Some(uid) {
             return Task::none();
         }
@@ -757,6 +821,7 @@ impl App {
                 }
                 self.current_folder = Some(name.clone());
                 self.headers.clear();
+                self.search_results = None;
                 self.selected = None;
                 self.message = None;
                 self.confirm_delete = false;
@@ -774,11 +839,17 @@ impl App {
                 }
                 self.loading_list = false;
                 match result {
-                    Ok(headers) => {
+                    Ok((headers, first_seq)) => {
                         self.conn = Conn::Online;
                         self.headers = headers;
                         self.last_sync = Some(chrono::Local::now());
-                        self.refresh_unseen()
+                        self.run_search();
+                        let index = if self.indexed.insert(folder.clone()) {
+                            self.index_step(folder, first_seq)
+                        } else {
+                            Task::none()
+                        };
+                        Task::batch([self.refresh_unseen(), index])
                     }
                     Err(e) => {
                         if !silent {
@@ -799,8 +870,28 @@ impl App {
             },
             Message::Search(s) => {
                 self.search = s;
+                self.run_search();
                 Task::none()
             }
+            Message::Indexed { folder, result } => match result {
+                // Only the open folder keeps indexing (one step at a time,
+                // so user actions are not stuck behind a long download).
+                Ok(Some(next)) if self.current_folder.as_deref() == Some(&folder) => {
+                    self.index_step(folder, next)
+                }
+                Ok(Some(_)) => {
+                    self.indexed.remove(&folder);
+                    Task::none()
+                }
+                Ok(None) => {
+                    self.run_search();
+                    Task::none()
+                }
+                Err(_) => {
+                    self.indexed.remove(&folder);
+                    Task::none()
+                }
+            },
             Message::SetFilter(f) => {
                 self.filter = f;
                 Task::none()
@@ -812,6 +903,9 @@ impl App {
                 }
                 self.loading_message = false;
                 if let Some(h) = self.headers.iter_mut().find(|h| h.uid == msg.uid) {
+                    h.seen = true;
+                }
+                if let Some(h) = self.search_results.iter_mut().flatten().find(|h| h.uid == msg.uid) {
                     h.seen = true;
                 }
                 if let Some(c) = &self.current_folder {
@@ -959,11 +1053,15 @@ impl App {
                 let (Some(uid), Some(folder)) = (self.selected, self.current_folder.clone()) else {
                     return Task::none();
                 };
-                let Some(h) = self.headers.iter_mut().find(|h| h.uid == uid) else {
+                let Some(seen) = self.header_mut(uid).map(|h| !h.seen) else {
                     return Task::none();
                 };
-                h.seen = !h.seen;
-                let seen = h.seen;
+                if let Some(h) = self.headers.iter_mut().find(|h| h.uid == uid) {
+                    h.seen = seen;
+                }
+                if let Some(h) = self.search_results.iter_mut().flatten().find(|h| h.uid == uid) {
+                    h.seen = seen;
+                }
                 if let Some(n) = self.unseen.get_mut(&folder) {
                     *n = if seen { n.saturating_sub(1) } else { *n + 1 };
                 }

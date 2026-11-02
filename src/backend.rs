@@ -2,6 +2,7 @@
 //! A single shared IMAP session, guarded by a mutex; if the connection
 //! drops, the session is recreated and the operation retried once.
 
+use crate::cache;
 use crate::config::Account;
 use crate::i18n::{generic_error, t};
 use crate::mail::{self, Folder, FolderKind, FullMessage, Header, ImapSession, Outgoing};
@@ -95,9 +96,75 @@ impl Backend {
         .map_err(|e| format!("{}\n({e})", generic_error()))?
     }
 
-    pub async fn headers(&self, folder: String) -> Res<Vec<Header>> {
-        self.blocking(move |b| b.with_session_sync(|s| mail::fetch_headers(s, &folder)))
-            .await
+    /// Cache key of the connected account.
+    fn key(&self) -> Option<String> {
+        self.lock().account.as_ref().map(cache::account_key)
+    }
+
+    /// Runs a cache update; failures only disable that update (the cache is
+    /// an optimization, the server is the source of truth).
+    fn cache(&self, f: impl FnOnce(&cache::Cache, &str) -> anyhow::Result<()>) {
+        if let (Some(c), Some(key)) = (cache::get(), self.key())
+            && let Err(e) = f(c, &key)
+        {
+            eprintln!("cache: {e:#}");
+        }
+    }
+
+    /// Newest page of a folder; also refreshes the cache. Returns the
+    /// sequence number to continue indexing from (see `index_older`).
+    pub async fn headers(&self, folder: String) -> Res<(Vec<Header>, u32)> {
+        self.blocking(move |b| {
+            let page = b.with_session_sync(|s| mail::fetch_headers(s, &folder))?;
+            b.cache(|c, key| {
+                if let Some(v) = page.uidvalidity {
+                    c.check_uidvalidity(key, &folder, v)?;
+                }
+                c.store_headers(key, &folder, &page.headers)?;
+                let uids: Vec<u32> = page.headers.iter().map(|h| h.uid).collect();
+                if let Some(min) = uids.iter().min() {
+                    c.prune(key, &folder, *min, &uids)?;
+                }
+                Ok(())
+            });
+            Ok((page.headers, page.first_seq))
+        })
+        .await
+    }
+
+    /// Indexes up to `count` messages older than sequence `before` into the
+    /// cache. Returns where to continue, or `None` when the folder is done
+    /// (or the cache already holds as many messages as the server).
+    pub async fn index_older(&self, folder: String, before: u32, count: u32) -> Res<Option<u32>> {
+        self.blocking(move |b| {
+            if before <= 1 {
+                return Ok(None);
+            }
+            let page = b.with_session_sync(|s| mail::fetch_older(s, &folder, before, count))?;
+            let mut done = page.first_seq <= 1;
+            b.cache(|c, key| {
+                c.store_headers(key, &folder, &page.headers)?;
+                let (cached, _) = c.folder_stats(key, &folder)?;
+                done |= cached >= page.exists;
+                Ok(())
+            });
+            Ok((!done).then_some(page.first_seq))
+        })
+        .await
+    }
+
+    /// Cached list of a folder (instant, before the server answers).
+    pub fn cached_headers(account: &Account, folder: &str) -> Vec<Header> {
+        cache::get()
+            .and_then(|c| c.headers(&cache::account_key(account), folder, mail::PAGE_SIZE).ok())
+            .unwrap_or_default()
+    }
+
+    /// Full-text search in the cached messages of a folder.
+    pub fn search(account: &Account, folder: &str, words: &[String]) -> Vec<Header> {
+        cache::get()
+            .and_then(|c| c.search(&cache::account_key(account), folder, words, 500).ok())
+            .unwrap_or_default()
     }
 
     pub async fn unseen(&self, folders: Vec<String>) -> Res<HashMap<String, u32>> {
@@ -106,18 +173,28 @@ impl Backend {
     }
 
     pub async fn message(&self, folder: String, uid: u32) -> Res<FullMessage> {
-        self.blocking(move |b| b.with_session_sync(|s| mail::fetch_message(s, &folder, uid)))
-            .await
+        self.blocking(move |b| {
+            let msg = b.with_session_sync(|s| mail::fetch_message(s, &folder, uid))?;
+            b.cache(|c, key| c.store_body(key, &folder, uid, &msg.body));
+            Ok(msg)
+        })
+        .await
     }
 
     pub async fn set_seen(&self, folder: String, uid: u32, seen: bool) -> Res<()> {
-        self.blocking(move |b| b.with_session_sync(|s| mail::set_seen(s, &folder, uid, seen)))
-            .await
+        self.blocking(move |b| {
+            b.with_session_sync(|s| mail::set_seen(s, &folder, uid, seen))?;
+            b.cache(|c, key| c.set_seen(key, &folder, uid, seen));
+            Ok(())
+        })
+        .await
     }
 
     pub async fn move_to(&self, folder: String, uid: u32, target: String) -> Res<()> {
         self.blocking(move |b| {
-            b.with_session_sync(|s| mail::move_message(s, &folder, uid, &target))
+            b.with_session_sync(|s| mail::move_message(s, &folder, uid, &target))?;
+            b.cache(|c, key| c.remove(key, &folder, uid));
+            Ok(())
         })
         .await
     }
@@ -134,13 +211,18 @@ impl Backend {
                 mail::move_message(s, &folder, uid, &target)?;
                 Ok(target)
             })
+            .inspect(|_| b.cache(|c, key| c.remove(key, &folder, uid)))
         })
         .await
     }
 
     pub async fn delete_forever(&self, folder: String, uid: u32) -> Res<()> {
-        self.blocking(move |b| b.with_session_sync(|s| mail::delete_permanently(s, &folder, uid)))
-            .await
+        self.blocking(move |b| {
+            b.with_session_sync(|s| mail::delete_permanently(s, &folder, uid))?;
+            b.cache(|c, key| c.remove(key, &folder, uid));
+            Ok(())
+        })
+        .await
     }
 
     /// Sends and saves a copy to Sent. `Ok(Some(err))` = sent, copy not saved.

@@ -164,6 +164,18 @@ pub struct Header {
     pub timestamp: i64,
     pub seen: bool,
     pub has_attachment: bool,
+    /// Start of the body as text (for the search index; empty from the cache).
+    pub text: String,
+}
+
+/// A slice of a folder's message list, by sequence number.
+pub struct HeaderPage {
+    pub uidvalidity: Option<u32>,
+    /// Messages in the folder.
+    pub exists: u32,
+    /// Sequence number of the oldest message in this page (1 = none older).
+    pub first_seq: u32,
+    pub headers: Vec<Header>,
 }
 
 #[derive(Debug, Clone)]
@@ -351,13 +363,32 @@ fn one_line(s: &str, max: usize) -> String {
 }
 
 /// Selects the folder and downloads headers and previews of the most recent messages.
-pub fn fetch_headers(session: &mut ImapSession, folder: &str) -> Result<Vec<Header>> {
+/// The most recent `PAGE_SIZE` messages of a folder.
+pub fn fetch_headers(session: &mut ImapSession, folder: &str) -> Result<HeaderPage> {
     let mailbox = session.select(folder)?;
-    if mailbox.exists == 0 {
-        return Ok(Vec::new());
+    let last = mailbox.exists;
+    fetch_range(session, mailbox, last.saturating_sub(PAGE_SIZE - 1).max(1), last)
+}
+
+/// Up to `count` messages older than sequence number `before` (for indexing).
+pub fn fetch_older(session: &mut ImapSession, folder: &str, before: u32, count: u32) -> Result<HeaderPage> {
+    let mailbox = session.select(folder)?;
+    let last = before.saturating_sub(1).min(mailbox.exists);
+    fetch_range(session, mailbox, last.saturating_sub(count - 1).max(1), last)
+}
+
+fn fetch_range(session: &mut ImapSession, mailbox: imap::types::Mailbox, first: u32, last: u32) -> Result<HeaderPage> {
+    let mut page = HeaderPage {
+        uidvalidity: mailbox.uid_validity,
+        exists: mailbox.exists,
+        first_seq: first,
+        headers: Vec::new(),
+    };
+    if mailbox.exists == 0 || last == 0 {
+        page.first_seq = 1;
+        return Ok(page);
     }
-    let start = mailbox.exists.saturating_sub(PAGE_SIZE - 1).max(1);
-    let range = format!("{start}:{}", mailbox.exists);
+    let range = format!("{first}:{last}");
     let query = format!("(UID FLAGS BODY.PEEK[HEADER] BODY.PEEK[TEXT]<0.{PREVIEW_BYTES}>)");
     let fetches = session.fetch(range, query)?;
 
@@ -394,11 +425,13 @@ pub fn fetch_headers(session: &mut ImapSession, folder: &str) -> Result<Vec<Head
                 timestamp: msg.and_then(|m| m.date()).map(|d| d.to_timestamp()).unwrap_or(0),
                 seen: f.flags().contains(&imap::types::Flag::Seen),
                 has_attachment,
+                text: msg.and_then(|m| m.body_text(0)).map(|t| t.into_owned()).unwrap_or_default(),
             })
         })
         .collect();
     headers.sort_by(|a, b| b.timestamp.cmp(&a.timestamp).then(b.uid.cmp(&a.uid)));
-    Ok(headers)
+    page.headers = headers;
+    Ok(page)
 }
 
 /// Downloads the full message (marks it as read on the server).
@@ -731,7 +764,7 @@ mod tests {
             .map(|f| f.name.clone())
             .collect();
         println!("unread: {:?}", unseen_counts(&mut s, &names));
-        let h = fetch_headers(&mut s, "INBOX").unwrap();
+        let h = fetch_headers(&mut s, "INBOX").unwrap().headers;
         println!("INBOX: {} messages", h.len());
         for m in h.iter().take(3) {
             println!(

@@ -10,6 +10,7 @@ A fast desktop email client written in Rust, with a native UI built on [iced](ht
 - Three-pane window: folders · message list · reader
 - Special folders detected automatically (Inbox, Sent, Drafts, Archive, Spam, Trash), unread counters, collapsible tree for all other folders
 - List filters (All / Unread / Attachments) and search with `from:`, `has:attachment`, `is:unread`
+- **Local cache + full-text search** (SQLite FTS5): folders open instantly from the cache, older messages are indexed in the background, and search covers sender, subject and text of every cached message (prefix matching, accents ignored)
 - Reply, forward (with original attachments), archive, mark as unread
 - **Delete moves to Trash**; deleting inside Trash asks for confirmation and removes the message for good
 - Sent messages are saved to the Sent folder
@@ -49,6 +50,8 @@ On first launch Ferrowl opens the account setup. Settings are stored in:
 | macOS | `~/Library/Application Support/ferrowl/config.toml` |
 | Windows | `%APPDATA%\ferrowl\config.toml` |
 
+The local cache (message list, previews, text of opened messages, search index) is `cache.sqlite` in the data directory (`~/.local/share/ferrowl/` on Linux, `~/Library/Application Support/ferrowl/` on macOS, `%LOCALAPPDATA%\ferrowl\` on Windows), readable by the owner only. Deleting it is safe: it is rebuilt from the server.
+
 The password is currently stored in this file (permissions `600` on Linux/macOS). Moving it to the system keychain is on the roadmap.
 
 For Gmail, use an [app password](https://support.google.com/accounts/answer/185833).
@@ -82,7 +85,7 @@ The design handoff (mockups, tokens, icon) is in [`design/`](design/).
 ## Roadmap
 
 - Password in the system keychain
-- Local cache (SQLite) and full-text search (tantivy)
+- Search across all folders
 - Optional image loading per sender
 - IMAP IDLE (push), notifications, tray icon
 - OpenPGP signing/encryption

@@ -1,0 +1,342 @@
+//! Local cache (SQLite) and full-text index (FTS5).
+//!
+//! Stores, per account and folder, the message list (headers, preview, flags)
+//! and the start of each body, plus the full text of messages that were
+//! opened. Used to show a folder instantly and to search beyond the messages
+//! loaded from the server.
+//!
+//! The file lives in the user's data directory with owner-only permissions.
+//! It is a cache: deleting it loses nothing that is not on the server.
+
+use crate::mail::Header;
+use anyhow::{Context, Result};
+use rusqlite::{Connection, OptionalExtension, params};
+use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard, OnceLock};
+
+pub struct Cache {
+    conn: Mutex<Connection>,
+}
+
+const SCHEMA: &str = "
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
+CREATE TABLE IF NOT EXISTS folders (
+    account     TEXT NOT NULL,
+    folder      TEXT NOT NULL,
+    uidvalidity INTEGER NOT NULL,
+    PRIMARY KEY (account, folder)
+);
+CREATE TABLE IF NOT EXISTS messages (
+    id       INTEGER PRIMARY KEY,
+    account  TEXT NOT NULL,
+    folder   TEXT NOT NULL,
+    uid      INTEGER NOT NULL,
+    sender   TEXT NOT NULL,
+    subject  TEXT NOT NULL,
+    preview  TEXT NOT NULL,
+    ts       INTEGER NOT NULL,
+    seen     INTEGER NOT NULL,
+    attach   INTEGER NOT NULL,
+    body     TEXT NOT NULL DEFAULT '',
+    full     INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (account, folder, uid)
+);
+CREATE INDEX IF NOT EXISTS messages_list ON messages (account, folder, ts DESC);
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+    sender, subject, body,
+    content = 'messages', content_rowid = 'id',
+    tokenize = 'unicode61 remove_diacritics 2',
+    prefix = '2 3'
+);
+CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+    INSERT INTO messages_fts (rowid, sender, subject, body)
+    VALUES (new.id, new.sender, new.subject, new.body);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+    INSERT INTO messages_fts (messages_fts, rowid, sender, subject, body)
+    VALUES ('delete', old.id, old.sender, old.subject, old.body);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE OF sender, subject, body ON messages BEGIN
+    INSERT INTO messages_fts (messages_fts, rowid, sender, subject, body)
+    VALUES ('delete', old.id, old.sender, old.subject, old.body);
+    INSERT INTO messages_fts (rowid, sender, subject, body)
+    VALUES (new.id, new.sender, new.subject, new.body);
+END;
+";
+
+fn path() -> Option<PathBuf> {
+    Some(dirs::data_local_dir()?.join("ferrowl").join("cache.sqlite"))
+}
+
+/// The shared cache, or `None` if it cannot be opened (the app then works
+/// without it).
+pub fn get() -> Option<&'static Cache> {
+    static CACHE: OnceLock<Option<Cache>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            let path = path()?;
+            match Cache::open(&path) {
+                Ok(c) => Some(c),
+                Err(e) => {
+                    eprintln!("cache disabled: {e:#}");
+                    None
+                }
+            }
+        })
+        .as_ref()
+}
+
+impl Cache {
+    pub fn open(path: &std::path::Path) -> Result<Cache> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let conn = Connection::open(path).context("opening cache")?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        }
+        Self::with_connection(conn)
+    }
+
+    fn with_connection(conn: Connection) -> Result<Cache> {
+        conn.execute_batch(SCHEMA).context("creating cache schema")?;
+        Ok(Cache { conn: Mutex::new(conn) })
+    }
+
+    #[cfg(test)]
+    pub fn in_memory() -> Cache {
+        Self::with_connection(Connection::open_in_memory().unwrap()).unwrap()
+    }
+
+    fn lock(&self) -> MutexGuard<'_, Connection> {
+        self.conn.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Records the folder's UIDVALIDITY; if it changed, the cached UIDs are
+    /// meaningless and the folder is emptied.
+    pub fn check_uidvalidity(&self, account: &str, folder: &str, uidvalidity: u32) -> Result<()> {
+        let conn = self.lock();
+        let known: Option<u32> = conn
+            .query_row(
+                "SELECT uidvalidity FROM folders WHERE account = ?1 AND folder = ?2",
+                params![account, folder],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if known != Some(uidvalidity) {
+            conn.execute(
+                "DELETE FROM messages WHERE account = ?1 AND folder = ?2",
+                params![account, folder],
+            )?;
+            conn.execute(
+                "INSERT OR REPLACE INTO folders (account, folder, uidvalidity) VALUES (?1, ?2, ?3)",
+                params![account, folder, uidvalidity],
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Inserts or updates headers. Bodies already stored in full are kept.
+    pub fn store_headers(&self, account: &str, folder: &str, headers: &[Header]) -> Result<()> {
+        let mut conn = self.lock();
+        let tx = conn.transaction()?;
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT INTO messages (account, folder, uid, sender, subject, preview, ts, seen, attach, body)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                 ON CONFLICT (account, folder, uid) DO UPDATE SET
+                    seen = excluded.seen,
+                    sender = excluded.sender,
+                    subject = excluded.subject,
+                    preview = excluded.preview,
+                    attach = excluded.attach,
+                    body = CASE WHEN messages.full THEN messages.body ELSE excluded.body END",
+            )?;
+            for h in headers {
+                stmt.execute(params![
+                    account,
+                    folder,
+                    h.uid,
+                    h.from,
+                    h.subject,
+                    h.preview,
+                    h.timestamp,
+                    h.seen,
+                    h.has_attachment,
+                    h.text
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Removes cached messages with UID ≥ `from_uid` that the server no longer
+    /// lists (deleted or moved elsewhere).
+    pub fn prune(&self, account: &str, folder: &str, from_uid: u32, present: &[u32]) -> Result<()> {
+        let mut conn = self.lock();
+        let tx = conn.transaction()?;
+        let cached: Vec<u32> = {
+            let mut stmt =
+                tx.prepare("SELECT uid FROM messages WHERE account = ?1 AND folder = ?2 AND uid >= ?3")?;
+            stmt.query_map(params![account, folder, from_uid], |r| r.get(0))?
+                .collect::<rusqlite::Result<_>>()?
+        };
+        let present: std::collections::HashSet<u32> = present.iter().copied().collect();
+        for uid in cached.into_iter().filter(|u| !present.contains(u)) {
+            tx.execute(
+                "DELETE FROM messages WHERE account = ?1 AND folder = ?2 AND uid = ?3",
+                params![account, folder, uid],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn store_body(&self, account: &str, folder: &str, uid: u32, body: &str) -> Result<()> {
+        self.lock().execute(
+            "UPDATE messages SET body = ?4, full = 1, seen = 1
+             WHERE account = ?1 AND folder = ?2 AND uid = ?3",
+            params![account, folder, uid, body],
+        )?;
+        Ok(())
+    }
+
+    pub fn set_seen(&self, account: &str, folder: &str, uid: u32, seen: bool) -> Result<()> {
+        self.lock().execute(
+            "UPDATE messages SET seen = ?4 WHERE account = ?1 AND folder = ?2 AND uid = ?3",
+            params![account, folder, uid, seen],
+        )?;
+        Ok(())
+    }
+
+    pub fn remove(&self, account: &str, folder: &str, uid: u32) -> Result<()> {
+        self.lock().execute(
+            "DELETE FROM messages WHERE account = ?1 AND folder = ?2 AND uid = ?3",
+            params![account, folder, uid],
+        )?;
+        Ok(())
+    }
+
+    /// The most recent `limit` messages of a folder.
+    pub fn headers(&self, account: &str, folder: &str, limit: u32) -> Result<Vec<Header>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare_cached(
+            "SELECT uid, sender, subject, preview, ts, seen, attach FROM messages
+             WHERE account = ?1 AND folder = ?2 ORDER BY ts DESC, uid DESC LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![account, folder, limit], row_to_header)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Number of cached messages and lowest cached UID of a folder.
+    pub fn folder_stats(&self, account: &str, folder: &str) -> Result<(u32, Option<u32>)> {
+        Ok(self.lock().query_row(
+            "SELECT COUNT(*), MIN(uid) FROM messages WHERE account = ?1 AND folder = ?2",
+            params![account, folder],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?)
+    }
+
+    /// Full-text search in one folder. Each word matches as a prefix,
+    /// accents and case are ignored; all words must match.
+    pub fn search(&self, account: &str, folder: &str, words: &[String], limit: u32) -> Result<Vec<Header>> {
+        let Some(query) = fts_query(words) else {
+            return Ok(Vec::new());
+        };
+        let conn = self.lock();
+        let mut stmt = conn.prepare_cached(
+            "SELECT m.uid, m.sender, m.subject, m.preview, m.ts, m.seen, m.attach
+             FROM messages_fts f JOIN messages m ON m.id = f.rowid
+             WHERE messages_fts MATCH ?3 AND m.account = ?1 AND m.folder = ?2
+             ORDER BY m.ts DESC LIMIT ?4",
+        )?;
+        let rows = stmt.query_map(params![account, folder, query, limit], row_to_header)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+}
+
+fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<Header> {
+    Ok(Header {
+        uid: r.get(0)?,
+        from: r.get(1)?,
+        subject: r.get(2)?,
+        preview: r.get(3)?,
+        timestamp: r.get(4)?,
+        seen: r.get(5)?,
+        has_attachment: r.get(6)?,
+        text: String::new(),
+    })
+}
+
+/// Builds an FTS5 query from user words: each word quoted (so operators and
+/// punctuation are literal) and used as a prefix.
+fn fts_query(words: &[String]) -> Option<String> {
+    let terms: Vec<String> = words
+        .iter()
+        .map(|w| w.replace('"', ""))
+        .filter(|w| !w.trim().is_empty())
+        .map(|w| format!("\"{w}\"*"))
+        .collect();
+    (!terms.is_empty()).then(|| terms.join(" "))
+}
+
+/// Cache key of an account (same address on two servers stays separate).
+pub fn account_key(account: &crate::config::Account) -> String {
+    format!("{}@{}", account.username, account.imap_host)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn h(uid: u32, from: &str, subject: &str, text: &str) -> Header {
+        Header {
+            uid,
+            from: from.into(),
+            subject: subject.into(),
+            preview: text.chars().take(20).collect(),
+            timestamp: uid as i64,
+            seen: false,
+            has_attachment: false,
+            text: text.into(),
+        }
+    }
+
+    #[test]
+    fn store_search_prune() {
+        let c = Cache::in_memory();
+        c.check_uidvalidity("a", "INBOX", 1).unwrap();
+        c.store_headers(
+            "a",
+            "INBOX",
+            &[
+                h(1, "Giulia Ferri", "Preventivo portale", "Ciao Fabio, ecco il preventivo aggiornato"),
+                h(2, "Banca", "Estratto conto", "Il tuo estratto conto di ottobre"),
+                h(3, "Città di Roma", "Avviso", "Comunicazione importante"),
+            ],
+        )
+        .unwrap();
+        let words = |s: &str| s.split_whitespace().map(str::to_string).collect::<Vec<_>>();
+        assert_eq!(c.search("a", "INBOX", &words("preven"), 10).unwrap().len(), 1);
+        assert_eq!(c.search("a", "INBOX", &words("estratto ottobre"), 10).unwrap()[0].uid, 2);
+        // Accents ignored.
+        assert_eq!(c.search("a", "INBOX", &words("citta"), 10).unwrap()[0].uid, 3);
+        // Operators are literal.
+        assert!(c.search("a", "INBOX", &words("\"OR NEAR("), 10).unwrap().is_empty());
+        // Full body replaces the snippet and stays on later header refreshes.
+        c.store_body("a", "INBOX", 2, "testo completo con parola rara zibaldone").unwrap();
+        c.store_headers("a", "INBOX", &[h(2, "Banca", "Estratto conto", "snippet")]).unwrap();
+        assert_eq!(c.search("a", "INBOX", &words("zibaldone"), 10).unwrap().len(), 1);
+        // Prune removes messages gone from the server.
+        c.prune("a", "INBOX", 1, &[1, 3]).unwrap();
+        assert_eq!(c.headers("a", "INBOX", 10).unwrap().len(), 2);
+        assert!(c.search("a", "INBOX", &words("zibaldone"), 10).unwrap().is_empty());
+        // UIDVALIDITY change empties the folder.
+        c.check_uidvalidity("a", "INBOX", 2).unwrap();
+        assert!(c.headers("a", "INBOX", 10).unwrap().is_empty());
+    }
+}

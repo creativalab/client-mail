@@ -3,6 +3,7 @@
 
 mod app;
 mod backend;
+mod cache;
 mod config;
 mod html;
 mod i18n;
