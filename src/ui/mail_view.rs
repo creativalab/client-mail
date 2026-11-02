@@ -37,6 +37,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
     if let Some(m) = &app.menu {
         layers.push(context_menu(app, m, p));
     }
+    if let Some((i, content)) = &app.preview {
+        layers.push(preview_overlay(app, *i, content.as_ref(), p));
+    }
     if let Some(c) = &app.compose {
         layers.push(super::compose::view(app, c, p));
     }
@@ -771,35 +774,67 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         };
         let mut cards = Row::new().spacing(12);
         for (i, a) in msg.attachments.iter().enumerate() {
-            let c = button(
+            let previewable = crate::preview::kind(&a.name, &a.data) != crate::preview::Kind::None;
+            // Thumbnail (image / first PDF page) or the extension.
+            let thumb: Element<'a, Message> = match app.thumbs.get(&i) {
+                Some(h) => container(
+                    iced::widget::image(h.clone())
+                        .width(56)
+                        .height(56)
+                        .content_fit(iced::ContentFit::Cover),
+                )
+                .clip(true)
+                .style(move |_| container::Style {
+                    border: Border { color: p.line, width: 1.0, radius: radius(8.0) },
+                    ..Default::default()
+                })
+                .into(),
+                None => container(text(extension(&a.name)).font(MONO).size(11).color(p.accent_text))
+                    .center_x(56)
+                    .center_y(56)
+                    .style(chip_box(p.chip, p.accent_text, 8.0))
+                    .into(),
+            };
+            let small_btn = |svg: &'static str, tip: &'static str, msg: Message| -> Element<'a, Message> {
+                tooltip(
+                    button(icon(svg, 16.0, p.text2))
+                        .width(32)
+                        .height(32)
+                        .padding(8)
+                        .style(ghost(p, p.text2))
+                        .on_press(msg),
+                    tip,
+                    p,
+                )
+            };
+            let mut buttons = Row::new().spacing(2);
+            if previewable {
+                buttons = buttons.push(small_btn(icons::EYE, t("preview_attachment"), Message::PreviewAttachment(i)));
+            }
+            buttons = buttons.push(small_btn(icons::DOWNLOAD, t("download"), Message::SaveAttachment(i)));
+            let info = button(
                 row![
-                    container(text(extension(&a.name)).font(MONO).size(11).color(p.accent_text))
-                        .center_x(40)
-                        .center_y(40)
-                        .style(chip_box(p.chip, p.accent_text, 8.0)),
+                    thumb,
                     column![
-                        text(trunc(&a.name, 30)).size(14).font(medium()).color(p.text),
+                        text(trunc(&a.name, 28)).size(14).font(medium()).color(p.text),
                         text(human_size(a.data.len())).size(12).color(p.muted),
                     ]
                     .spacing(2),
-                    icon(icons::DOWNLOAD, 16.0, p.muted),
                 ]
                 .spacing(12)
                 .align_y(Alignment::Center),
             )
-            .padding(Padding { top: 10.0, right: 14.0, bottom: 10.0, left: 10.0 })
-            .style(move |_, st| button::Style {
-                background: Some(Background::Color(if matches!(st, button::Status::Hovered) {
-                    p.chip
-                } else {
-                    p.bg
-                })),
-                text_color: p.text,
-                border: Border { color: p.line, width: 1.0, radius: radius(12.0) },
-                ..Default::default()
-            })
-            .on_press(Message::SaveAttachment(i));
-            cards = cards.push(tooltip(c, t("save_attachment_hint"), p));
+            .padding(0)
+            .style(move |_, _| button::Style { text_color: p.text, ..Default::default() })
+            .on_press(if previewable { Message::PreviewAttachment(i) } else { Message::SaveAttachment(i) });
+            let card = container(row![info, buttons].spacing(10).align_y(Alignment::Center))
+                .padding(Padding { top: 8.0, right: 8.0, bottom: 8.0, left: 8.0 })
+                .style(move |_| container::Style {
+                    background: Some(Background::Color(p.bg)),
+                    border: Border { color: p.line, width: 1.0, radius: radius(12.0) },
+                    ..Default::default()
+                });
+            cards = cards.push(card);
         }
         content = content.push(
             column![
@@ -1192,4 +1227,123 @@ fn context_menu<'a>(app: &'a App, m: &'a crate::app::ContextMenu, p: Palette) ->
     .width(Fill)
     .height(Fill)
     .into()
+}
+
+// ---------------------------------------------------------------- attachment preview
+
+fn preview_overlay<'a>(
+    app: &'a App,
+    i: usize,
+    content: Option<&'a crate::preview::Content>,
+    p: Palette,
+) -> Element<'a, Message> {
+    use crate::preview::Content;
+    let Some(a) = app.message.as_ref().and_then(|m| m.attachments.get(i)) else {
+        return space().into();
+    };
+    let head = container(
+        dir_row(vec![
+            column![
+                text(trunc(&a.name, 60)).size(15).font(semibold()).color(p.text),
+                text(human_size(a.data.len())).size(12).color(p.muted),
+            ]
+            .spacing(2)
+            .width(Fill)
+            .into(),
+            button(
+                row![icon(icons::DOWNLOAD, 16.0, p.on_accent), text(t("download")).size(14).font(semibold())]
+                    .spacing(8)
+                    .align_y(Alignment::Center),
+            )
+            .padding([9, 14])
+            .style(accent_btn(p))
+            .on_press(Message::SaveAttachment(i))
+            .into(),
+            button(icon(icons::CLOSE, 18.0, p.text2))
+                .width(40)
+                .height(40)
+                .padding(11)
+                .style(ghost(p, p.text2))
+                .on_press(Message::ClosePreview)
+                .into(),
+        ])
+        .spacing(10)
+        .align_y(Alignment::Center),
+    )
+    .padding([12, 16])
+    .width(Fill);
+
+    let centered = |e: Element<'a, Message>| container(e).center_x(Fill).padding(24);
+    let body: Element<'a, Message> = match content {
+        None => centered(text(t("html_loading")).size(14).color(p.muted).into()).into(),
+        Some(Content::Image(h)) => scrollable(centered(
+            iced::widget::image(h.clone()).content_fit(iced::ContentFit::ScaleDown).into(),
+        ))
+        .height(Fill)
+        .style(scroll_style(p))
+        .into(),
+        Some(Content::Svg(h)) => centered(iced::widget::svg(h.clone()).width(Fill).height(Fill).into()).into(),
+        Some(Content::Pages(pages, total)) => {
+            let mut col = Column::new().spacing(16).align_x(Alignment::Center);
+            for (h, w, ht) in pages {
+                col = col.push(
+                    container(iced::widget::image(h.clone()).width(*w as f32 * 0.75).height(*ht as f32 * 0.75))
+                        .style(move |_| container::Style {
+                            shadow: Shadow {
+                                color: Color::from_rgba(0.0, 0.0, 0.0, 0.18),
+                                offset: Vector::new(0.0, 2.0),
+                                blur_radius: 10.0,
+                            },
+                            ..Default::default()
+                        }),
+                );
+            }
+            if *total > pages.len() {
+                col = col.push(
+                    text(tf("pdf_more_pages", &[("n", &(total - pages.len()).to_string())])).size(13).color(p.muted),
+                );
+            }
+            scrollable(centered(col.into())).height(Fill).style(scroll_style(p)).into()
+        }
+        Some(Content::Text(t_, cut)) => {
+            let mut col = Column::new().spacing(10).push(text(t_.as_str()).font(MONO).size(13).color(p.text));
+            if *cut {
+                col = col.push(text(t("preview_cut")).size(12).color(p.muted));
+            }
+            scrollable(container(col).padding(24).width(Fill)).height(Fill).style(scroll_style(p)).into()
+        }
+        Some(Content::Error(e)) => centered(
+            column![
+                text(t("preview_failed")).size(14).color(p.text2),
+                text(trunc(e, 200)).size(12).font(MONO).color(p.muted)
+            ]
+            .spacing(6)
+            .into(),
+        )
+        .into(),
+    };
+
+    let dialog = container(column![head, hline(p.line), body])
+        .max_width(1000)
+        .width(Fill)
+        .height(Fill)
+        .clip(true)
+        .style(move |_| container::Style {
+            background: Some(Background::Color(p.chrome)),
+            border: Border { radius: radius(14.0), ..Default::default() },
+            shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.3), offset: Vector::new(0.0, 12.0), blur_radius: 40.0 },
+            ..Default::default()
+        });
+    opaque(
+        mouse_area(
+            container(opaque(dialog))
+                .center(Fill)
+                .padding(32)
+                .style(move |_| container::Style {
+                    background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.45))),
+                    ..Default::default()
+                }),
+        )
+        .on_press(Message::ClosePreview),
+    )
 }

@@ -17,7 +17,7 @@ A fast desktop email client written in Rust, with a native UI built on [iced](ht
 - Sent messages are saved to the Sent folder
 - Compose with Cc/Bcc and file attachments
 - Formatted messages: toolbar and shortcuts (`Ctrl B`/`I`/`K`) write Markdown, with a live preview; sent as `multipart/alternative` (HTML + plain text). Raw HTML is escaped and only `http`/`https`/`mailto`/`tel` links are kept. Can be switched to plain text only.
-- Attachments saved to the Downloads folder with one click
+- **Attachment previews**: thumbnails for images and PDFs (first page), full preview of images, PDFs (rendered in pure Rust with [hayro](https://github.com/LaurenzV/hayro), up to 50 pages) and text files, with a *Download* button (saves to the Downloads folder)
 - DKIM badge when the server reports `dkim=pass`
 - **OpenPGP** (pure Rust, [rPGP](https://github.com/rpgp/rpgp)): create or import a key in Settings › Security, then *Sign* / *Encrypt* in the composer. PGP/MIME (RFC 3156) out, PGP/MIME and inline PGP in, with badges for encrypted / signed / invalid signature / unknown key. Public keys travel automatically in the `Autocrypt` header; others can be imported from `.asc` files. Replies to encrypted mail are encrypted by default. Interoperability checked against GnuPG 2.4 (both directions, signatures and encryption)
 - **HTML mail rendered like a browser** with [Blitz](https://github.com/DioxusLabs/blitz) (Firefox's Stylo CSS engine, no JavaScript): layout, colors, tables and images. Remote images can be turned off in Settings › Security (they let senders know when you open a message); `cid:` inline images always work. Links show their destination on hover and open in the browser; `mailto:` opens a new message. One click switches to plain text
@@ -82,7 +82,7 @@ Environment variables useful during development:
 | `FERROWL_THEME=notte` | Force a theme for this run |
 | `FERROWL_DEV_VIEW=settings\|appearance\|general\|security\|compose\|popover` | Open a view directly |
 | `FERROWL_SCREENSHOT=out.png` | Capture the window after `FERROWL_SCREENSHOT_DELAY` seconds (default 8) and quit |
-| `FERROWL_SCREENSHOT_OPEN=1` | Open the first message before capturing |
+| `FERROWL_SCREENSHOT_OPEN=1` | Open the first message before capturing (`FERROWL_DEV_OPEN_NTH=n` for another row, `FERROWL_DEV_PREVIEW_ATT=1` to preview its first attachment) |
 
 The design handoff (mockups, tokens, icon) is in [`design/`](design/).
 

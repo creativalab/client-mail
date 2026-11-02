@@ -242,3 +242,10 @@ reply_all = "전체 답장"
 open = "열기"
 move_to = "이동"
 moved_ok = "메시지를 이동했습니다."
+
+# Attachment preview
+preview_attachment = "미리 보기"
+download = "다운로드"
+pdf_more_pages = "{n}페이지 더 있음: 모두 보려면 파일을 다운로드하세요."
+preview_cut = "미리 보기가 잘렸습니다: 파일이 더 깁니다."
+preview_failed = "이 파일은 미리 볼 수 없습니다."

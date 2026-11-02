@@ -330,6 +330,10 @@ pub struct App {
     pub window_width: f32,
     pub window_height: f32,
     pub scale_factor: f32,
+    /// Thumbnails of the open message's attachments, by index.
+    pub thumbs: HashMap<usize, iced::widget::image::Handle>,
+    /// Attachment preview: index and content (None while loading).
+    pub preview: Option<(usize, Option<crate::preview::Content>)>,
     pub cursor: iced::Point,
     pub menu: Option<ContextMenu>,
     pub drag: Option<Drag>,
@@ -407,6 +411,10 @@ pub enum Message {
     HtmlResizeSettled(f32),
     ScaleFactor(f32),
     // pointer, context menu, drag and drop
+    Thumbs(u32, Vec<(usize, iced::widget::image::Handle)>),
+    PreviewAttachment(usize),
+    PreviewReady(u32, usize, crate::preview::Content),
+    ClosePreview,
     CursorMoved(iced::Point),
     MouseDown,
     MouseUp,
@@ -526,6 +534,8 @@ impl App {
             window_width: 1440.0,
             window_height: 900.0,
             scale_factor: 1.0,
+            thumbs: HashMap::new(),
+            preview: None,
             cursor: iced::Point::ORIGIN,
             menu: None,
             drag: None,
@@ -675,6 +685,36 @@ impl App {
     // -------------------------------------------------------- message actions
     // By UID, so they work on any row (context menu, drag and drop), not only
     // on the open message.
+
+    /// Builds attachment thumbnails (images, first PDF page) in the background.
+    fn start_thumbnails(&self) -> Task<Message> {
+        let Some(msg) = &self.message else {
+            return Task::none();
+        };
+        let uid = msg.uid;
+        let atts: Vec<(usize, String, Vec<u8>)> = msg
+            .attachments
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| matches!(crate::preview::kind(&a.name, &a.data), crate::preview::Kind::Image | crate::preview::Kind::Pdf))
+            .map(|(i, a)| (i, a.name.clone(), a.data.clone()))
+            .collect();
+        if atts.is_empty() {
+            return Task::none();
+        }
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || {
+                    atts.iter()
+                        .filter_map(|(i, name, data)| Some((*i, crate::preview::thumbnail(name, data)?)))
+                        .collect::<Vec<_>>()
+                })
+                .await
+                .unwrap_or_default()
+            },
+            move |list| Message::Thumbs(uid, list),
+        )
+    }
 
     fn run_action(&mut self, uid: u32, action: CtxAction) -> Task<Message> {
         match action {
@@ -1416,7 +1456,17 @@ impl App {
                     }
                     _ => Task::none(),
                 };
-                Task::batch([top, self.start_html_render(), pending])
+                self.thumbs.clear();
+                self.preview = None;
+                let thumbs = self.start_thumbnails();
+                let dev_preview = if std::env::var_os("FERROWL_DEV_PREVIEW_ATT").is_some()
+                    && self.message.as_ref().is_some_and(|m| !m.attachments.is_empty())
+                {
+                    self.update(Message::PreviewAttachment(0))
+                } else {
+                    Task::none()
+                };
+                Task::batch([top, self.start_html_render(), pending, thumbs, dev_preview])
             }
             Message::Loaded(Err(e)) => {
                 self.loading_message = false;
@@ -1515,6 +1565,39 @@ impl App {
                 } else {
                     Task::none()
                 }
+            }
+            Message::Thumbs(uid, list) => {
+                if self.message.as_ref().is_some_and(|m| m.uid == uid) {
+                    self.thumbs = list.into_iter().collect();
+                }
+                Task::none()
+            }
+            Message::PreviewAttachment(i) => {
+                let Some((uid, a)) = self.message.as_ref().and_then(|m| Some((m.uid, m.attachments.get(i)?.clone())))
+                else {
+                    return Task::none();
+                };
+                self.preview = Some((i, None));
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || crate::preview::build(&a.name, &a.data))
+                            .await
+                            .unwrap_or_else(|e| crate::preview::Content::Error(e.to_string()))
+                    },
+                    move |content| Message::PreviewReady(uid, i, content),
+                )
+            }
+            Message::PreviewReady(uid, i, content) => {
+                if self.message.as_ref().is_some_and(|m| m.uid == uid)
+                    && self.preview.as_ref().is_some_and(|(j, _)| *j == i)
+                {
+                    self.preview = Some((i, Some(content)));
+                }
+                Task::none()
+            }
+            Message::ClosePreview => {
+                self.preview = None;
+                Task::none()
             }
             Message::CursorMoved(at) => {
                 self.cursor = at;
@@ -2061,7 +2144,8 @@ impl App {
                     }
                 }
                 if std::env::var_os("FERROWL_SCREENSHOT_OPEN").is_some() && self.selected.is_none() {
-                    if let Some(uid) = self.visible().first().map(|h| h.uid) {
+                    let nth = std::env::var("FERROWL_DEV_OPEN_NTH").ok().and_then(|n| n.parse().ok()).unwrap_or(0);
+                    if let Some(uid) = self.visible().get(nth).map(|h| h.uid) {
                         return self.open(uid);
                     }
                 }
@@ -2096,7 +2180,9 @@ impl App {
             return Task::none();
         };
         if let Key::Named(Named::Escape) = key {
-            if self.menu.is_some() {
+            if self.preview.is_some() {
+                self.preview = None;
+            } else if self.menu.is_some() {
                 self.menu = None;
             } else if self.drag.is_some() {
                 self.drag = None;

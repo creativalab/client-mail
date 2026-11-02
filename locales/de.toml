@@ -242,3 +242,10 @@ reply_all = "Allen antworten"
 open = "Öffnen"
 move_to = "Verschieben nach"
 moved_ok = "Nachricht verschoben."
+
+# Attachment preview
+preview_attachment = "Vorschau"
+download = "Herunterladen"
+pdf_more_pages = "{n} weitere Seiten: Laden Sie die Datei herunter, um alle zu sehen."
+preview_cut = "Vorschau gekürzt: Die Datei ist länger."
+preview_failed = "Keine Vorschau für diese Datei."

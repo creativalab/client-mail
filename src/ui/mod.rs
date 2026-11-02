@@ -104,6 +104,9 @@ pub mod icons {
     pub const REPLY_ALL: &str = icon_svg!(
         r#"<path d="M7 14L2 9l5-5"/><path d="M12 14L7 9l5-5"/><path d="M7 9h8a6 6 0 0 1 6 6v5"/>"#
     );
+    pub const EYE: &str = icon_svg!(
+        r#"<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>"#
+    );
     pub const FORWARD: &str = icon_svg!(r#"<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0-6 6v5"/>"#);
     pub const LOCK: &str =
         icon_svg!(r#"<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>"#);

@@ -242,3 +242,10 @@ reply_all = "Rispondi a tutti"
 open = "Apri"
 move_to = "Sposta in"
 moved_ok = "Messaggio spostato."
+
+# Attachment preview
+preview_attachment = "Anteprima"
+download = "Scarica"
+pdf_more_pages = "Altre {n} pagine: scarica il file per vederle tutte."
+preview_cut = "Anteprima troncata: il file è più lungo."
+preview_failed = "Anteprima non disponibile per questo file."

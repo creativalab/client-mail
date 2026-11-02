@@ -242,3 +242,10 @@ reply_all = "Reply all"
 open = "Open"
 move_to = "Move to"
 moved_ok = "Message moved."
+
+# Attachment preview
+preview_attachment = "Preview"
+download = "Download"
+pdf_more_pages = "{n} more pages: download the file to see them all."
+preview_cut = "Preview cut: the file is longer."
+preview_failed = "No preview for this file."

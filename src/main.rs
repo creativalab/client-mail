@@ -10,6 +10,7 @@ mod html;
 mod html_view;
 mod i18n;
 mod mail;
+mod preview;
 mod push;
 mod markdown;
 mod theme;
