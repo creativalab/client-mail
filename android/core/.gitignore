@@ -1,0 +1,4 @@
+/build
+# Outputs of ../ffi/build-android.sh
+/src/main/jniLibs
+/src/main/kotlin
