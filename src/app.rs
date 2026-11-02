@@ -88,6 +88,7 @@ pub enum CtxAction {
     ToggleRead,
     Archive,
     Delete,
+    DeleteForever,
     /// Show the folder list inside the menu.
     MoveMenu,
     Move(String),
@@ -775,6 +776,7 @@ impl App {
             CtxAction::ToggleRead => self.toggle_read(uid),
             CtxAction::Archive => self.archive(uid),
             CtxAction::Delete => self.delete(uid),
+            CtxAction::DeleteForever => self.ask_delete_forever(uid),
             CtxAction::Move(target) => self.move_message(uid, target),
             CtxAction::MoveMenu => Task::none(),
         }
@@ -812,17 +814,21 @@ impl App {
                     },
                 )
             }
-            // In Trash (or no Trash folder): open it and ask for confirmation.
-            _ => {
-                let open = if self.selected != Some(uid) {
-                    self.open(uid)
-                } else {
-                    Task::none()
-                };
-                self.confirm_delete = true;
-                open
-            }
+            // In Trash (or no Trash folder): ask before deleting for good.
+            _ => self.ask_delete_forever(uid),
         }
+    }
+
+    /// Shows the "delete forever?" dialog for a message (selecting/opening it
+    /// first, since the dialog acts on the selected message).
+    fn ask_delete_forever(&mut self, uid: u32) -> Task<Message> {
+        let open = if self.selected != Some(uid) {
+            self.open(uid)
+        } else {
+            Task::none()
+        };
+        self.confirm_delete = true;
+        open
     }
 
     fn move_message(&mut self, uid: u32, target: String) -> Task<Message> {
@@ -2254,6 +2260,9 @@ impl App {
             }
             Message::DevScreenshot => {
                 // Open the first message so the reader pane is populated.
+                if std::env::var_os("FERROWL_DEV_CONFIRM").is_some() && self.selected.is_some() {
+                    self.confirm_delete = true;
+                }
                 if std::env::var_os("FERROWL_DEV_MENU").is_some()
                     && self.menu.is_none()
                     && let Some(uid) = self.visible().get(1).map(|h| h.uid)
@@ -2307,6 +2316,14 @@ impl App {
         let keyboard::Event::KeyPressed { key, modifiers, .. } = event else {
             return Task::none();
         };
+        // Delete dialog open: Enter confirms, Esc cancels, other keys do nothing.
+        if self.confirm_delete {
+            return match key {
+                Key::Named(Named::Enter) => self.update(Message::ConfirmDelete(true)),
+                Key::Named(Named::Escape) => self.update(Message::ConfirmDelete(false)),
+                _ => Task::none(),
+            };
+        }
         if let Key::Named(Named::Escape) = key {
             if self.preview.is_some() {
                 self.preview = None;
@@ -2316,8 +2333,6 @@ impl App {
                 self.drag = None;
             } else if self.appearance_open {
                 self.appearance_open = false;
-            } else if self.confirm_delete {
-                self.confirm_delete = false;
             }
             return Task::none();
         }
@@ -2345,6 +2360,11 @@ impl App {
             Key::Character("/") => operation::focus(SEARCH_ID),
             Key::Named(Named::ArrowDown) => self.step(1),
             Key::Named(Named::ArrowUp) => self.step(-1),
+            // Shift+Del: delete for good, skipping Trash (asks first).
+            Key::Named(Named::Delete) if modifiers.shift() => match self.selected {
+                Some(uid) => self.ask_delete_forever(uid),
+                None => Task::none(),
+            },
             Key::Named(Named::Delete) => self.update(Message::Delete),
             _ => Task::none(),
         }

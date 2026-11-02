@@ -37,6 +37,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
     if let Some(m) = &app.menu {
         layers.push(context_menu(app, m, p));
     }
+    if app.confirm_delete {
+        layers.push(delete_dialog(app, p));
+    }
     if let Some((i, content)) = &app.preview {
         layers.push(preview_overlay(app, *i, content.as_ref(), p));
     }
@@ -779,50 +782,6 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         .padding([10, 16])
         .width(Fill);
 
-    let confirm: Option<Element<'a, Message>> = app.confirm_delete.then(|| {
-        container(
-            dir_row(vec![
-                text(t("confirm_delete_forever"))
-                    .size(14)
-                    .color(p.danger)
-                    .width(Fill)
-                    .into(),
-                button(text(t("cancel")).size(14))
-                    .padding([8, 14])
-                    .style(outline_btn(p, p.text))
-                    .on_press(Message::ConfirmDelete(false))
-                    .into(),
-                button(text(t("delete_forever")).size(14).font(semibold()))
-                    .padding([8, 14])
-                    .style(move |_, _| button::Style {
-                        background: Some(Background::Color(p.danger)),
-                        text_color: if p.dark { p.bg } else { Color::WHITE },
-                        border: Border {
-                            radius: radius(8.0),
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    })
-                    .on_press(Message::ConfirmDelete(true))
-                    .into(),
-            ])
-            .spacing(10)
-            .align_y(Alignment::Center),
-        )
-        .padding([12, 20])
-        .width(Fill)
-        .style(move |_| container::Style {
-            background: Some(Background::Color(mix(p.bg, p.danger, 0.08))),
-            border: Border {
-                color: p.danger_line,
-                width: 1.0,
-                radius: radius(0.0),
-            },
-            ..Default::default()
-        })
-        .into()
-    });
-
     let mut recipients = msg.to.clone();
     if !msg.cc.is_empty() {
         recipients = format!("{recipients}, {}: {}", t("cc"), msg.cc);
@@ -1049,9 +1008,6 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     content = content.push(space().height(56));
 
     let mut col = column![toolbar, hline(p.line)];
-    if let Some(c) = confirm {
-        col = col.push(c);
-    }
     let scroll = scrollable(container(content).padding([28, 40]).width(Fill))
         .id(READER_ID)
         .height(Fill)
@@ -1300,12 +1256,13 @@ pub fn toast_layer<'a>(app: &'a App, p: Palette) -> Option<Element<'a, Message>>
     let accent = if toast.error { p.danger } else { p.accent };
     let boxed = container(
         row![
+            // Accent bar as tall as the toast; text and close button centered.
             container(space().width(4).height(Fill)).style(chip_box(accent, accent, 2.0)),
             col.width(Fill),
             close
         ]
         .spacing(12)
-        .height(iced::Length::Shrink),
+        .align_y(Alignment::Center),
     )
     .padding([12, 14])
     .max_width(620)
@@ -1391,6 +1348,37 @@ fn context_menu<'a>(app: &'a App, m: &'a crate::app::ContextMenu, p: Palette) ->
         .on_press(Message::MenuAction(uid, action))
         .into()
     };
+    // Item with the keyboard shortcut shown as a hint at the end of the row.
+    let item_kbd = |svg: &'static str,
+                    label: String,
+                    key: &'static str,
+                    action: CtxAction,
+                    danger: bool|
+     -> Element<'a, Message> {
+        let fg = if danger { p.danger } else { p.text };
+        button(
+            row![
+                icon(svg, 15.0, fg),
+                text(label)
+                    .size(13)
+                    .color(fg)
+                    .width(Fill)
+                    .wrapping(Wrapping::None),
+                text(key)
+                    .size(11)
+                    .font(MONO)
+                    .color(p.muted)
+                    .wrapping(Wrapping::None),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center),
+        )
+        .width(Fill)
+        .padding([7, 12])
+        .style(ghost(p, fg))
+        .on_press(Message::MenuAction(uid, action))
+        .into()
+    };
     let sep = || {
         container(space().height(1))
             .width(Fill)
@@ -1461,17 +1449,28 @@ fn context_menu<'a>(app: &'a App, m: &'a crate::app::ContextMenu, p: Palette) ->
             false,
         ));
         v.push(sep());
-        let delete = if kind == FolderKind::Trash {
-            t("delete_forever")
+        if kind == FolderKind::Trash {
+            v.push(item(
+                icons::TRASH,
+                t("delete_forever").into(),
+                CtxAction::Delete,
+                true,
+            ));
         } else {
-            t("delete")
-        };
-        v.push(item(icons::TRASH, delete.into(), CtxAction::Delete, true));
+            v.push(item(icons::TRASH, t("delete").into(), CtxAction::Delete, true));
+            v.push(item_kbd(
+                icons::TRASH,
+                t("delete_forever").into(),
+                "Shift+Del",
+                CtxAction::DeleteForever,
+                true,
+            ));
+        }
         v
     };
 
     let menu = container(Column::with_children(items).spacing(2))
-        .width(240)
+        .width(290)
         .max_height(420)
         .padding(6)
         .style(move |_| container::Style {
@@ -1489,7 +1488,7 @@ fn context_menu<'a>(app: &'a App, m: &'a crate::app::ContextMenu, p: Palette) ->
             ..Default::default()
         });
     // Keep the menu inside the window.
-    let x = m.at.x.min(app.window_width - 250.0).max(0.0);
+    let x = m.at.x.min(app.window_width - 300.0).max(0.0);
     let y = m.at.y.min(app.window_height - 400.0).max(0.0);
     let placed = container(opaque(menu)).padding(Padding {
         top: y,
@@ -1653,5 +1652,111 @@ fn preview_overlay<'a>(
                 }),
         )
         .on_press(Message::ClosePreview),
+    )
+}
+
+// ---------------------------------------------------------------- delete confirmation
+
+/// Modal "delete forever?" dialog (Enter confirms, Esc or a click outside cancels).
+fn delete_dialog<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
+    let subject = app
+        .selected
+        .and_then(|uid| {
+            app.visible()
+                .into_iter()
+                .find(|h| h.uid == uid)
+                .map(|h| h.subject.clone())
+        })
+        .or_else(|| app.message.as_ref().map(|m| m.subject.clone()))
+        .unwrap_or_default();
+    let danger_btn = button(
+        row![
+            icon(icons::TRASH, 16.0, if p.dark { p.bg } else { Color::WHITE }),
+            text(t("delete_forever")).size(14).font(semibold())
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center),
+    )
+    .padding([10, 16])
+    .style(move |_, st| button::Style {
+        background: Some(Background::Color(if matches!(st, button::Status::Hovered) {
+            mix(p.danger, Color::BLACK, 0.12)
+        } else {
+            p.danger
+        })),
+        text_color: if p.dark { p.bg } else { Color::WHITE },
+        border: Border {
+            radius: radius(10.0),
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+    .on_press(Message::ConfirmDelete(true));
+    let cancel = button(text(t("cancel")).size(14).font(medium()))
+        .padding([10, 16])
+        .style(outline_btn(p, p.text))
+        .on_press(Message::ConfirmDelete(false));
+
+    // Texts start on the right in right-to-left languages.
+    let text_start = if i18n::is_rtl() {
+        Alignment::End
+    } else {
+        Alignment::Start
+    };
+    let dialog = container(
+        column![
+            dir_row(vec![
+                container(icon(icons::TRASH, 22.0, p.danger))
+                    .center_x(44)
+                    .center_y(44)
+                    .style(chip_box(mix(p.bg, p.danger, 0.12), p.danger, 22.0))
+                    .into(),
+                column![
+                    text(t("confirm_delete_title"))
+                        .size(18)
+                        .font(INTER_BOLD)
+                        .color(p.text),
+                    text(trunc(&subject, 70)).size(14).font(medium()).color(p.text2),
+                ]
+                .spacing(4)
+                .width(Fill)
+                .align_x(text_start)
+                .into(),
+            ])
+            .spacing(14)
+            .align_y(Alignment::Center),
+            text(t("cannot_undo")).size(14).color(p.muted),
+            dir_row(vec![space::horizontal().into(), cancel.into(), danger_btn.into()]).spacing(10),
+        ]
+        .spacing(20)
+        .align_x(text_start),
+    )
+    .padding(24)
+    .max_width(480)
+    .style(move |_| container::Style {
+        background: Some(Background::Color(p.bg)),
+        border: Border {
+            color: p.line,
+            width: 1.0,
+            radius: radius(14.0),
+        },
+        shadow: Shadow {
+            color: Color::from_rgba(0.0, 0.0, 0.0, 0.3),
+            offset: Vector::new(0.0, 12.0),
+            blur_radius: 40.0,
+        },
+        ..Default::default()
+    });
+    opaque(
+        mouse_area(
+            container(opaque(dialog))
+                .center(Fill)
+                .padding(24)
+                .style(move |_| container::Style {
+                    background: Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.4))),
+                    ..Default::default()
+                }),
+        )
+        .on_press(Message::ConfirmDelete(false)),
     )
 }
