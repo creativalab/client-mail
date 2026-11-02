@@ -4,6 +4,7 @@ use super::*;
 use crate::app::{App, Conn, Field, Section};
 use crate::config::Density;
 use crate::i18n::{self, LANGS, t, tf};
+use crate::providers::{Login, PROVIDERS, guide_url};
 use iced::widget::{Column, column, pick_list, row, scrollable, space, toggler};
 use iced::{Alignment, Length::Fill, Padding};
 
@@ -505,27 +506,87 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
         None => space::horizontal().into(),
     };
 
-    let details = container(
-        column![
-            text(if app.editing.is_some() {
-                t("account_details")
-            } else {
-                t("new_account")
-            })
-            .size(16)
-            .font(INTER_BOLD)
-            .color(p.text),
-            pair(
-                field(
-                    t("display_name"),
-                    &d.display_name,
-                    Field::DisplayName,
-                    false,
-                    false
-                ),
-                field(t("email"), &d.email, Field::Email, false, false)
-            ),
-            pair(
+    let adding = app.editing.is_none();
+    let preset = d.preset.and_then(|i| PROVIDERS.get(i));
+    let mut form = Column::new().spacing(18).push(
+        text(if adding {
+            t("new_account")
+        } else {
+            t("account_details")
+        })
+        .size(16)
+        .font(INTER_BOLD)
+        .color(p.text),
+    );
+
+    // New account: pick the provider and the servers fill themselves in.
+    if adding {
+        let chip = |label: &'static str, choice: Option<usize>| -> Element<'_, Message> {
+            let selected = d.preset == choice;
+            button(text(label).size(13).font(medium()))
+                .padding([8, 14])
+                .style(move |theme, status| {
+                    if selected {
+                        accent_btn(p)(theme, status)
+                    } else {
+                        outline_btn(p, p.text)(theme, status)
+                    }
+                })
+                .on_press(Message::PickProvider(choice))
+                .into()
+        };
+        let mut chips: Vec<Element<'_, Message>> = PROVIDERS
+            .iter()
+            .enumerate()
+            .map(|(i, pr)| chip(pr.name, Some(i)))
+            .collect();
+        chips.push(chip(t("provider_other"), None));
+        form = form.push(
+            column![
+                text(t("provider_label")).size(13).font(medium()).color(p.text2),
+                dir_row(chips).spacing(8).wrap(),
+            ]
+            .spacing(8),
+        );
+    }
+
+    form = form.push(pair(
+        field(
+            t("display_name"),
+            &d.display_name,
+            Field::DisplayName,
+            false,
+            false,
+        ),
+        field(t("email"), &d.email, Field::Email, false, false),
+    ));
+
+    if let Some(pr) = preset {
+        // Known provider: only the password is left to type.
+        form = form.push(field(t("password"), &d.password, Field::Password, true, false));
+        let hint: Option<(String, Option<String>)> = match pr.login {
+            Login::AppPassword => Some((
+                tf("app_password_hint", &[("provider", pr.name)]),
+                pr.guide.map(|g| guide_url(g, i18n::current().code)),
+            )),
+            Login::MicrosoftSignIn => Some((t("ms_signin_hint").to_string(), None)),
+        };
+        if let Some((msg, link)) = hint {
+            let mut row_items: Vec<Element<'_, Message>> = vec![text(msg).size(13).color(p.text2).into()];
+            if let Some(url) = link {
+                row_items.push(
+                    button(text(t("app_password_howto")).size(13).color(p.accent_text))
+                        .padding([2, 0])
+                        .style(ghost(p, p.accent_text))
+                        .on_press(Message::OpenLink(url))
+                        .into(),
+                );
+            }
+            form = form.push(dir_row(row_items).spacing(8).align_y(Alignment::Center).wrap());
+        }
+    } else {
+        form = form
+            .push(pair(
                 column![
                     field(t("username"), &d.username, Field::Username, false, false),
                     username_hint
@@ -533,42 +594,49 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
                 .spacing(4)
                 .width(Fill)
                 .into(),
-                field(t("password"), &d.password, Field::Password, true, false)
-            ),
-            dir_row(vec![
-                field(t("imap_server"), &d.imap_host, Field::ImapHost, false, true),
-                port(t("port"), &d.imap_port, Field::ImapPort),
-            ])
-            .spacing(16),
-            dir_row(vec![
-                field(t("smtp_server"), &d.smtp_host, Field::SmtpHost, false, true),
-                port(t("port"), &d.smtp_port, Field::SmtpPort),
-            ])
-            .spacing(16),
-            text(t("server_hint")).size(12).color(p.muted),
-            dir_row(vec![
-                button(text(test_label).size(14).font(medium()))
-                    .height(40)
-                    .padding([10, 16])
-                    .style(outline_btn(p, p.text))
-                    .on_press_maybe(can_test.then_some(Message::TestConnection))
-                    .into(),
-                status,
-                button(text(t("save")).size(14).font(semibold()))
-                    .height(40)
-                    .padding([10, 16])
-                    .style(accent_btn(p))
-                    .on_press_maybe(d.to_account().map(|_| Message::SaveAccount))
-                    .into(),
-            ])
-            .spacing(10)
-            .align_y(Alignment::Center),
-        ]
-        .spacing(18),
-    )
-    .padding(20)
-    .width(Fill)
-    .style(card(p, p.line, 14.0));
+                field(t("password"), &d.password, Field::Password, true, false),
+            ))
+            .push(
+                dir_row(vec![
+                    field(t("imap_server"), &d.imap_host, Field::ImapHost, false, true),
+                    port(t("port"), &d.imap_port, Field::ImapPort),
+                ])
+                .spacing(16),
+            )
+            .push(
+                dir_row(vec![
+                    field(t("smtp_server"), &d.smtp_host, Field::SmtpHost, false, true),
+                    port(t("port"), &d.smtp_port, Field::SmtpPort),
+                ])
+                .spacing(16),
+            )
+            .push(text(t("server_hint")).size(12).color(p.muted));
+    }
+
+    form = form.push(
+        dir_row(vec![
+            button(text(test_label).size(14).font(medium()))
+                .height(40)
+                .padding([10, 16])
+                .style(outline_btn(p, p.text))
+                .on_press_maybe(can_test.then_some(Message::TestConnection))
+                .into(),
+            status,
+            button(text(t("save")).size(14).font(semibold()))
+                .height(40)
+                .padding([10, 16])
+                .style(accent_btn(p))
+                .on_press_maybe(d.to_account().map(|_| Message::SaveAccount))
+                .into(),
+        ])
+        .spacing(10)
+        .align_y(Alignment::Center),
+    );
+
+    let details = container(form)
+        .padding(20)
+        .width(Fill)
+        .style(card(p, p.line, 14.0));
 
     col = col.push(details);
 

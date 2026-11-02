@@ -14,6 +14,7 @@ mod i18n;
 mod mail;
 mod markdown;
 mod preview;
+mod providers;
 mod push;
 mod single_instance;
 mod theme;
