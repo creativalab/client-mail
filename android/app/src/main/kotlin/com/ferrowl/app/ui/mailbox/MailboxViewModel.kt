@@ -1,0 +1,110 @@
+package com.ferrowl.app.ui.mailbox
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.ferrowl.app.data.MailRepository
+import com.ferrowl.core.FerrowlException
+import com.ferrowl.core.Folder
+import com.ferrowl.core.Header
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+data class MailboxState(
+    val folders: List<Folder> = emptyList(),
+    val unread: Map<String, UInt> = emptyMap(),
+    val folderId: String = "",
+    val messages: List<Header> = emptyList(),
+    val refreshing: Boolean = false,
+    val error: String? = null,
+    /** Search text; when not blank the list shows [results]. */
+    val query: String = "",
+    val searching: Boolean = false,
+    val results: List<Header> = emptyList(),
+) {
+    val folder: Folder? get() = folders.firstOrNull { it.id == folderId }
+    val shown: List<Header> get() = if (query.isBlank()) messages else results
+}
+
+@HiltViewModel
+class MailboxViewModel @Inject constructor(private val repo: MailRepository) : ViewModel() {
+    private val _state = MutableStateFlow(MailboxState())
+    val state: StateFlow<MailboxState> = _state.asStateFlow()
+
+    /** Confirmations from actions done anywhere ("Archived", "Sent"). */
+    val notices: SharedFlow<String> = repo.notices
+
+    private var searchJob: Job? = null
+
+    init {
+        viewModelScope.launch {
+            try {
+                repo.ensureConnected()
+                _state.update { it.copy(folders = repo.folders.value, folderId = repo.inboxId()) }
+                refresh()
+            } catch (e: FerrowlException) {
+                _state.update { it.copy(error = e.message) }
+            }
+        }
+        // Something was moved, deleted or sent: reload from the local copy.
+        viewModelScope.launch {
+            repo.changes.collect {
+                val id = _state.value.folderId
+                if (id.isNotEmpty()) _state.update { it.copy(messages = repo.cachedHeaders(id)) }
+                loadUnread()
+            }
+        }
+    }
+
+    fun openFolder(id: String) {
+        if (id == _state.value.folderId) return
+        _state.update { it.copy(folderId = id, messages = emptyList(), query = "", results = emptyList()) }
+        refresh()
+    }
+
+    /** The local copy at once, then the newest messages from the server. */
+    fun refresh() {
+        val id = _state.value.folderId.ifEmpty { return }
+        _state.update { it.copy(refreshing = true, error = null) }
+        viewModelScope.launch {
+            try {
+                val cached = repo.cachedHeaders(id)
+                if (cached.isNotEmpty()) _state.update { if (it.folderId == id) it.copy(messages = cached) else it }
+                val fresh = repo.headers(id)
+                _state.update { if (it.folderId == id) it.copy(messages = fresh, refreshing = false) else it }
+                loadUnread()
+            } catch (e: FerrowlException) {
+                _state.update { it.copy(refreshing = false, error = e.message) }
+            }
+        }
+    }
+
+    private suspend fun loadUnread() {
+        runCatching { repo.unread() }.onSuccess { counts -> _state.update { it.copy(unread = counts) } }
+    }
+
+    fun setQuery(text: String) {
+        _state.update { it.copy(query = text) }
+        searchJob?.cancel()
+        if (text.isBlank()) return
+        searchJob = viewModelScope.launch {
+            _state.update { it.copy(searching = true) }
+            val found = repo.search(_state.value.folderId, text)
+            _state.update { it.copy(results = found, searching = false) }
+        }
+    }
+
+    /** Marks a message read in the list as soon as it is opened. */
+    fun opened(uid: UInt) = _state.update { s ->
+        s.copy(
+            messages = s.messages.map { if (it.uid == uid) it.copy(seen = true) else it },
+            results = s.results.map { if (it.uid == uid) it.copy(seen = true) else it },
+        )
+    }
+}
