@@ -80,6 +80,22 @@ impl Backend {
         self.inner.lock().unwrap_or_else(|p| p.into_inner())
     }
 
+    /// The connected account's address (empty if none).
+    fn own_address(&self) -> String {
+        self.lock()
+            .account
+            .as_ref()
+            .map(|a| a.email.clone())
+            .unwrap_or_default()
+    }
+
+    /// Address suggestions for To/Cc from the account's mail.
+    pub fn suggest(account: &Account, query: &str) -> Vec<(String, String)> {
+        cache::get()
+            .and_then(|c| c.suggest(&cache::account_key(account), query, 8).ok())
+            .unwrap_or_default()
+    }
+
     /// The connected account, if it reads mail with POP3.
     fn pop3_account(&self) -> Option<Account> {
         self.lock().account.clone().filter(Account::is_pop3)
@@ -201,11 +217,12 @@ impl Backend {
                 return Ok((local_headers(&account, &folder), if left > 0 { 2 } else { 0 }));
             }
             let page = b.with_session_sync(|s| mail::fetch_headers(s, &folder))?;
+            let own = b.own_address();
             b.cache(|c, key| {
                 if let Some(v) = page.uidvalidity {
                     c.check_uidvalidity(key, &folder, v)?;
                 }
-                c.store_headers(key, &folder, &page.headers)?;
+                c.store_headers(key, &folder, &page.headers, &own)?;
                 let uids: Vec<u32> = page.headers.iter().map(|h| h.uid).collect();
                 if let Some(min) = uids.iter().min() {
                     c.prune(key, &folder, *min, &uids)?;
@@ -230,9 +247,10 @@ impl Backend {
                 return Ok(None);
             }
             let page = b.with_session_sync(|s| mail::fetch_older(s, &folder, before, count))?;
+            let own = b.own_address();
             let mut done = page.first_seq <= 1;
             b.cache(|c, key| {
-                c.store_headers(key, &folder, &page.headers)?;
+                c.store_headers(key, &folder, &page.headers, &own)?;
                 let (cached, _) = c.folder_stats(key, &folder)?;
                 done |= cached >= page.exists;
                 Ok(())
@@ -397,6 +415,11 @@ impl Backend {
                 .clone()
                 .ok_or_else(|| t("err_no_account").to_string())?;
             let raw = mail::send(&account, &mail).map_err(text)?;
+            let to: Vec<(String, String)> = [&mail.to, &mail.cc, &mail.bcc]
+                .iter()
+                .flat_map(|f| mail::parse_recipients(f))
+                .collect();
+            b.cache(|c, key| c.note_sent(key, &to, chrono::Utc::now().timestamp()));
             if account.is_pop3() {
                 // Sent copy in the local mailbox.
                 return Ok(local_op(&account, |s, key| s.insert(key, local::SENT, &raw, true)).err());
@@ -451,6 +474,10 @@ fn pop3_sync(account: &Account, max: usize) -> anyhow::Result<usize> {
     for item in pending.iter().take(max) {
         let raw = pop.retr(item.number)?;
         store.add_downloaded(&key, &item.uidl, &raw)?;
+        if let Some(c) = cache::get() {
+            let h = mail::header_from_raw(0, &raw, false);
+            let _ = c.store_address_book(&key, &account.email, &h);
+        }
         known.insert(item.uidl.clone(), local::now());
     }
     let left = pending.len().saturating_sub(max);

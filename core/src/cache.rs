@@ -42,9 +42,20 @@ CREATE TABLE IF NOT EXISTS messages (
     full     INTEGER NOT NULL DEFAULT 0,
     msgid    TEXT NOT NULL DEFAULT '',
     parents  TEXT NOT NULL DEFAULT '',
+    counted  INTEGER NOT NULL DEFAULT 0,
     UNIQUE (account, folder, uid)
 );
 CREATE INDEX IF NOT EXISTS messages_list ON messages (account, folder, ts DESC);
+-- Address book built from mail: people who wrote to us, people we wrote to.
+CREATE TABLE IF NOT EXISTS addresses (
+    account  TEXT NOT NULL,
+    address  TEXT NOT NULL,
+    name     TEXT NOT NULL DEFAULT '',
+    received INTEGER NOT NULL DEFAULT 0,
+    sent     INTEGER NOT NULL DEFAULT 0,
+    last_ts  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (account, address)
+);
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
     sender, subject, body,
     content = 'messages', content_rowid = 'id',
@@ -115,6 +126,10 @@ impl Cache {
                 "parents",
                 "ALTER TABLE messages ADD COLUMN parents TEXT NOT NULL DEFAULT ''",
             ),
+            (
+                "counted",
+                "ALTER TABLE messages ADD COLUMN counted INTEGER NOT NULL DEFAULT 0",
+            ),
         ] {
             if !has_column(&conn, "messages", column)? {
                 conn.execute_batch(ddl)?;
@@ -159,14 +174,29 @@ impl Cache {
     }
 
     /// Inserts or updates headers. Bodies already stored in full are kept.
-    pub fn store_headers(&self, account: &str, folder: &str, headers: &[Header]) -> Result<()> {
+    /// Stores list entries. Messages seen for the first time also feed the
+    /// address book (`own` = the account's address, to tell sent from received).
+    pub fn store_headers(&self, account: &str, folder: &str, headers: &[Header], own: &str) -> Result<()> {
         let mut conn = self.lock();
         let tx = conn.transaction()?;
         {
+            // Each message feeds the address book once: new ones, and those
+            // cached before the address book existed (counted = 0).
+            let mut counted = tx.prepare_cached(
+                "SELECT 1 FROM messages WHERE account = ?1 AND folder = ?2 AND uid = ?3 AND counted = 1",
+            )?;
+            for h in headers {
+                if !counted.exists(params![account, folder, h.uid])? {
+                    harvest(&tx, account, own, h)?;
+                }
+            }
+        }
+        {
             let mut stmt = tx.prepare_cached(
-                "INSERT INTO messages (account, folder, uid, sender, subject, preview, ts, seen, attach, body, msgid, parents)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                "INSERT INTO messages (account, folder, uid, sender, subject, preview, ts, seen, attach, body, msgid, parents, counted)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1)
                  ON CONFLICT (account, folder, uid) DO UPDATE SET
+                    counted = 1,
                     seen = excluded.seen,
                     msgid = excluded.msgid,
                     parents = excluded.parents,
@@ -264,6 +294,59 @@ impl Cache {
         )?)
     }
 
+    /// Feeds the address book with one message (POP3 downloads).
+    pub fn store_address_book(&self, account: &str, own: &str, h: &Header) -> Result<()> {
+        harvest(&self.lock(), account, own, h)
+    }
+
+    /// Recorded that we sent to these addresses (right after sending).
+    pub fn note_sent(&self, account: &str, recipients: &[(String, String)], ts: i64) -> Result<()> {
+        let conn = self.lock();
+        let h = Header {
+            from_address: "\u{0}me".into(),
+            recipients: recipients.to_vec(),
+            timestamp: ts,
+            ..Default::default()
+        };
+        harvest(&conn, account, "\u{0}me", &h)
+    }
+
+    /// Address suggestions for a To/Cc field: addresses starting with, or
+    /// names containing, `query`; people we write to first, then the most
+    /// frequent and recent senders.
+    pub fn suggest(&self, account: &str, query: &str, limit: u32) -> Result<Vec<(String, String)>> {
+        let q = query.trim().to_lowercase();
+        if q.is_empty() {
+            return Ok(Vec::new());
+        }
+        let like = |s: &str| s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        let conn = self.lock();
+        let mut stmt = conn.prepare_cached(
+            "SELECT name, address FROM addresses
+             WHERE account = ?1
+               AND (address LIKE ?2 ESCAPE '\\' OR lower(name) LIKE ?3 ESCAPE '\\')
+             ORDER BY sent * 5 + received DESC, last_ts DESC LIMIT ?4",
+        )?;
+        let rows = stmt.query_map(
+            params![
+                account,
+                format!("{}%", like(&q)),
+                format!("%{}%", like(&q)),
+                limit * 2
+            ],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+        )?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (name, addr) = row?;
+            if !NO_REPLY.iter().any(|n| addr.contains(n)) {
+                out.push((name, addr));
+            }
+        }
+        out.truncate(limit as usize);
+        Ok(out)
+    }
+
     /// Full-text search in one folder. Each word matches as a prefix,
     /// accents and case are ignored; all words must match.
     pub fn search(&self, account: &str, folder: &str, words: &[String], limit: u32) -> Result<Vec<Header>> {
@@ -298,8 +381,45 @@ fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<Header> {
             .split_whitespace()
             .map(str::to_owned)
             .collect(),
+        ..Default::default()
     })
 }
+
+/// Counts a message in the address book: its sender as "received", or, for
+/// messages we sent, its recipients as "sent".
+fn harvest(conn: &Connection, account: &str, own: &str, h: &Header) -> Result<()> {
+    let own = own.trim().to_lowercase();
+    let from = h.from_address.trim().to_lowercase();
+    let mut stmt = conn.prepare_cached(
+        "INSERT INTO addresses (account, address, name, received, sent, last_ts) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT (account, address) DO UPDATE SET
+            received = received + excluded.received,
+            sent = sent + excluded.sent,
+            name = CASE WHEN excluded.name != '' THEN excluded.name ELSE addresses.name END,
+            last_ts = MAX(last_ts, excluded.last_ts)",
+    )?;
+    if !own.is_empty() && from == own {
+        for (name, addr) in &h.recipients {
+            let addr = addr.trim().to_lowercase();
+            if addr != own && addr.contains('@') {
+                stmt.execute(params![account, addr, name, 0, 1, h.timestamp])?;
+            }
+        }
+    } else if from.contains('@') {
+        let name = if h.from.contains('@') { "" } else { h.from.as_str() };
+        stmt.execute(params![account, from, name, 1, 0, h.timestamp])?;
+    }
+    Ok(())
+}
+
+/// Automated senders are never suggested as recipients.
+const NO_REPLY: [&str; 5] = [
+    "noreply",
+    "no-reply",
+    "donotreply",
+    "do-not-reply",
+    "nonrispondere",
+];
 
 /// Whether a table already has a column (for adding columns to old files).
 pub(crate) fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
@@ -349,6 +469,39 @@ mod tests {
     }
 
     #[test]
+    fn address_book_from_mail() {
+        let c = Cache::in_memory();
+        let mail = |uid: u32, from: &str, addr: &str, to: &[(&str, &str)]| Header {
+            uid,
+            from: from.into(),
+            from_address: addr.into(),
+            recipients: to.iter().map(|(n, a)| (n.to_string(), a.to_string())).collect(),
+            timestamp: uid as i64,
+            ..Default::default()
+        };
+        let list = [
+            mail(1, "Ada Lovelace", "ada@x.org", &[]),
+            mail(2, "Ada Lovelace", "ada@x.org", &[]),
+            mail(3, "News", "noreply@shop.it", &[]),
+            mail(4, "Me", "me@y.org", &[("Bob Smith", "bob@z.org")]),
+        ];
+        c.store_headers("a", "INBOX", &list, "me@y.org").unwrap();
+        // Stored again (refresh): not counted twice.
+        c.store_headers("a", "INBOX", &list, "me@y.org").unwrap();
+
+        let names = |q: &str| c.suggest("a", q, 5).unwrap();
+        assert_eq!(names("ada"), vec![("Ada Lovelace".into(), "ada@x.org".into())]);
+        assert_eq!(names("smith"), vec![("Bob Smith".into(), "bob@z.org".into())]);
+        assert!(names("noreply").is_empty(), "automated senders are skipped");
+        assert!(names("me@").is_empty(), "our own address is not stored");
+
+        // People we write to come before frequent senders.
+        c.note_sent("a", &[("".into(), "ada2@x.org".into())], 9).unwrap();
+        c.note_sent("a", &[("".into(), "ada2@x.org".into())], 10).unwrap();
+        assert_eq!(names("ada")[0].1, "ada2@x.org");
+    }
+
+    #[test]
     fn store_search_prune() {
         let c = Cache::in_memory();
         c.check_uidvalidity("a", "INBOX", 1).unwrap();
@@ -365,6 +518,7 @@ mod tests {
                 h(2, "Banca", "Estratto conto", "Il tuo estratto conto di ottobre"),
                 h(3, "Città di Roma", "Avviso", "Comunicazione importante"),
             ],
+            "",
         )
         .unwrap();
         let words = |s: &str| s.split_whitespace().map(str::to_string).collect::<Vec<_>>();
@@ -384,7 +538,7 @@ mod tests {
         // Full body replaces the snippet and stays on later header refreshes.
         c.store_body("a", "INBOX", 2, "testo completo con parola rara zibaldone")
             .unwrap();
-        c.store_headers("a", "INBOX", &[h(2, "Banca", "Estratto conto", "snippet")])
+        c.store_headers("a", "INBOX", &[h(2, "Banca", "Estratto conto", "snippet")], "")
             .unwrap();
         assert_eq!(c.search("a", "INBOX", &words("zibaldone"), 10).unwrap().len(), 1);
         // Prune removes messages gone from the server.

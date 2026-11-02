@@ -355,6 +355,13 @@ pub enum Login {
     MicrosoftSignIn,
 }
 
+/// An address suggested while typing a recipient.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct AddressSuggestion {
+    pub name: String,
+    pub address: String,
+}
+
 /// A known mail provider, for the "add account" screen.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct Provider {
@@ -587,6 +594,18 @@ impl Engine {
                 .map(Header::from)
                 .collect(),
             _ => Vec::new(),
+        }
+    }
+
+    /// Recipients matching what is being typed, from the account's mail
+    /// (people we write to first).
+    pub fn suggest_addresses(&self, query: String) -> Vec<AddressSuggestion> {
+        match lock(&self.account).as_ref() {
+            Some(a) => Backend::suggest(a, &query)
+                .into_iter()
+                .map(|(name, address)| AddressSuggestion { name, address })
+                .collect(),
+            None => Vec::new(),
         }
     }
 

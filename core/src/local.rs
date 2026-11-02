@@ -306,6 +306,7 @@ fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<Header> {
             .split_whitespace()
             .map(str::to_owned)
             .collect(),
+        ..Default::default()
     })
 }
 

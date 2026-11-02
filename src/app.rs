@@ -125,6 +125,8 @@ pub struct Compose {
     pub encrypt: bool,
     /// Rendered preview, shown instead of the editor while `Some`.
     pub preview: Option<Vec<iced::widget::markdown::Item>>,
+    /// Address suggestions under a recipient field: (field, (name, address)).
+    pub suggest: Option<(ComposeField, Vec<(String, String)>)>,
 }
 
 /// Actions of the message context menu.
@@ -194,6 +196,7 @@ impl Compose {
             sign: false,
             encrypt: false,
             preview: None,
+            suggest: None,
         }
     }
 
@@ -361,7 +364,7 @@ pub enum Field {
     SmtpPort,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComposeField {
     To,
     Cc,
@@ -592,6 +595,10 @@ pub enum Message {
     // compose
     ComposeNew,
     ComposeField(ComposeField, String),
+    /// Chosen address suggestion: (field, name, address).
+    ComposePick(ComposeField, String, String),
+    /// Enter in a recipient field: take the first suggestion.
+    ComposePickFirst(ComposeField),
     ComposeToggleCc,
     ComposeEdit(text_editor::Action),
     ComposeFormat(Fmt),
@@ -728,7 +735,18 @@ impl App {
         let scale = iced::window::latest()
             .and_then(iced::window::scale_factor)
             .map(Message::ScaleFactor);
-        let task = Task::batch([app.connect(), scale]);
+        // Development: type into "To" once the list (and address book) loaded.
+        let dev_to = match std::env::var("FERROWL_DEV_TO") {
+            Ok(v) => Task::perform(
+                async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+                    v
+                },
+                |v| Message::ComposeField(ComposeField::To, v),
+            ),
+            Err(_) => Task::none(),
+        };
+        let task = Task::batch([app.connect(), scale, dev_to]);
         (app, task)
     }
 
@@ -1474,7 +1492,22 @@ impl App {
                     Some(f) => self.load_folder(f, false),
                     None => Task::none(),
                 };
-                Task::batch([load, self.refresh_unseen()])
+                // The address book learns who we write to from Sent: read its
+                // newest page once, after the inbox, in the background.
+                let sent = match self.folder_by_kind(FolderKind::Sent).map(|f| f.name.clone()) {
+                    Some(sent) if self.current_folder.as_deref() != Some(&sent) => {
+                        let b = self.backend.clone();
+                        Task::perform(
+                            async move {
+                                tokio::time::sleep(Duration::from_secs(5)).await;
+                                let _ = b.headers(sent).await;
+                            },
+                            |_| Message::Noop,
+                        )
+                    }
+                    _ => Task::none(),
+                };
+                Task::batch([load, self.refresh_unseen(), sent])
             }
             Message::Connected(Err(e)) => {
                 self.conn = Conn::Error(e.clone());
@@ -2458,8 +2491,57 @@ impl App {
                 }
                 Task::none()
             }
-            Message::ComposeField(field, value) => {
+            Message::ComposePick(field, name, address) => {
                 if let Some(c) = self.compose.as_mut() {
+                    let target = match field {
+                        ComposeField::To => &mut c.to,
+                        ComposeField::Cc => &mut c.cc,
+                        ComposeField::Bcc => &mut c.bcc,
+                        ComposeField::Subject => return Task::none(),
+                    };
+                    // Replace the word being typed with the chosen address.
+                    let keep = target
+                        .rfind([',', ';'])
+                        .map(|i| target[..=i].to_string() + " ")
+                        .unwrap_or_default();
+                    let entry = if name.is_empty() {
+                        address
+                    } else {
+                        format!("{name} <{address}>")
+                    };
+                    *target = format!("{keep}{entry}, ");
+                    c.suggest = None;
+                }
+                Task::none()
+            }
+            Message::ComposePickFirst(field) => {
+                let first = self
+                    .compose
+                    .as_ref()
+                    .and_then(|c| c.suggest.as_ref())
+                    .filter(|(f, _)| *f == field)
+                    .and_then(|(_, list)| list.first().cloned());
+                match first {
+                    Some((name, address)) => self.update(Message::ComposePick(field, name, address)),
+                    None => Task::none(),
+                }
+            }
+            Message::ComposeField(field, value) => {
+                // Suggestions for the word being typed in a recipient field.
+                let suggest = match (field, self.config.account()) {
+                    (ComposeField::To | ComposeField::Cc | ComposeField::Bcc, Some(acc)) => {
+                        let word = value.rsplit([',', ';']).next().unwrap_or("").trim();
+                        let list = if word.chars().count() >= 2 && !word.contains('<') {
+                            Backend::suggest(acc, word)
+                        } else {
+                            Vec::new()
+                        };
+                        (!list.is_empty()).then_some((field, list))
+                    }
+                    _ => None,
+                };
+                if let Some(c) = self.compose.as_mut() {
+                    c.suggest = suggest;
                     match field {
                         ComposeField::To => c.to = value,
                         ComposeField::Cc => c.cc = value,
