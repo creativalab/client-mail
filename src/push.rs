@@ -43,15 +43,16 @@ fn stream(watch: &Watch) -> impl Stream<Item = Message> + use<> {
         let mut backoff = 15;
         loop {
             let account = watch.account.clone();
-            let connected = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<mail::ImapSession>> {
-                let mut session = mail::connect(&account)?;
-                if !mail::supports_idle(&mut session)? {
-                    let _ = session.logout();
-                    return Ok(None);
-                }
-                Ok(Some(session))
-            })
-            .await;
+            let connected =
+                tokio::task::spawn_blocking(move || -> anyhow::Result<Option<mail::ImapSession>> {
+                    let mut session = mail::connect(&account)?;
+                    if !mail::supports_idle(&mut session)? {
+                        let _ = session.logout();
+                        return Ok(None);
+                    }
+                    Ok(Some(session))
+                })
+                .await;
             let mut session = match connected {
                 Ok(Ok(Some(s))) => s,
                 // No IDLE on this server: nothing to do, the periodic refresh covers it.

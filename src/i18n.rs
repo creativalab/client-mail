@@ -15,16 +15,66 @@ pub struct Lang {
 }
 
 pub const LANGS: [Lang; 10] = [
-    Lang { code: "en", native: "English", rtl: false, source: include_str!("../locales/en.toml") },
-    Lang { code: "it", native: "Italiano", rtl: false, source: include_str!("../locales/it.toml") },
-    Lang { code: "fr", native: "Français", rtl: false, source: include_str!("../locales/fr.toml") },
-    Lang { code: "de", native: "Deutsch", rtl: false, source: include_str!("../locales/de.toml") },
-    Lang { code: "es", native: "Español", rtl: false, source: include_str!("../locales/es.toml") },
-    Lang { code: "pt", native: "Português", rtl: false, source: include_str!("../locales/pt.toml") },
-    Lang { code: "zh", native: "中文（简体）", rtl: false, source: include_str!("../locales/zh.toml") },
-    Lang { code: "ja", native: "日本語", rtl: false, source: include_str!("../locales/ja.toml") },
-    Lang { code: "ko", native: "한국어", rtl: false, source: include_str!("../locales/ko.toml") },
-    Lang { code: "ar", native: "العربية", rtl: true, source: include_str!("../locales/ar.toml") },
+    Lang {
+        code: "en",
+        native: "English",
+        rtl: false,
+        source: include_str!("../locales/en.toml"),
+    },
+    Lang {
+        code: "it",
+        native: "Italiano",
+        rtl: false,
+        source: include_str!("../locales/it.toml"),
+    },
+    Lang {
+        code: "fr",
+        native: "Français",
+        rtl: false,
+        source: include_str!("../locales/fr.toml"),
+    },
+    Lang {
+        code: "de",
+        native: "Deutsch",
+        rtl: false,
+        source: include_str!("../locales/de.toml"),
+    },
+    Lang {
+        code: "es",
+        native: "Español",
+        rtl: false,
+        source: include_str!("../locales/es.toml"),
+    },
+    Lang {
+        code: "pt",
+        native: "Português",
+        rtl: false,
+        source: include_str!("../locales/pt.toml"),
+    },
+    Lang {
+        code: "zh",
+        native: "中文（简体）",
+        rtl: false,
+        source: include_str!("../locales/zh.toml"),
+    },
+    Lang {
+        code: "ja",
+        native: "日本語",
+        rtl: false,
+        source: include_str!("../locales/ja.toml"),
+    },
+    Lang {
+        code: "ko",
+        native: "한국어",
+        rtl: false,
+        source: include_str!("../locales/ko.toml"),
+    },
+    Lang {
+        code: "ar",
+        native: "العربية",
+        rtl: true,
+        source: include_str!("../locales/ar.toml"),
+    },
 ];
 
 /// Support address shown on unexpected errors.

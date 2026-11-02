@@ -20,9 +20,23 @@ pub fn to_html_fragment(md: &str) -> String {
         Event::Html(s) | Event::InlineHtml(s) => Event::Text(s),
         Event::SoftBreak => Event::HardBreak,
         // Only allow safe link schemes.
-        Event::Start(pulldown_cmark::Tag::Link { link_type, dest_url, title, id }) => {
-            let dest_url = if is_safe_url(&dest_url) { dest_url } else { CowStr::from("") };
-            Event::Start(pulldown_cmark::Tag::Link { link_type, dest_url, title, id })
+        Event::Start(pulldown_cmark::Tag::Link {
+            link_type,
+            dest_url,
+            title,
+            id,
+        }) => {
+            let dest_url = if is_safe_url(&dest_url) {
+                dest_url
+            } else {
+                CowStr::from("")
+            };
+            Event::Start(pulldown_cmark::Tag::Link {
+                link_type,
+                dest_url,
+                title,
+                id,
+            })
         }
         Event::Start(pulldown_cmark::Tag::Image { dest_url, title, .. }) => {
             // Images are not embedded: show the alt text and the URL as text.

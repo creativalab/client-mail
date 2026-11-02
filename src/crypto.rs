@@ -8,8 +8,8 @@
 
 use anyhow::{Context, Result, anyhow, bail};
 use pgp::composed::{
-    ArmorOptions, Deserializable, DetachedSignature, EncryptionCaps, KeyType, Message,
-    MessageBuilder, SecretKeyParamsBuilder, SignedPublicKey, SignedSecretKey, SubkeyParamsBuilder,
+    ArmorOptions, Deserializable, DetachedSignature, EncryptionCaps, KeyType, Message, MessageBuilder,
+    SecretKeyParamsBuilder, SignedPublicKey, SignedSecretKey, SubkeyParamsBuilder,
 };
 use pgp::crypto::ecc_curve::ECCCurve;
 use pgp::crypto::hash::HashAlgorithm;
@@ -40,7 +40,13 @@ fn file_for(address: &str) -> String {
         .trim()
         .to_lowercase()
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || "@._-+".contains(c) { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || "@._-+".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     format!("{clean}.asc")
 }
@@ -124,7 +130,9 @@ pub fn generate(name: &str, address: &str, passphrase: &str) -> Result<SignedSec
 pub fn own_key(address: &str) -> Option<SignedSecretKey> {
     let path = keys_dir("own").ok()?.join(file_for(address));
     let data = std::fs::read(path).ok()?;
-    SignedSecretKey::from_reader_single(&data[..]).ok().map(|(k, _)| k)
+    SignedSecretKey::from_reader_single(&data[..])
+        .ok()
+        .map(|(k, _)| k)
 }
 
 pub fn save_own_key(address: &str, key: &SignedSecretKey) -> Result<()> {
@@ -143,7 +151,10 @@ pub fn import_own_key(address: &str, path: &std::path::Path) -> Result<SignedSec
 
 /// Armored public part of the account's key (for sharing).
 pub fn own_public_armored(address: &str) -> Option<String> {
-    own_key(address)?.to_public_key().to_armored_string(ArmorOptions::default()).ok()
+    own_key(address)?
+        .to_public_key()
+        .to_armored_string(ArmorOptions::default())
+        .ok()
 }
 
 // ---------------------------------------------------------------- contacts
@@ -151,7 +162,9 @@ pub fn own_public_armored(address: &str) -> Option<String> {
 pub fn contact_key(address: &str) -> Option<SignedPublicKey> {
     let path = keys_dir("contacts").ok()?.join(file_for(address));
     let data = std::fs::read(path).ok()?;
-    SignedPublicKey::from_reader_single(&data[..]).ok().map(|(k, _)| k)
+    SignedPublicKey::from_reader_single(&data[..])
+        .ok()
+        .map(|(k, _)| k)
 }
 
 fn save_contact_key(address: &str, key: &SignedPublicKey) -> Result<()> {
@@ -183,7 +196,13 @@ pub fn contact_count() -> usize {
     keys_dir("contacts")
         .ok()
         .and_then(|d| std::fs::read_dir(d).ok())
-        .map(|it| it.filter(|e| e.as_ref().is_ok_and(|e| e.path().extension().is_some_and(|x| x == "asc"))).count())
+        .map(|it| {
+            it.filter(|e| {
+                e.as_ref()
+                    .is_ok_and(|e| e.path().extension().is_some_and(|x| x == "asc"))
+            })
+            .count()
+        })
         .unwrap_or(0)
 }
 
@@ -250,13 +269,15 @@ fn can_sign(sigs: &[pgp::packet::Signature]) -> bool {
 /// Encrypts `data` to the given keys (each key's encryption subkeys);
 /// returns an armored OpenPGP message.
 pub fn encrypt(data: &[u8], recipients: &[SignedPublicKey]) -> Result<String> {
-    let mut builder = MessageBuilder::from_bytes("", data.to_vec())
-        .seipd_v1(thread_rng(), SymmetricKeyAlgorithm::AES256);
+    let mut builder =
+        MessageBuilder::from_bytes("", data.to_vec()).seipd_v1(thread_rng(), SymmetricKeyAlgorithm::AES256);
     let mut any = false;
     for key in recipients {
         let mut found = false;
         for sub in key.public_subkeys.iter().filter(|s| can_encrypt(&s.signatures)) {
-            builder.encrypt_to_key(thread_rng(), sub).map_err(|e| anyhow!("{e}"))?;
+            builder
+                .encrypt_to_key(thread_rng(), sub)
+                .map_err(|e| anyhow!("{e}"))?;
             found = true;
         }
         if !found {
@@ -277,8 +298,16 @@ pub fn encrypt(data: &[u8], recipients: &[SignedPublicKey]) -> Result<String> {
 pub fn sign(data: &[u8], key: &SignedSecretKey, passphrase: &str) -> Result<String> {
     let pw = Password::from(passphrase);
     let sig = match key.secret_subkeys.iter().find(|s| can_sign(&s.signatures)) {
-        Some(sub) => DetachedSignature::sign_binary_data(thread_rng(), &sub.key, &pw, HashAlgorithm::Sha256, data),
-        None => DetachedSignature::sign_binary_data(thread_rng(), &key.primary_key, &pw, HashAlgorithm::Sha256, data),
+        Some(sub) => {
+            DetachedSignature::sign_binary_data(thread_rng(), &sub.key, &pw, HashAlgorithm::Sha256, data)
+        }
+        None => DetachedSignature::sign_binary_data(
+            thread_rng(),
+            &key.primary_key,
+            &pw,
+            HashAlgorithm::Sha256,
+            data,
+        ),
     }
     .map_err(|e| anyhow!("signing failed (wrong passphrase?): {e}"))?;
     Ok(sig.to_armored_string(ArmorOptions::default())?)
@@ -291,7 +320,10 @@ pub fn verify(data: &[u8], signature: &[u8], key: &SignedPublicKey) -> bool {
         Err(_) => return false,
     };
     sig.verify(&key.primary_key, data).is_ok()
-        || key.public_subkeys.iter().any(|s| sig.verify(&s.key, data).is_ok())
+        || key
+            .public_subkeys
+            .iter()
+            .any(|s| sig.verify(&s.key, data).is_ok())
 }
 
 /// Decrypts an OpenPGP message (armored or binary).
@@ -329,7 +361,7 @@ mod tests {
         assert!(!verify(b"tampered", sig.as_bytes(), &alice_pub));
         assert!(sign(data, &alice, "wrong").is_err());
 
-        let armored = encrypt(data, &[alice_pub.clone()]).unwrap();
+        let armored = encrypt(data, std::slice::from_ref(&alice_pub)).unwrap();
         assert!(armored.starts_with("-----BEGIN PGP MESSAGE-----"));
         assert_eq!(decrypt(armored.as_bytes(), &alice, "pw").unwrap(), data);
     }
@@ -347,8 +379,16 @@ mod tests {
         let dir = std::path::PathBuf::from(std::env::var("FERROWL_GPG_DIR").expect("FERROWL_GPG_DIR"));
         let key = generate("Ferrowl Test", "test@example.com", "").unwrap();
         let public = key.to_public_key();
-        std::fs::write(dir.join("pub.asc"), public.to_armored_string(ArmorOptions::default()).unwrap()).unwrap();
-        std::fs::write(dir.join("sec.asc"), key.to_armored_string(ArmorOptions::default()).unwrap()).unwrap();
+        std::fs::write(
+            dir.join("pub.asc"),
+            public.to_armored_string(ArmorOptions::default()).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("sec.asc"),
+            key.to_armored_string(ArmorOptions::default()).unwrap(),
+        )
+        .unwrap();
         let data = b"Content-Type: text/plain\r\n\r\nhello gpg\r\n";
         std::fs::write(dir.join("data.txt"), data).unwrap();
         std::fs::write(dir.join("data.sig"), sign(data, &key, "").unwrap()).unwrap();
@@ -361,17 +401,23 @@ mod tests {
     fn gpg_interop_check() {
         let dir = std::path::PathBuf::from(std::env::var("FERROWL_GPG_DIR").expect("FERROWL_GPG_DIR"));
         // GnuPG → Ferrowl: decrypt a message gpg encrypted to our key.
-        let (sec, _) = SignedSecretKey::from_reader_single(&std::fs::read(dir.join("sec.asc")).unwrap()[..]).unwrap();
+        let (sec, _) =
+            SignedSecretKey::from_reader_single(&std::fs::read(dir.join("sec.asc")).unwrap()[..]).unwrap();
         let plain = decrypt(&std::fs::read(dir.join("fromgpg.asc")).unwrap(), &sec, "").unwrap();
         assert_eq!(plain, b"hello from gpg\n");
         // Ferrowl → GnuPG: encrypt and sign for a gpg-generated key.
-        let (gpg_pub, _) = SignedPublicKey::from_reader_single(&std::fs::read(dir.join("gpgpub.asc")).unwrap()[..]).unwrap();
+        let (gpg_pub, _) =
+            SignedPublicKey::from_reader_single(&std::fs::read(dir.join("gpgpub.asc")).unwrap()[..]).unwrap();
         let to_gpg = encrypt(b"hello to gpg\n", &[gpg_pub]).unwrap();
         std::fs::write(dir.join("togpg.asc"), &to_gpg).unwrap();
         // A secret key exported from GnuPG works in Ferrowl (import path).
-        let (gpg_sec, _) = SignedSecretKey::from_reader_single(&std::fs::read(dir.join("gpgsec.asc")).unwrap()[..]).unwrap();
+        let (gpg_sec, _) =
+            SignedSecretKey::from_reader_single(&std::fs::read(dir.join("gpgsec.asc")).unwrap()[..]).unwrap();
         gpg_sec.verify_bindings().unwrap();
-        assert_eq!(decrypt(to_gpg.as_bytes(), &gpg_sec, "").unwrap(), b"hello to gpg\n");
+        assert_eq!(
+            decrypt(to_gpg.as_bytes(), &gpg_sec, "").unwrap(),
+            b"hello to gpg\n"
+        );
         assert!(sign(b"x", &gpg_sec, "").is_ok());
     }
 }

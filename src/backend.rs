@@ -29,9 +29,9 @@ fn text(e: anyhow::Error) -> String {
 
 fn is_connection_error(e: &anyhow::Error) -> bool {
     e.chain().any(|c| {
-        c.downcast_ref::<imap::Error>().is_some_and(|ie| {
-            matches!(ie, imap::Error::Io(_) | imap::Error::ConnectionLost)
-        }) || c.downcast_ref::<std::io::Error>().is_some()
+        c.downcast_ref::<imap::Error>()
+            .is_some_and(|ie| matches!(ie, imap::Error::Io(_) | imap::Error::ConnectionLost))
+            || c.downcast_ref::<std::io::Error>().is_some()
     })
 }
 
@@ -156,7 +156,10 @@ impl Backend {
     /// Cached list of a folder (instant, before the server answers).
     pub fn cached_headers(account: &Account, folder: &str) -> Vec<Header> {
         cache::get()
-            .and_then(|c| c.headers(&cache::account_key(account), folder, mail::PAGE_SIZE).ok())
+            .and_then(|c| {
+                c.headers(&cache::account_key(account), folder, mail::PAGE_SIZE)
+                    .ok()
+            })
             .unwrap_or_default()
     }
 
@@ -175,10 +178,13 @@ impl Backend {
     pub async fn message(&self, folder: String, uid: u32) -> Res<FullMessage> {
         self.blocking(move |b| {
             let account = b.lock().account.clone();
-            let own = account.as_ref().and_then(|a| {
-                crate::crypto::own_key(&a.email).map(|k| (k, a.pgp_passphrase.clone()))
-            });
-            let keys = mail::PgpKeys { own, contact: &crate::crypto::contact_key };
+            let own = account
+                .as_ref()
+                .and_then(|a| crate::crypto::own_key(&a.email).map(|k| (k, a.pgp_passphrase.clone())));
+            let keys = mail::PgpKeys {
+                own,
+                contact: &crate::crypto::contact_key,
+            };
             let msg = b.with_session_sync(|s| mail::fetch_message(s, &folder, uid, &keys))?;
             b.cache(|c, key| c.store_body(key, &folder, uid, &msg.body));
             Ok(msg)

@@ -206,7 +206,12 @@ fn render_job(job: Job) -> (HtmlDocument, Rendered) {
     };
     let physical_w = (width as f32 * scale).round() as u32;
     let config = DocumentConfig {
-        viewport: Some(Viewport::new(physical_w, (800.0 * scale) as u32, scale, ColorScheme::Light)),
+        viewport: Some(Viewport::new(
+            physical_w,
+            (800.0 * scale) as u32,
+            scale,
+            ColorScheme::Light,
+        )),
         net_provider: Some(Arc::new(net)),
         ..Default::default()
     };
@@ -228,7 +233,10 @@ fn render_job(job: Job) -> (HtmlDocument, Rendered) {
         let h = TILE.min(physical_h - y);
         doc.set_viewport(Viewport::new(physical_w, h, scale, ColorScheme::Light));
         doc.resolve(0.0);
-        doc.set_viewport_scroll(blitz_dom::Point { x: 0.0, y: y as f64 / scale as f64 });
+        doc.set_viewport_scroll(blitz_dom::Point {
+            x: 0.0,
+            y: y as f64 / scale as f64,
+        });
         let pixels = render_to_buffer::<VelloCpuImageRenderer, _>(
             |scene| blitz_paint::paint_scene(scene, &mut doc, scale as f64, physical_w, h, 0, 0),
             physical_w,
@@ -291,8 +299,15 @@ mod tests {
         </body></html>"#;
         let mut inline = HashMap::new();
         inline.insert("logo@x".to_string(), vec![0u8; 4]);
-        let r = render(Job { uid: 7, html: html.into(), width: 600, scale: 1.0, allow_remote: false, inline })
-            .unwrap();
+        let r = render(Job {
+            uid: 7,
+            html: html.into(),
+            width: 600,
+            scale: 1.0,
+            allow_remote: false,
+            inline,
+        })
+        .unwrap();
         assert_eq!(r.width, 600);
         assert!(r.tiles.len() >= 2, "3000px+ must be split into tiles");
         let total: f32 = r.tiles.iter().map(|(_, h)| h).sum();
@@ -310,9 +325,25 @@ mod tests {
         let _turn = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
         let path = std::path::PathBuf::from(std::env::var("FERROWL_HTML").unwrap());
         let html = std::fs::read_to_string(&path).unwrap();
-        let r = render(Job { uid: 1, html, width: 700, scale: 1.0, allow_remote: true, inline: HashMap::new() }).unwrap();
+        let r = render(Job {
+            uid: 1,
+            html,
+            width: 700,
+            scale: 1.0,
+            allow_remote: true,
+            inline: HashMap::new(),
+        })
+        .unwrap();
         for (i, (handle, h)) in r.tiles.iter().enumerate() {
-            let iced::advanced::image::Handle::Rgba { width, height, pixels, .. } = handle else { panic!() };
+            let iced::advanced::image::Handle::Rgba {
+                width,
+                height,
+                pixels,
+                ..
+            } = handle
+            else {
+                panic!()
+            };
             let f = std::fs::File::create(path.with_extension(format!("tile{i}.png"))).unwrap();
             let mut e = png::Encoder::new(f, *width, *height);
             e.set_color(png::ColorType::Rgba);

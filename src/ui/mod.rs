@@ -78,7 +78,8 @@ pub mod icons {
     pub const GEAR: &str = icon_svg!(
         r#"<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>"#
     );
-    pub const PEN: &str = icon_svg!(r#"<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>"#);
+    pub const PEN: &str =
+        icon_svg!(r#"<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>"#);
     pub const INBOX: &str = icon_svg!(
         r#"<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/>"#
     );
@@ -89,9 +90,11 @@ pub mod icons {
     pub const ARCHIVE: &str = icon_svg!(
         r#"<rect x="2" y="4" width="20" height="5" rx="1"/><path d="M4 9v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/>"#
     );
-    pub const SPAM: &str =
-        icon_svg!(r#"<path d="M12 2l9 4v6c0 5-4 9-9 10-5-1-9-5-9-10V6z"/><path d="M12 8v5"/><path d="M12 16h.01"/>"#);
-    pub const TRASH: &str = icon_svg!(r#"<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 15h10l1-15"/>"#);
+    pub const SPAM: &str = icon_svg!(
+        r#"<path d="M12 2l9 4v6c0 5-4 9-9 10-5-1-9-5-9-10V6z"/><path d="M12 8v5"/><path d="M12 16h.01"/>"#
+    );
+    pub const TRASH: &str =
+        icon_svg!(r#"<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 15h10l1-15"/>"#);
     pub const FOLDER: &str = icon_svg!(
         r#"<path d="M3 6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>"#
     );
@@ -101,9 +104,8 @@ pub mod icons {
     pub const CLIP: &str =
         icon_svg!(r#"<path d="M21 11l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8"/>"#);
     pub const REPLY: &str = icon_svg!(r#"<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v5"/>"#);
-    pub const REPLY_ALL: &str = icon_svg!(
-        r#"<path d="M7 14L2 9l5-5"/><path d="M12 14L7 9l5-5"/><path d="M7 9h8a6 6 0 0 1 6 6v5"/>"#
-    );
+    pub const REPLY_ALL: &str =
+        icon_svg!(r#"<path d="M7 14L2 9l5-5"/><path d="M12 14L7 9l5-5"/><path d="M7 9h8a6 6 0 0 1 6 6v5"/>"#);
     pub const EYE: &str = icon_svg!(
         r#"<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>"#
     );
@@ -111,10 +113,13 @@ pub mod icons {
     pub const LOCK: &str =
         icon_svg!(r#"<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>"#);
     pub const CLOSE: &str = icon_svg!(r#"<path d="M6 6l12 12"/><path d="M18 6L6 18"/>"#);
-    pub const MAIL: &str = icon_svg!(r#"<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>"#);
-    pub const DOWNLOAD: &str = icon_svg!(r#"<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/>"#);
+    pub const MAIL: &str =
+        icon_svg!(r#"<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>"#);
+    pub const DOWNLOAD: &str =
+        icon_svg!(r#"<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/>"#);
     // Compose formatting toolbar.
-    pub const BOLD: &str = icon_svg!(r#"<path d="M7 5h6a3.5 3.5 0 0 1 0 7H7z"/><path d="M7 12h7a3.5 3.5 0 0 1 0 7H7z"/>"#);
+    pub const BOLD: &str =
+        icon_svg!(r#"<path d="M7 5h6a3.5 3.5 0 0 1 0 7H7z"/><path d="M7 12h7a3.5 3.5 0 0 1 0 7H7z"/>"#);
     pub const ITALIC: &str = icon_svg!(r#"<path d="M19 4h-9"/><path d="M14 20H5"/><path d="M15 4L9 20"/>"#);
     pub const STRIKE: &str = icon_svg!(
         r#"<path d="M4 12h16"/><path d="M16 6.5A4 4 0 0 0 12.5 5h-1A3.5 3.5 0 0 0 8 8.5c0 1.5 1 2.6 3 3.5"/><path d="M8 17.5A4 4 0 0 0 11.5 19h1a3.5 3.5 0 0 0 3.5-3.5c0-.6-.1-1.1-.4-1.5"/>"#
@@ -383,7 +388,9 @@ pub fn initials(s: &str) -> String {
 
 /// Avatar color, stable per address.
 pub fn avatar_color(key: &str) -> Color {
-    const COLORS: [&str; 7] = ["#1E5AA8", "#2F7D4F", "#6B4FA0", "#A63A0C", "#4A443F", "#8466BE", "#3C78A0"];
+    const COLORS: [&str; 7] = [
+        "#1E5AA8", "#2F7D4F", "#6B4FA0", "#A63A0C", "#4A443F", "#8466BE", "#3C78A0",
+    ];
     let h = key
         .to_lowercase()
         .bytes()
@@ -439,7 +446,10 @@ pub fn short_date(ts: i64) -> String {
     } else if day.year() == today.year() {
         tf(
             "short_this_year",
-            &[("day", &day.day().to_string()), ("mon", month(day.month0(), true))],
+            &[
+                ("day", &day.day().to_string()),
+                ("mon", month(day.month0(), true)),
+            ],
         )
     } else {
         d.format(t("short_other_fmt")).to_string()
@@ -464,7 +474,10 @@ pub fn long_date(ts: i64) -> String {
     } else if day.year() == today.year() {
         tf("date_this_year", &[("day", &dd), ("month", mm), ("time", &time)])
     } else {
-        tf("date_other", &[("day", &dd), ("month", mm), ("year", &yy), ("time", &time)])
+        tf(
+            "date_other",
+            &[("day", &dd), ("month", mm), ("year", &yy), ("time", &time)],
+        )
     }
 }
 
@@ -483,34 +496,6 @@ pub fn extension(name: &str) -> String {
         .map(|(_, e)| e.to_uppercase())
         .filter(|e| e.len() <= 4)
         .unwrap_or_else(|| "FILE".into())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn initials_work() {
-        assert_eq!(initials("Fabio Carli"), "FC");
-        assert_eq!(initials("giulia.ferri@studio.it"), "GF");
-        assert_eq!(initials("Amministrazione"), "A");
-        assert_eq!(initials(""), "?");
-    }
-
-    #[test]
-    fn trunc_works() {
-        assert_eq!(trunc("ciao", 10), "ciao");
-        assert_eq!(trunc("abcdefghij", 5), "abcd…");
-    }
-
-    #[test]
-    fn sizes() {
-        assert_eq!(human_size(500), "500 B");
-        assert_eq!(human_size(2048), "2 KB");
-        assert_eq!(human_size(40_000_000), "38,1 MB");
-        assert_eq!(extension("Preventivo_v2.pdf"), "PDF");
-        assert_eq!(extension("noext"), "FILE");
-    }
 }
 
 // ---------------------------------------------------------------- shared widgets
@@ -555,7 +540,9 @@ pub fn tooltip<'a>(
     .into()
 }
 
-pub fn scroll_style(p: Palette) -> impl Fn(&Theme, iced::widget::scrollable::Status) -> iced::widget::scrollable::Style {
+pub fn scroll_style(
+    p: Palette,
+) -> impl Fn(&Theme, iced::widget::scrollable::Status) -> iced::widget::scrollable::Style {
     use iced::widget::scrollable;
     move |theme, status| {
         let mut s = scrollable::default(theme, status);
@@ -583,7 +570,12 @@ fn bar<'a>(c: Color, h: f32, width: Length) -> Element<'a, Message> {
 }
 
 /// One theme card: a miniature of the window (sidebar + selected row) plus the name.
-pub fn theme_card<'a>(def: &'static crate::theme::ThemeDef, on: bool, p: Palette, h: f32) -> Element<'a, Message> {
+pub fn theme_card<'a>(
+    def: &'static crate::theme::ThemeDef,
+    on: bool,
+    p: Palette,
+    h: f32,
+) -> Element<'a, Message> {
     use iced::widget::{column, row};
     let c = def.palette;
     let side = container(
@@ -598,15 +590,17 @@ pub fn theme_card<'a>(def: &'static crate::theme::ThemeDef, on: bool, p: Palette
     .width(Length::FillPortion(3))
     .height(Length::Fill)
     .style(panel(c.side));
-    let selected_row = container(iced::widget::space().width(Length::Fill).height(h * 0.17))
-        .style(move |_| container::Style {
-            background: Some(Background::Color(c.soft)),
-            border: Border {
-                color: c.accent,
-                width: 0.0,
-                radius: radius(3.0),
-            },
-            ..Default::default()
+    let selected_row =
+        container(iced::widget::space().width(Length::Fill).height(h * 0.17)).style(move |_| {
+            container::Style {
+                background: Some(Background::Color(c.soft)),
+                border: Border {
+                    color: c.accent,
+                    width: 0.0,
+                    radius: radius(3.0),
+                },
+                ..Default::default()
+            }
         });
     let main = container(
         column![
@@ -681,7 +675,10 @@ pub fn md_settings(p: Palette, size: f32) -> iced::widget::markdown::Settings {
         font: INTER,
         inline_code_highlight: iced::advanced::text::Highlight {
             background: Background::Color(p.chip),
-            border: Border { radius: radius(4.0), ..Default::default() },
+            border: Border {
+                radius: radius(4.0),
+                ..Default::default()
+            },
         },
         inline_code_padding: iced::Padding::from([0, 3]),
         inline_code_color: p.accent_text,
@@ -696,4 +693,32 @@ pub fn md_settings(p: Palette, size: f32) -> iced::widget::markdown::Settings {
     settings.h3_size = iced::Pixels(size * 1.15);
     settings.h4_size = iced::Pixels(size * 1.05);
     settings
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn initials_work() {
+        assert_eq!(initials("Fabio Carli"), "FC");
+        assert_eq!(initials("giulia.ferri@studio.it"), "GF");
+        assert_eq!(initials("Amministrazione"), "A");
+        assert_eq!(initials(""), "?");
+    }
+
+    #[test]
+    fn trunc_works() {
+        assert_eq!(trunc("ciao", 10), "ciao");
+        assert_eq!(trunc("abcdefghij", 5), "abcd…");
+    }
+
+    #[test]
+    fn sizes() {
+        assert_eq!(human_size(500), "500 B");
+        assert_eq!(human_size(2048), "2 KB");
+        assert_eq!(human_size(40_000_000), "38,1 MB");
+        assert_eq!(extension("Preventivo_v2.pdf"), "PDF");
+        assert_eq!(extension("noext"), "FILE");
+    }
 }

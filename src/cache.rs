@@ -103,7 +103,9 @@ impl Cache {
 
     fn with_connection(conn: Connection) -> Result<Cache> {
         conn.execute_batch(SCHEMA).context("creating cache schema")?;
-        Ok(Cache { conn: Mutex::new(conn) })
+        Ok(Cache {
+            conn: Mutex::new(conn),
+        })
     }
 
     #[cfg(test)]
@@ -314,7 +316,12 @@ mod tests {
             "a",
             "INBOX",
             &[
-                h(1, "Giulia Ferri", "Preventivo portale", "Ciao Fabio, ecco il preventivo aggiornato"),
+                h(
+                    1,
+                    "Giulia Ferri",
+                    "Preventivo portale",
+                    "Ciao Fabio, ecco il preventivo aggiornato",
+                ),
                 h(2, "Banca", "Estratto conto", "Il tuo estratto conto di ottobre"),
                 h(3, "Città di Roma", "Avviso", "Comunicazione importante"),
             ],
@@ -322,19 +329,32 @@ mod tests {
         .unwrap();
         let words = |s: &str| s.split_whitespace().map(str::to_string).collect::<Vec<_>>();
         assert_eq!(c.search("a", "INBOX", &words("preven"), 10).unwrap().len(), 1);
-        assert_eq!(c.search("a", "INBOX", &words("estratto ottobre"), 10).unwrap()[0].uid, 2);
+        assert_eq!(
+            c.search("a", "INBOX", &words("estratto ottobre"), 10).unwrap()[0].uid,
+            2
+        );
         // Accents ignored.
         assert_eq!(c.search("a", "INBOX", &words("citta"), 10).unwrap()[0].uid, 3);
         // Operators are literal.
-        assert!(c.search("a", "INBOX", &words("\"OR NEAR("), 10).unwrap().is_empty());
+        assert!(
+            c.search("a", "INBOX", &words("\"OR NEAR("), 10)
+                .unwrap()
+                .is_empty()
+        );
         // Full body replaces the snippet and stays on later header refreshes.
-        c.store_body("a", "INBOX", 2, "testo completo con parola rara zibaldone").unwrap();
-        c.store_headers("a", "INBOX", &[h(2, "Banca", "Estratto conto", "snippet")]).unwrap();
+        c.store_body("a", "INBOX", 2, "testo completo con parola rara zibaldone")
+            .unwrap();
+        c.store_headers("a", "INBOX", &[h(2, "Banca", "Estratto conto", "snippet")])
+            .unwrap();
         assert_eq!(c.search("a", "INBOX", &words("zibaldone"), 10).unwrap().len(), 1);
         // Prune removes messages gone from the server.
         c.prune("a", "INBOX", 1, &[1, 3]).unwrap();
         assert_eq!(c.headers("a", "INBOX", 10).unwrap().len(), 2);
-        assert!(c.search("a", "INBOX", &words("zibaldone"), 10).unwrap().is_empty());
+        assert!(
+            c.search("a", "INBOX", &words("zibaldone"), 10)
+                .unwrap()
+                .is_empty()
+        );
         // UIDVALIDITY change empties the folder.
         c.check_uidvalidity("a", "INBOX", 2).unwrap();
         assert!(c.headers("a", "INBOX", 10).unwrap().is_empty());

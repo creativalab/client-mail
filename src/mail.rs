@@ -157,8 +157,7 @@ fn classify(name: &str, segments: &[String], attrs: &[imap::types::NameAttribute
         }
     }
     // Otherwise by name, top level only (or under INBOX).
-    let top_level = segments.len() == 1
-        || (segments.len() == 2 && segments[0].eq_ignore_ascii_case("INBOX"));
+    let top_level = segments.len() == 1 || (segments.len() == 2 && segments[0].eq_ignore_ascii_case("INBOX"));
     if !top_level {
         return FolderKind::Other;
     }
@@ -274,11 +273,15 @@ pub fn unwrap_pgp(raw: &[u8], from: &str, keys: &PgpKeys) -> (Option<Vec<u8>>, O
     }
     match sub.as_str() {
         "encrypted" => {
-            let mut status = PgpStatus { encrypted: true, ..Default::default() };
+            let mut status = PgpStatus {
+                encrypted: true,
+                ..Default::default()
+            };
             let data = msg.parts().find(|p| {
                 p.content_type().is_some_and(|c| {
                     c.ctype().eq_ignore_ascii_case("application")
-                        && c.subtype().is_some_and(|s| s.eq_ignore_ascii_case("octet-stream"))
+                        && c.subtype()
+                            .is_some_and(|s| s.eq_ignore_ascii_case("octet-stream"))
                 })
             });
             let Some(data) = data.map(|p| p.decoded().into_owned()) else {
@@ -311,7 +314,8 @@ pub fn unwrap_pgp(raw: &[u8], from: &str, keys: &PgpKeys) -> (Option<Vec<u8>>, O
             };
             let signature = msg.parts().find(|p| {
                 p.content_type().is_some_and(|c| {
-                    c.subtype().is_some_and(|s| s.eq_ignore_ascii_case("pgp-signature"))
+                    c.subtype()
+                        .is_some_and(|s| s.eq_ignore_ascii_case("pgp-signature"))
                 })
             });
             let Some(signature) = signature.map(|p| p.decoded().into_owned()) else {
@@ -323,7 +327,13 @@ pub fn unwrap_pgp(raw: &[u8], from: &str, keys: &PgpKeys) -> (Option<Vec<u8>>, O
                 Some(_) => SigState::Invalid,
                 None => SigState::UnknownKey,
             };
-            (Some(signed), Some(PgpStatus { signature: Some(state), ..Default::default() }))
+            (
+                Some(signed),
+                Some(PgpStatus {
+                    signature: Some(state),
+                    ..Default::default()
+                }),
+            )
         }
         _ => (None, None),
     }
@@ -365,25 +375,26 @@ pub struct Outgoing {
 
 fn tls_config() -> Arc<rustls::ClientConfig> {
     let roots = rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
-        rustls::crypto::ring::default_provider(),
-    ))
-    .with_safe_default_protocol_versions()
-    .expect("supported TLS versions")
-    .with_root_certificates(roots)
-    .with_no_client_auth();
+    let config =
+        rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .expect("supported TLS versions")
+            .with_root_certificates(roots)
+            .with_no_client_auth();
     Arc::new(config)
 }
 
 pub fn connect(account: &Account) -> Result<ImapSession> {
     let addr = (account.imap_host.as_str(), account.imap_port);
-    let tcp = TcpStream::connect(addr)
-        .with_context(|| {
-            tf(
-                "err_connect",
-                &[("host", &account.imap_host), ("port", &account.imap_port.to_string())],
-            )
-        })?;
+    let tcp = TcpStream::connect(addr).with_context(|| {
+        tf(
+            "err_connect",
+            &[
+                ("host", &account.imap_host),
+                ("port", &account.imap_port.to_string()),
+            ],
+        )
+    })?;
     tcp.set_read_timeout(Some(Duration::from_secs(60)))?;
     tcp.set_write_timeout(Some(Duration::from_secs(60)))?;
 
@@ -416,7 +427,10 @@ pub fn supports_idle(session: &mut ImapSession) -> Result<bool> {
 pub fn idle_wait(session: &mut ImapSession, folder: &str, timeout: Duration) -> Result<bool> {
     session.select(folder)?;
     let outcome = session.idle()?.wait_with_timeout(timeout)?;
-    Ok(matches!(outcome, imap::extensions::idle::WaitOutcome::MailboxChanged))
+    Ok(matches!(
+        outcome,
+        imap::extensions::idle::WaitOutcome::MailboxChanged
+    ))
 }
 
 pub fn list_folders(session: &mut ImapSession) -> Result<Vec<Folder>> {
@@ -503,8 +517,12 @@ fn addr_list(addr: Option<AddressList>) -> String {
 }
 
 fn bare_list(addr: Option<AddressList>) -> Vec<String> {
-    addr.map(|a| a.mailboxes().filter_map(|m| m.address().map(str::to_string)).collect())
-        .unwrap_or_default()
+    addr.map(|a| {
+        a.mailboxes()
+            .filter_map(|m| m.address().map(str::to_string))
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 fn one_line(s: &str, max: usize) -> String {
@@ -539,7 +557,12 @@ pub fn fetch_older(session: &mut ImapSession, folder: &str, before: u32, count: 
     fetch_range(session, mailbox, last.saturating_sub(count - 1).max(1), last)
 }
 
-fn fetch_range(session: &mut ImapSession, mailbox: imap::types::Mailbox, first: u32, last: u32) -> Result<HeaderPage> {
+fn fetch_range(
+    session: &mut ImapSession,
+    mailbox: imap::types::Mailbox,
+    first: u32,
+    last: u32,
+) -> Result<HeaderPage> {
     let mut page = HeaderPage {
         uidvalidity: mailbox.uid_validity,
         exists: mailbox.exists,
@@ -571,8 +594,8 @@ fn fetch_range(session: &mut ImapSession, mailbox: imap::types::Mailbox, first: 
                 .map(|ct| format!("{}/{}", ct.ctype(), ct.subtype().unwrap_or_default()))
                 .unwrap_or_default()
                 .to_lowercase();
-            let has_attachment = content_type == "multipart/mixed"
-                || msg.map(|m| m.attachments().len() > 0).unwrap_or(false);
+            let has_attachment =
+                content_type == "multipart/mixed" || msg.map(|m| m.attachments().len() > 0).unwrap_or(false);
             Some(Header {
                 uid,
                 from,
@@ -587,7 +610,10 @@ fn fetch_range(session: &mut ImapSession, mailbox: imap::types::Mailbox, first: 
                 timestamp: msg.and_then(|m| m.date()).map(|d| d.to_timestamp()).unwrap_or(0),
                 seen: f.flags().contains(&imap::types::Flag::Seen),
                 has_attachment,
-                text: msg.and_then(|m| m.body_text(0)).map(|t| t.into_owned()).unwrap_or_default(),
+                text: msg
+                    .and_then(|m| m.body_text(0))
+                    .map(|t| t.into_owned())
+                    .unwrap_or_default(),
             })
         })
         .collect();
@@ -597,7 +623,12 @@ fn fetch_range(session: &mut ImapSession, mailbox: imap::types::Mailbox, first: 
 }
 
 /// Downloads the full message (marks it as read on the server).
-pub fn fetch_message(session: &mut ImapSession, folder: &str, uid: u32, keys: &PgpKeys) -> Result<FullMessage> {
+pub fn fetch_message(
+    session: &mut ImapSession,
+    folder: &str,
+    uid: u32,
+    keys: &PgpKeys,
+) -> Result<FullMessage> {
     session.select(folder)?;
     let fetches = session.uid_fetch(uid.to_string(), "BODY[]")?;
     let raw = fetches
@@ -609,9 +640,7 @@ pub fn fetch_message(session: &mut ImapSession, folder: &str, uid: u32, keys: &P
 
 /// Builds the reader's view of a raw message (OpenPGP unwrapped).
 pub fn parse_full(uid: u32, raw: &[u8], keys: &PgpKeys) -> Result<FullMessage> {
-    let outer = MessageParser::default()
-        .parse(raw)
-        .context(t("err_unreadable"))?;
+    let outer = MessageParser::default().parse(raw).context(t("err_unreadable"))?;
     let (from, from_address) = first_addr(outer.from());
 
     // Autocrypt: remember the sender's key (before checking signatures).
@@ -619,7 +648,9 @@ pub fn parse_full(uid: u32, raw: &[u8], keys: &PgpKeys) -> Result<FullMessage> {
         crate::crypto::learn_autocrypt(&from_address, &value);
     }
     let (inner, mut pgp) = unwrap_pgp(raw, &from_address, keys);
-    let inner_msg = inner.as_deref().and_then(|bytes| MessageParser::default().parse(bytes));
+    let inner_msg = inner
+        .as_deref()
+        .and_then(|bytes| MessageParser::default().parse(bytes));
     // Body, HTML and attachments come from the unwrapped content if any;
     // headers always from the outer message.
     let msg = inner_msg.as_ref().unwrap_or(&outer);
@@ -636,7 +667,10 @@ pub fn parse_full(uid: u32, raw: &[u8], keys: &PgpKeys) -> Result<FullMessage> {
         && body.contains("-----BEGIN PGP MESSAGE-----")
         && let Some((key, pass)) = &keys.own
     {
-        let mut status = PgpStatus { encrypted: true, ..Default::default() };
+        let mut status = PgpStatus {
+            encrypted: true,
+            ..Default::default()
+        };
         match crate::crypto::decrypt(body.as_bytes(), key, pass) {
             Ok(plain) => body = String::from_utf8_lossy(&plain).into_owned(),
             Err(e) => status.error = Some(format!("{e:#}")),
@@ -714,10 +748,10 @@ fn raw_header_values(raw: &[u8], name: &str) -> Vec<String> {
         if let Some(c) = current.take() {
             out.push(c);
         }
-        if let Some((k, v)) = line.split_once(':') {
-            if k.trim().eq_ignore_ascii_case(name) {
-                current = Some(v.trim().to_string());
-            }
+        if let Some((k, v)) = line.split_once(':')
+            && k.trim().eq_ignore_ascii_case(name)
+        {
+            current = Some(v.trim().to_string());
         }
     }
     if let Some(c) = current {
@@ -731,10 +765,7 @@ fn raw_header_values(raw: &[u8], name: &str) -> Vec<String> {
 /// Moves a message to another folder (MOVE if available, otherwise COPY + delete).
 pub fn move_message(session: &mut ImapSession, from: &str, uid: u32, to: &str) -> Result<()> {
     session.select(from)?;
-    let has_move = session
-        .capabilities()
-        .map(|c| c.has_str("MOVE"))
-        .unwrap_or(false);
+    let has_move = session.capabilities().map(|c| c.has_str("MOVE")).unwrap_or(false);
     if has_move {
         session.uid_mv(uid.to_string(), to)?;
     } else {
@@ -755,7 +786,11 @@ pub fn delete_permanently(session: &mut ImapSession, folder: &str, uid: u32) -> 
 
 pub fn set_seen(session: &mut ImapSession, folder: &str, uid: u32, seen: bool) -> Result<()> {
     session.select(folder)?;
-    let op = if seen { "+FLAGS (\\Seen)" } else { "-FLAGS (\\Seen)" };
+    let op = if seen {
+        "+FLAGS (\\Seen)"
+    } else {
+        "-FLAGS (\\Seen)"
+    };
     session.uid_store(uid.to_string(), op)?;
     Ok(())
 }
@@ -801,13 +836,20 @@ pub fn send(account: &Account, mail: &Outgoing) -> Result<Vec<u8>> {
         return Err(anyhow!(t("err_no_recipient")));
     }
     for a in to {
-        builder = builder.to(a.parse().with_context(|| tf("err_bad_address", &[("addr", &a)]))?);
+        builder = builder.to(a
+            .parse()
+            .with_context(|| tf("err_bad_address", &[("addr", &a)]))?);
     }
     for a in split(&mail.cc) {
-        builder = builder.cc(a.parse().with_context(|| tf("err_bad_address", &[("addr", &a)]))?);
+        builder = builder.cc(a
+            .parse()
+            .with_context(|| tf("err_bad_address", &[("addr", &a)]))?);
     }
     for a in split(&mail.bcc) {
-        builder = builder.bcc(a.parse().with_context(|| tf("err_bad_address", &[("addr", &a)]))?);
+        builder = builder.bcc(
+            a.parse()
+                .with_context(|| tf("err_bad_address", &[("addr", &a)]))?,
+        );
     }
     if let Some(id) = &mail.in_reply_to {
         let id = format!("<{}>", id.trim_matches(['<', '>']));
@@ -942,7 +984,13 @@ fn protect(account: &Account, mail: &Outgoing, content: Part) -> Result<Part> {
         return Ok(content);
     }
     let own = crate::crypto::own_key(&account.email).ok_or_else(|| anyhow!(t("err_pgp_no_own_key")))?;
-    protect_with(mail, content, &own, &account.pgp_passphrase, &crate::crypto::contact_key)
+    protect_with(
+        mail,
+        content,
+        &own,
+        &account.pgp_passphrase,
+        &crate::crypto::contact_key,
+    )
 }
 
 fn protect_with(
@@ -973,12 +1021,12 @@ fn protect_with(
         let all = [&mail.to, &mail.cc, &mail.bcc]
             .iter()
             .flat_map(|s| s.split([',', ';']))
-            .map(|a| bare_address(a))
+            .map(bare_address)
             .filter(|a| !a.is_empty())
             .collect::<Vec<_>>();
         for address in all {
-            let key = contact(&address)
-                .ok_or_else(|| anyhow!(tf("err_pgp_no_key", &[("addr", &address)])))?;
+            let key =
+                contact(&address).ok_or_else(|| anyhow!(tf("err_pgp_no_key", &[("addr", &address)])))?;
             keys.push(key);
         }
         let armored = crate::crypto::encrypt(&content.formatted(), &keys)?;
@@ -989,7 +1037,9 @@ fn protect_with(
             .header(ContentType::parse("application/octet-stream; name=\"encrypted.asc\"").unwrap())
             .body(armored);
         content = Part::Multi(
-            MultiPart::encrypted("application/pgp-encrypted".into()).singlepart(version).singlepart(data),
+            MultiPart::encrypted("application/pgp-encrypted".into())
+                .singlepart(version)
+                .singlepart(data),
         );
     }
     Ok(content)
@@ -1036,7 +1086,10 @@ mod tests {
     fn classify_aruba_style() {
         let seg = |s: &str| s.split('.').map(str::to_string).collect::<Vec<_>>();
         assert_eq!(classify("INBOX.Sent", &seg("INBOX.Sent"), &[]), FolderKind::Sent);
-        assert_eq!(classify("INBOX.Trash", &seg("INBOX.Trash"), &[]), FolderKind::Trash);
+        assert_eq!(
+            classify("INBOX.Trash", &seg("INBOX.Trash"), &[]),
+            FolderKind::Trash
+        );
         assert_eq!(
             classify("INBOX.Sent.2004.04-apr", &seg("INBOX.Sent.2004.04-apr"), &[]),
             FolderKind::Other
@@ -1073,7 +1126,10 @@ mod tests {
     #[ignore]
     fn live_account() {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let acc = crate::config::Config::load().account().cloned().expect("no account");
+        let acc = crate::config::Config::load()
+            .account()
+            .cloned()
+            .expect("no account");
         let mut s = connect(&acc).unwrap_or_else(|e| panic!("IMAP ERROR: {e:#}"));
         let folders = list_folders(&mut s).unwrap();
         for f in folders.iter().filter(|f| f.kind != FolderKind::Other) {
@@ -1103,7 +1159,10 @@ mod tests {
     #[ignore = "uses the configured account"]
     fn live_idle() {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let acc = crate::config::Config::load().account().cloned().expect("no account");
+        let acc = crate::config::Config::load()
+            .account()
+            .cloned()
+            .expect("no account");
         let mut s = connect(&acc).unwrap();
         assert!(supports_idle(&mut s).unwrap(), "server without IDLE");
         let t = std::time::Instant::now();
@@ -1150,7 +1209,10 @@ mod tests {
         };
         let knows_alice = |a: &str| (a == "alice@example.com").then(|| alice_pub.clone());
         let knows_nobody = |_: &str| None;
-        let bob_keys = PgpKeys { own: Some((bob.clone(), String::new())), contact: &knows_alice };
+        let bob_keys = PgpKeys {
+            own: Some((bob.clone(), String::new())),
+            contact: &knows_alice,
+        };
 
         // Signed only.
         let raw = build(&out);
@@ -1160,16 +1222,34 @@ mod tests {
         assert!(!pgp.encrypted);
         assert!(m.body.contains("àccénti"));
         assert_eq!(m.attachments.len(), 1, "signature.asc must not be listed");
-        let unknown = PgpKeys { own: None, contact: &knows_nobody };
-        assert_eq!(parse_full(1, &raw, &unknown).unwrap().pgp.unwrap().signature, Some(SigState::UnknownKey));
+        let unknown = PgpKeys {
+            own: None,
+            contact: &knows_nobody,
+        };
+        assert_eq!(
+            parse_full(1, &raw, &unknown).unwrap().pgp.unwrap().signature,
+            Some(SigState::UnknownKey)
+        );
         // Tampered content → invalid.
-        let tampered = String::from_utf8_lossy(&raw).replace("prova", "PROVA").into_bytes();
-        assert_eq!(parse_full(1, &tampered, &bob_keys).unwrap().pgp.unwrap().signature, Some(SigState::Invalid));
+        let tampered = String::from_utf8_lossy(&raw)
+            .replace("prova", "PROVA")
+            .into_bytes();
+        assert_eq!(
+            parse_full(1, &tampered, &bob_keys)
+                .unwrap()
+                .pgp
+                .unwrap()
+                .signature,
+            Some(SigState::Invalid)
+        );
 
         // Signed and encrypted.
         out.encrypt = true;
         let raw = build(&out);
-        assert!(!String::from_utf8_lossy(&raw).contains("prova"), "plaintext leaked");
+        assert!(
+            !String::from_utf8_lossy(&raw).contains("prova"),
+            "plaintext leaked"
+        );
         let m = parse_full(1, &raw, &bob_keys).unwrap();
         let pgp = m.pgp.clone().unwrap();
         assert!(pgp.encrypted && pgp.error.is_none(), "{pgp:?}");
@@ -1178,7 +1258,10 @@ mod tests {
         assert_eq!(m.attachments.len(), 1);
         // Someone without the key cannot read it.
         let eve = crypto::generate("Eve", "eve@example.com", "").unwrap();
-        let eve_keys = PgpKeys { own: Some((eve, String::new())), contact: &knows_nobody };
+        let eve_keys = PgpKeys {
+            own: Some((eve, String::new())),
+            contact: &knows_nobody,
+        };
         let m = parse_full(1, &raw, &eve_keys).unwrap();
         assert!(m.pgp.unwrap().error.is_some());
         assert!(!m.body.contains("prova"));
@@ -1195,7 +1278,10 @@ mod tests {
     #[ignore = "sends a real email from the configured account"]
     fn live_send_to_self() {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let acc = crate::config::Config::load().account().cloned().expect("no account");
+        let acc = crate::config::Config::load()
+            .account()
+            .cloned()
+            .expect("no account");
         let dir = std::env::temp_dir().join("ferrowl-live-send");
         std::fs::create_dir_all(&dir).unwrap();
         let att = dir.join("ferrowl-test.txt");

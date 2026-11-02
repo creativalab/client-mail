@@ -10,9 +10,9 @@ mod html;
 mod html_view;
 mod i18n;
 mod mail;
+mod markdown;
 mod preview;
 mod push;
-mod markdown;
 mod theme;
 mod ui;
 
@@ -24,11 +24,8 @@ fn main() -> iced::Result {
     i18n::set(Some(&config::Config::load().ui.language));
     install_crash_handler();
 
-    let icon = iced::window::icon::from_file_data(
-        include_bytes!("../assets/icons/png/ferrowl-256.png"),
-        None,
-    )
-    .ok();
+    let icon =
+        iced::window::icon::from_file_data(include_bytes!("../assets/icons/png/ferrowl-256.png"), None).ok();
 
     let mut app = iced::application(App::boot, App::update, App::view)
         .title(App::title)

@@ -68,6 +68,19 @@ To add a language: copy `en.toml`, translate it, and register it in `LANGS` in [
 
 ## Development
 
+### Code quality
+
+| Tool | Role (PHP / Node equivalent) | Command |
+|---|---|---|
+| rustfmt | formatter (PHP-CS-Fixer / Prettier) — config in `rustfmt.toml` | `cargo fmt` |
+| clippy | linter (PHPStan / ESLint) | `cargo clippy --all-targets -- -D warnings` |
+| cargo-deny | dependency advisories (composer audit / npm audit) — config in `deny.toml` | `cargo deny check advisories` |
+
+- **Pull requests**: `.github/workflows/checks.yml` runs formatting, clippy and cargo-deny; `build.yml` builds and tests on Linux, Windows and macOS. Mark the checks as required in *Settings › Branches* to block merging when they fail.
+- **Pre-commit hook**: `.githooks/pre-commit` runs `cargo fmt --check` and clippy before each commit. Enable it once per clone with `git config core.hooksPath .githooks` (skip with `git commit --no-verify`).
+
+### Tests
+
 ```bash
 cargo test                                   # unit tests (themes, locales, IMAP helpers)
 cargo test -- --ignored                      # network tests (TLS handshake with imap.gmail.com)

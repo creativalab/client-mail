@@ -52,10 +52,13 @@ pub fn view(app: &App) -> Element<'_, Message> {
 // ---------------------------------------------------------------- top bar
 
 fn top_bar<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
-    let brand = row![logo(&p, 32.0), text("Ferrowl").size(18).font(INTER_BOLD).color(p.text)]
-        .spacing(10)
-        .align_y(Alignment::Center)
-        .width(208);
+    let brand = row![
+        logo(&p, 32.0),
+        text("Ferrowl").size(18).font(INTER_BOLD).color(p.text)
+    ]
+    .spacing(10)
+    .align_y(Alignment::Center)
+    .width(208);
 
     let search = container(
         row![
@@ -88,18 +91,22 @@ fn top_bar<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     let sync = tooltip(sync, t("sync"), p);
 
     let gear_on = app.appearance_open;
-    let gear = button(icon(icons::GEAR, 20.0, if gear_on { p.active_text } else { p.text2 }))
-        .width(44)
-        .height(44)
-        .padding(12)
-        .style(move |th, st| {
-            let mut s = ghost(p, p.text2)(th, st);
-            if gear_on {
-                s.background = Some(Background::Color(p.side_active));
-            }
-            s
-        })
-        .on_press(Message::ToggleAppearance);
+    let gear = button(icon(
+        icons::GEAR,
+        20.0,
+        if gear_on { p.active_text } else { p.text2 },
+    ))
+    .width(44)
+    .height(44)
+    .padding(12)
+    .style(move |th, st| {
+        let mut s = ghost(p, p.text2)(th, st);
+        if gear_on {
+            s.background = Some(Background::Color(p.side_active));
+        }
+        s
+    })
+    .on_press(Message::ToggleAppearance);
     let gear = tooltip(gear, t("appearance"), p);
 
     let initials = app
@@ -188,7 +195,9 @@ fn sidebar<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         let active = i == app.config.active;
         let color = if active { dot } else { p.field };
         let row_el = dir_row(vec![
-            container(space().width(8).height(8)).style(chip_box(color, color, 4.0)).into(),
+            container(space().width(8).height(8))
+                .style(chip_box(color, color, 4.0))
+                .into(),
             text(trunc(&acc.email, 24))
                 .size(14)
                 .font(if active && multi { medium() } else { INTER })
@@ -216,10 +225,15 @@ fn sidebar<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     );
     let account = column![
         dir_row(vec![
-            container(text(t("section_account").to_uppercase()).size(12).font(semibold()).color(p.muted))
-                .padding([0, 12])
-                .width(Fill)
-                .into(),
+            container(
+                text(t("section_account").to_uppercase())
+                    .size(12)
+                    .font(semibold())
+                    .color(p.muted)
+            )
+            .padding([0, 12])
+            .width(Fill)
+            .into(),
             add,
         ])
         .align_y(Alignment::Center),
@@ -276,7 +290,11 @@ fn droppable<'a>(app: &App, name: &str, content: Element<'a, Message>, p: Palett
         container(content)
             .style(move |_| container::Style {
                 background: Some(Background::Color(p.soft)),
-                border: Border { color: p.accent, width: 2.0, radius: radius(9.0) },
+                border: Border {
+                    color: p.accent,
+                    width: 2.0,
+                    radius: radius(9.0),
+                },
                 ..Default::default()
             })
             .into()
@@ -297,19 +315,28 @@ fn folder_item<'a>(app: &App, p: Palette, f: &Folder, label: String, count: u32)
 fn folder_button<'a>(app: &App, p: Palette, f: &Folder, label: String, count: u32) -> Element<'a, Message> {
     let active = app.current_folder.as_deref() == Some(f.name.as_str());
     let fg = if active { p.active_text } else { p.text2 };
-    let count = if count > 0 { count.to_string() } else { String::new() };
-    button(container(
-        row![
-            container(icon(kind_icon(f.kind), 18.0, fg)).width(20).center_x(20),
-            text(trunc(&label, 22))
-                .size(14)
-                .font(if active { semibold() } else { medium() })
-                .width(Fill),
-            text(count).size(12).font(MONO).color(fg),
-        ]
-        .spacing(12)
-        .align_y(Alignment::Center),
-    ).center_y(Fill))
+    let count = if count > 0 {
+        count.to_string()
+    } else {
+        String::new()
+    };
+    button(
+        container(
+            row![
+                container(icon(kind_icon(f.kind), 18.0, fg))
+                    .width(20)
+                    .center_x(20),
+                text(trunc(&label, 22))
+                    .size(14)
+                    .font(if active { semibold() } else { medium() })
+                    .width(Fill),
+                text(count).size(12).font(MONO).color(fg),
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
+        )
+        .center_y(Fill),
+    )
     .width(Fill)
     .height(40)
     .padding([0, 12])
@@ -365,7 +392,14 @@ fn folder_tree<'a>(app: &'a App, p: Palette) -> Option<Element<'a, Message>> {
     Some(Column::with_children(rows).spacing(1).into())
 }
 
-fn push_node<'a>(app: &App, p: Palette, rows: &mut Vec<Element<'a, Message>>, node: &Node, id: String, depth: u16) {
+fn push_node<'a>(
+    app: &App,
+    p: Palette,
+    rows: &mut Vec<Element<'a, Message>>,
+    node: &Node,
+    id: String,
+    depth: u16,
+) {
     let expanded = app.expanded.contains(&id);
     let active = node.folder.is_some() && app.current_folder == node.folder;
     let fg = if active { p.active_text } else { p.text2 };
@@ -387,18 +421,22 @@ fn push_node<'a>(app: &App, p: Palette, rows: &mut Vec<Element<'a, Message>>, no
             .on_press(Message::ToggleNode(id.clone()))
             .into()
     };
-    let label = button(container(
-        row![
-            icon(node.kind.map(kind_icon).unwrap_or(icons::FOLDER), 16.0, fg),
-            text(trunc(&node.label, 22 - (depth as usize * 2).min(12)))
-                .size(13)
-                .font(if active { semibold() } else { INTER })
-                .color(fg)
-                .wrapping(Wrapping::None)
-        ]
-        .spacing(8)
-        .align_y(Alignment::Center),
-    ).center_y(Fill).clip(true))
+    let label = button(
+        container(
+            row![
+                icon(node.kind.map(kind_icon).unwrap_or(icons::FOLDER), 16.0, fg),
+                text(trunc(&node.label, 22 - (depth as usize * 2).min(12)))
+                    .size(13)
+                    .font(if active { semibold() } else { INTER })
+                    .color(fg)
+                    .wrapping(Wrapping::None)
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+        )
+        .center_y(Fill)
+        .clip(true),
+    )
     .width(Fill)
     .height(32)
     .padding([0, 8])
@@ -436,10 +474,14 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         .unwrap_or_default();
 
     let seg = |label: &'static str, f: ListFilter| {
-        button(text(label).size(13).font(if app.filter == f { semibold() } else { INTER }))
-            .padding([6, 9])
-            .style(segment(p, app.filter == f))
-            .on_press(Message::SetFilter(f))
+        button(
+            text(label)
+                .size(13)
+                .font(if app.filter == f { semibold() } else { INTER }),
+        )
+        .padding([6, 9])
+        .style(segment(p, app.filter == f))
+        .on_press(Message::SetFilter(f))
     };
     let filters = container(
         row![
@@ -453,15 +495,25 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     .style(chip_box(p.chip, p.text2, 9.0));
 
     let header = dir_row(vec![
-        container(text(trunc(&title, 22)).size(20).font(INTER_BOLD).wrapping(Wrapping::None))
-            .width(Fill)
-            .clip(true)
-            .into(),
+        container(
+            text(trunc(&title, 22))
+                .size(20)
+                .font(INTER_BOLD)
+                .wrapping(Wrapping::None),
+        )
+        .width(Fill)
+        .clip(true)
+        .into(),
         filters.into(),
     ])
     .spacing(12)
     .align_y(Alignment::Center)
-    .padding(Padding { top: 16.0, right: 20.0, bottom: 12.0, left: 20.0 });
+    .padding(Padding {
+        top: 16.0,
+        right: 20.0,
+        bottom: 12.0,
+        left: 20.0,
+    });
 
     let visible = app.visible();
     let content: Element<'a, Message> = if visible.is_empty() {
@@ -500,7 +552,13 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             if h.has_attachment {
                 top.push(icon(icons::CLIP, 14.0, p.muted));
             }
-            top.push(text(short_date(h.timestamp)).font(MONO).size(12).color(p.muted).into());
+            top.push(
+                text(short_date(h.timestamp))
+                    .font(MONO)
+                    .size(12)
+                    .color(p.muted)
+                    .into(),
+            );
 
             let mut lines = column![
                 dir_row(top).spacing(8).align_y(Alignment::Center),
@@ -576,15 +634,26 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
 
 fn indent(n: f32) -> Padding {
     if i18n::is_rtl() {
-        Padding { right: n, ..Padding::ZERO }
+        Padding {
+            right: n,
+            ..Padding::ZERO
+        }
     } else {
-        Padding { left: n, ..Padding::ZERO }
+        Padding {
+            left: n,
+            ..Padding::ZERO
+        }
     }
 }
 
 // ---------------------------------------------------------------- reader
 
-fn tool_btn<'a>(p: Palette, ic: &'static str, label: Option<&'static str>, msg: Message) -> Element<'a, Message> {
+fn tool_btn<'a>(
+    p: Palette,
+    ic: &'static str,
+    label: Option<&'static str>,
+    msg: Message,
+) -> Element<'a, Message> {
     let content: Element<'a, Message> = match label {
         Some(l) => row![icon(ic, 18.0, p.text2), text(l).size(14)]
             .spacing(8)
@@ -605,22 +674,26 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         let inner: Element<'a, Message> = if app.loading_message {
             text(t("loading_message")).size(14).color(p.muted).into()
         } else {
-            column![icon(icons::MAIL, 48.0, p.field), text(t("select_message")).size(15).color(p.muted)]
-                .spacing(12)
-                .align_x(Alignment::Center)
-                .into()
+            column![
+                icon(icons::MAIL, 48.0, p.field),
+                text(t("select_message")).size(15).color(p.muted)
+            ]
+            .spacing(12)
+            .align_x(Alignment::Center)
+            .into()
         };
-        return container(inner)
-            .center(Fill)
-            .style(panel(p.bg))
-            .into();
+        return container(inner).center(Fill).style(panel(p.bg)).into();
     };
 
     let show_html = app.config.ui.prefer_html && msg.html.is_some();
     let kind = app.current_kind();
     let mut tools = vec![
         tool_btn(p, icons::REPLY, Some(t("reply")), Message::Reply),
-        tooltip(tool_btn(p, icons::REPLY_ALL, None, Message::ReplyAll), t("reply_all"), p),
+        tooltip(
+            tool_btn(p, icons::REPLY_ALL, None, Message::ReplyAll),
+            t("reply_all"),
+            p,
+        ),
         tool_btn(p, icons::FORWARD, Some(t("forward")), Message::Forward),
     ];
     if kind != FolderKind::Archive {
@@ -631,8 +704,16 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     } else {
         t("delete")
     };
-    tools.push(tooltip(tool_btn(p, icons::TRASH, None, Message::Delete), delete_tip, p));
-    tools.push(tooltip(tool_btn(p, icons::MAIL, None, Message::ToggleRead), t("mark_unread"), p));
+    tools.push(tooltip(
+        tool_btn(p, icons::TRASH, None, Message::Delete),
+        delete_tip,
+        p,
+    ));
+    tools.push(tooltip(
+        tool_btn(p, icons::MAIL, None, Message::ToggleRead),
+        t("mark_unread"),
+        p,
+    ));
     tools.push(space::horizontal().into());
     if msg.html.is_some() {
         let label = if show_html { t("view_text") } else { t("view_html") };
@@ -648,9 +729,12 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     if let Some(pgp) = &msg.pgp {
         let chip = |label: &'static str, bg: Color, fg: Color| -> Element<'a, Message> {
             container(
-                row![icon(icons::LOCK, 14.0, fg), text(label).size(12).font(medium()).wrapping(Wrapping::None)]
-                    .spacing(6)
-                    .align_y(Alignment::Center),
+                row![
+                    icon(icons::LOCK, 14.0, fg),
+                    text(label).size(12).font(medium()).wrapping(Wrapping::None)
+                ]
+                .spacing(6)
+                .align_y(Alignment::Center),
             )
             .padding([6, 10])
             .style(chip_box(bg, fg, 8.0))
@@ -664,17 +748,27 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         }
         match pgp.signature {
             Some(crate::mail::SigState::Valid) => tools.push(chip(t("badge_signed"), p.sec_bg, p.sec_text)),
-            Some(crate::mail::SigState::Invalid) => tools.push(chip(t("badge_sig_invalid"), warn_bg, p.danger)),
-            Some(crate::mail::SigState::UnknownKey) => tools.push(chip(t("badge_sig_unknown"), p.chip, p.text2)),
+            Some(crate::mail::SigState::Invalid) => {
+                tools.push(chip(t("badge_sig_invalid"), warn_bg, p.danger))
+            }
+            Some(crate::mail::SigState::UnknownKey) => {
+                tools.push(chip(t("badge_sig_unknown"), p.chip, p.text2))
+            }
             None => {}
         }
     }
     if msg.dkim_pass {
         tools.push(
             container(
-                row![icon(icons::LOCK, 14.0, p.sec_text), text(t("dkim_ok")).size(12).font(medium()).wrapping(Wrapping::None)]
-                    .spacing(6)
-                    .align_y(Alignment::Center),
+                row![
+                    icon(icons::LOCK, 14.0, p.sec_text),
+                    text(t("dkim_ok"))
+                        .size(12)
+                        .font(medium())
+                        .wrapping(Wrapping::None)
+                ]
+                .spacing(6)
+                .align_y(Alignment::Center),
             )
             .padding([6, 10])
             .style(chip_box(p.sec_bg, p.sec_text, 8.0))
@@ -688,7 +782,11 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     let confirm: Option<Element<'a, Message>> = app.confirm_delete.then(|| {
         container(
             dir_row(vec![
-                text(t("confirm_delete_forever")).size(14).color(p.danger).width(Fill).into(),
+                text(t("confirm_delete_forever"))
+                    .size(14)
+                    .color(p.danger)
+                    .width(Fill)
+                    .into(),
                 button(text(t("cancel")).size(14))
                     .padding([8, 14])
                     .style(outline_btn(p, p.text))
@@ -699,7 +797,10 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                     .style(move |_, _| button::Style {
                         background: Some(Background::Color(p.danger)),
                         text_color: if p.dark { p.bg } else { Color::WHITE },
-                        border: Border { radius: radius(8.0), ..Default::default() },
+                        border: Border {
+                            radius: radius(8.0),
+                            ..Default::default()
+                        },
                         ..Default::default()
                     })
                     .on_press(Message::ConfirmDelete(true))
@@ -712,7 +813,11 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         .width(Fill)
         .style(move |_| container::Style {
             background: Some(Background::Color(mix(p.bg, p.danger, 0.08))),
-            border: Border { color: p.danger_line, width: 1.0, radius: radius(0.0) },
+            border: Border {
+                color: p.danger_line,
+                width: 1.0,
+                radius: radius(0.0),
+            },
             ..Default::default()
         })
         .into()
@@ -724,14 +829,28 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     }
     let me_line = tf("to_line", &[("to", &trunc(&recipients, 70))]);
     let sender = dir_row(vec![
-        avatar(initials(&msg.from), avatar_color(&msg.from_address), Color::WHITE, 44.0),
+        avatar(
+            initials(&msg.from),
+            avatar_color(&msg.from_address),
+            Color::WHITE,
+            44.0,
+        ),
         column![
             dir_row(vec![
-                text(trunc(&msg.from, 40)).size(15).font(semibold()).color(p.text).into(),
-                text(format!("<{}>", msg.from_address)).size(15).color(p.muted).into(),
+                text(trunc(&msg.from, 40))
+                    .size(15)
+                    .font(semibold())
+                    .color(p.text)
+                    .into(),
+                text(format!("<{}>", msg.from_address))
+                    .size(15)
+                    .color(p.muted)
+                    .into(),
             ])
             .spacing(6),
-            text(format!("{me_line} · {}", long_date(msg.timestamp))).size(13).color(p.muted),
+            text(format!("{me_line} · {}", long_date(msg.timestamp)))
+                .size(13)
+                .color(p.muted),
         ]
         .spacing(2)
         .width(Fill)
@@ -759,7 +878,11 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     };
 
     let mut content = column![
-        text(&msg.subject).size(26).font(INTER_BOLD).color(p.text).line_height(1.25),
+        text(&msg.subject)
+            .size(26)
+            .font(INTER_BOLD)
+            .color(p.text)
+            .line_height(1.25),
         sender,
         body,
     ]
@@ -785,7 +908,11 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                 )
                 .clip(true)
                 .style(move |_| container::Style {
-                    border: Border { color: p.line, width: 1.0, radius: radius(8.0) },
+                    border: Border {
+                        color: p.line,
+                        width: 1.0,
+                        radius: radius(8.0),
+                    },
                     ..Default::default()
                 })
                 .into(),
@@ -809,9 +936,17 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             };
             let mut buttons = Row::new().spacing(2);
             if previewable {
-                buttons = buttons.push(small_btn(icons::EYE, t("preview_attachment"), Message::PreviewAttachment(i)));
+                buttons = buttons.push(small_btn(
+                    icons::EYE,
+                    t("preview_attachment"),
+                    Message::PreviewAttachment(i),
+                ));
             }
-            buttons = buttons.push(small_btn(icons::DOWNLOAD, t("download"), Message::SaveAttachment(i)));
+            buttons = buttons.push(small_btn(
+                icons::DOWNLOAD,
+                t("download"),
+                Message::SaveAttachment(i),
+            ));
             let info = button(
                 row![
                     thumb,
@@ -825,13 +960,29 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                 .align_y(Alignment::Center),
             )
             .padding(0)
-            .style(move |_, _| button::Style { text_color: p.text, ..Default::default() })
-            .on_press(if previewable { Message::PreviewAttachment(i) } else { Message::SaveAttachment(i) });
+            .style(move |_, _| button::Style {
+                text_color: p.text,
+                ..Default::default()
+            })
+            .on_press(if previewable {
+                Message::PreviewAttachment(i)
+            } else {
+                Message::SaveAttachment(i)
+            });
             let card = container(row![info, buttons].spacing(10).align_y(Alignment::Center))
-                .padding(Padding { top: 8.0, right: 8.0, bottom: 8.0, left: 8.0 })
+                .padding(Padding {
+                    top: 8.0,
+                    right: 8.0,
+                    bottom: 8.0,
+                    left: 8.0,
+                })
                 .style(move |_| container::Style {
                     background: Some(Background::Color(p.bg)),
-                    border: Border { color: p.line, width: 1.0, radius: radius(12.0) },
+                    border: Border {
+                        color: p.line,
+                        width: 1.0,
+                        radius: radius(12.0),
+                    },
                     ..Default::default()
                 });
             cards = cards.push(card);
@@ -864,7 +1015,11 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                 p.bg
             })),
             text_color: p.text,
-            border: Border { color: p.field, width: 1.0, radius: radius(999.0) },
+            border: Border {
+                color: p.field,
+                width: 1.0,
+                radius: radius(999.0),
+            },
             shadow: Shadow {
                 color: Color::from_rgba(0.0, 0.0, 0.0, 0.12),
                 offset: Vector::new(0.0, 4.0),
@@ -884,7 +1039,12 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     )
     .center_x(Fill)
     .align_bottom(Fill)
-    .padding(Padding { top: 0.0, right: 0.0, bottom: 18.0, left: 0.0 });
+    .padding(Padding {
+        top: 0.0,
+        right: 0.0,
+        bottom: 18.0,
+        left: 0.0,
+    });
     // Room so the end of the message is not hidden behind the buttons.
     content = content.push(space().height(56));
 
@@ -925,30 +1085,40 @@ fn html_body<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     for (handle, h) in &r.tiles {
         let top = offset;
         tiles = tiles.push(
-            mouse_area(iced::widget::image(handle.clone()).width(r.width as f32).height(*h))
-                .on_move(move |pt| Message::HtmlPointer(pt.x, pt.y + top))
-                .on_press(Message::HtmlClick)
-                .on_exit(Message::HtmlLeave)
-                .interaction(if pointer {
-                    iced::mouse::Interaction::Pointer
-                } else {
-                    iced::mouse::Interaction::Idle
-                }),
+            mouse_area(
+                iced::widget::image(handle.clone())
+                    .width(r.width as f32)
+                    .height(*h),
+            )
+            .on_move(move |pt| Message::HtmlPointer(pt.x, pt.y + top))
+            .on_press(Message::HtmlClick)
+            .on_exit(Message::HtmlLeave)
+            .interaction(if pointer {
+                iced::mouse::Interaction::Pointer
+            } else {
+                iced::mouse::Interaction::Idle
+            }),
         );
         offset += h;
     }
-    let page = container(tiles)
-        .clip(true)
-        .style(move |_| container::Style {
-            border: Border { color: p.line_soft, width: 1.0, radius: radius(10.0) },
-            ..Default::default()
-        });
+    let page = container(tiles).clip(true).style(move |_| container::Style {
+        border: Border {
+            color: p.line_soft,
+            width: 1.0,
+            radius: radius(10.0),
+        },
+        ..Default::default()
+    });
     let mut col = Column::new().spacing(12);
     if r.blocked_remote {
         col = col.push(
             container(
                 dir_row(vec![
-                    text(t("images_blocked")).size(13).color(p.text2).width(Fill).into(),
+                    text(t("images_blocked"))
+                        .size(13)
+                        .color(p.text2)
+                        .width(Fill)
+                        .into(),
                     button(text(t("load_images")).size(13).font(medium()))
                         .padding([6, 12])
                         .style(outline_btn(p, p.text))
@@ -985,13 +1155,26 @@ fn appearance_popover<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             .into(),
     ])
     .align_y(Alignment::Center)
-    .padding(Padding { top: 14.0, right: 12.0, bottom: 14.0, left: 20.0 });
+    .padding(Padding {
+        top: 14.0,
+        right: 12.0,
+        bottom: 14.0,
+        left: 20.0,
+    });
 
     let all_settings = button(
         container(
             row![
                 text(t("all_settings")).size(14).font(semibold()),
-                icon(if i18n::is_rtl() { icons::CHEVRON_LEFT } else { icons::CHEVRON_RIGHT }, 16.0, p.text)
+                icon(
+                    if i18n::is_rtl() {
+                        icons::CHEVRON_LEFT
+                    } else {
+                        icons::CHEVRON_RIGHT
+                    },
+                    16.0,
+                    p.text
+                )
             ]
             .spacing(8)
             .align_y(Alignment::Center),
@@ -1018,14 +1201,23 @@ fn appearance_popover<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         all_settings,
     ]
     .spacing(14)
-    .padding(Padding { top: 18.0, right: 20.0, bottom: 20.0, left: 20.0 });
+    .padding(Padding {
+        top: 18.0,
+        right: 20.0,
+        bottom: 20.0,
+        left: 20.0,
+    });
 
     let card_box = container(column![header, hline(p.line), body])
         .width(440)
         .style(move |_| container::Style {
             background: Some(Background::Color(p.bg)),
             text_color: Some(p.text),
-            border: Border { color: p.line, width: 1.0, radius: radius(16.0) },
+            border: Border {
+                color: p.line,
+                width: 1.0,
+                radius: radius(16.0),
+            },
             shadow: Shadow {
                 color: Color::from_rgba(0.0, 0.0, 0.0, 0.22),
                 offset: Vector::new(0.0, 20.0),
@@ -1039,9 +1231,18 @@ fn appearance_popover<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         container(opaque(card_box))
             .width(Fill)
             .height(Fill)
-            .align_x(if i18n::is_rtl() { Horizontal::Left } else { Horizontal::Right })
+            .align_x(if i18n::is_rtl() {
+                Horizontal::Left
+            } else {
+                Horizontal::Right
+            })
             .align_y(Vertical::Top)
-            .padding(Padding { top: 64.0, right: 20.0, bottom: 0.0, left: 20.0 }),
+            .padding(Padding {
+                top: 64.0,
+                right: 20.0,
+                bottom: 0.0,
+                left: 20.0,
+            }),
     )
     .on_press(Message::CloseAppearance)
     .into()
@@ -1077,7 +1278,10 @@ pub fn toast_layer<'a>(app: &'a App, p: Palette) -> Option<Element<'a, Message>>
                             mix(bg, fg, 0.12)
                         })),
                         text_color: fg,
-                        border: Border { radius: radius(6.0), ..Default::default() },
+                        border: Border {
+                            radius: radius(6.0),
+                            ..Default::default()
+                        },
                         ..Default::default()
                     })
                     .on_press(Message::CopyDetails(details)),
@@ -1088,7 +1292,10 @@ pub fn toast_layer<'a>(app: &'a App, p: Palette) -> Option<Element<'a, Message>>
     }
     let close = button(icon(icons::CLOSE, 14.0, fg))
         .padding(6)
-        .style(move |_, _| button::Style { text_color: fg, ..Default::default() })
+        .style(move |_, _| button::Style {
+            text_color: fg,
+            ..Default::default()
+        })
         .on_press(Message::DismissToast(toast.id));
     let accent = if toast.error { p.danger } else { p.accent };
     let boxed = container(
@@ -1105,7 +1312,10 @@ pub fn toast_layer<'a>(app: &'a App, p: Palette) -> Option<Element<'a, Message>>
     .style(move |_| container::Style {
         background: Some(Background::Color(bg)),
         text_color: Some(fg),
-        border: Border { radius: radius(12.0), ..Default::default() },
+        border: Border {
+            radius: radius(12.0),
+            ..Default::default()
+        },
         shadow: Shadow {
             color: Color::from_rgba(0.0, 0.0, 0.0, 0.25),
             offset: Vector::new(0.0, 8.0),
@@ -1129,20 +1339,35 @@ pub fn toast_layer<'a>(app: &'a App, p: Palette) -> Option<Element<'a, Message>>
 /// Label following the pointer while a message is dragged.
 fn drag_label<'a>(app: &'a App, d: &'a crate::app::Drag, p: Palette) -> Element<'a, Message> {
     let chip = container(
-        row![icon(icons::MAIL, 14.0, p.on_accent), text(d.label.clone()).size(13).font(medium())]
-            .spacing(8)
-            .align_y(Alignment::Center),
+        row![
+            icon(icons::MAIL, 14.0, p.on_accent),
+            text(d.label.clone()).size(13).font(medium())
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center),
     )
     .padding([6, 12])
     .style(move |_| container::Style {
         background: Some(Background::Color(p.accent)),
         text_color: Some(p.on_accent),
-        border: Border { radius: radius(999.0), ..Default::default() },
-        shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.2), offset: Vector::new(0.0, 4.0), blur_radius: 12.0 },
+        border: Border {
+            radius: radius(999.0),
+            ..Default::default()
+        },
+        shadow: Shadow {
+            color: Color::from_rgba(0.0, 0.0, 0.0, 0.2),
+            offset: Vector::new(0.0, 4.0),
+            blur_radius: 12.0,
+        },
         ..Default::default()
     });
     container(chip)
-        .padding(Padding { top: app.cursor.y + 14.0, left: app.cursor.x + 14.0, right: 0.0, bottom: 0.0 })
+        .padding(Padding {
+            top: app.cursor.y + 14.0,
+            left: app.cursor.x + 14.0,
+            right: 0.0,
+            bottom: 0.0,
+        })
         .width(Fill)
         .height(Fill)
         .into()
@@ -1166,7 +1391,12 @@ fn context_menu<'a>(app: &'a App, m: &'a crate::app::ContextMenu, p: Palette) ->
         .on_press(Message::MenuAction(uid, action))
         .into()
     };
-    let sep = || container(space().height(1)).width(Fill).style(panel(p.line_soft)).into();
+    let sep = || {
+        container(space().height(1))
+            .width(Fill)
+            .style(panel(p.line_soft))
+            .into()
+    };
 
     let header = app.visible().into_iter().find(|h| h.uid == uid).cloned();
     let seen = header.as_ref().is_some_and(|h| h.seen);
@@ -1175,29 +1405,67 @@ fn context_menu<'a>(app: &'a App, m: &'a crate::app::ContextMenu, p: Palette) ->
     let items: Vec<Element<'a, Message>> = if m.folders {
         // "Move to…": every selectable folder but the current one.
         let mut list = Column::new().spacing(2);
-        for f in app.folders.iter().filter(|f| f.selectable && Some(&f.name) != app.current_folder.as_ref()) {
-            list = list.push(item(kind_icon(f.kind), trunc(&f.display(), 32), CtxAction::Move(f.name.clone()), false));
+        for f in app
+            .folders
+            .iter()
+            .filter(|f| f.selectable && Some(&f.name) != app.current_folder.as_ref())
+        {
+            list = list.push(item(
+                kind_icon(f.kind),
+                trunc(&f.display(), 32),
+                CtxAction::Move(f.name.clone()),
+                false,
+            ));
         }
         vec![
-            container(text(t("move_to")).size(12).font(semibold()).color(p.muted)).padding([6, 12]).into(),
-            scrollable(list).height(iced::Length::Shrink).style(scroll_style(p)).into(),
+            container(text(t("move_to")).size(12).font(semibold()).color(p.muted))
+                .padding([6, 12])
+                .into(),
+            scrollable(list)
+                .height(iced::Length::Shrink)
+                .style(scroll_style(p))
+                .into(),
         ]
     } else {
         let mut v = vec![
             item(icons::MAIL, t("open").into(), CtxAction::Open, false),
             sep(),
             item(icons::REPLY, t("reply").into(), CtxAction::Reply, false),
-            item(icons::REPLY_ALL, t("reply_all").into(), CtxAction::ReplyAll, false),
+            item(
+                icons::REPLY_ALL,
+                t("reply_all").into(),
+                CtxAction::ReplyAll,
+                false,
+            ),
             item(icons::FORWARD, t("forward").into(), CtxAction::Forward, false),
             sep(),
-            item(icons::MAIL, if seen { t("mark_unread") } else { t("mark_read") }.into(), CtxAction::ToggleRead, false),
+            item(
+                icons::MAIL,
+                if seen { t("mark_unread") } else { t("mark_read") }.into(),
+                CtxAction::ToggleRead,
+                false,
+            ),
         ];
         if kind != FolderKind::Archive {
-            v.push(item(icons::ARCHIVE, t("archive").into(), CtxAction::Archive, false));
+            v.push(item(
+                icons::ARCHIVE,
+                t("archive").into(),
+                CtxAction::Archive,
+                false,
+            ));
         }
-        v.push(item(icons::FOLDER, format!("{}…", t("move_to")), CtxAction::MoveMenu, false));
+        v.push(item(
+            icons::FOLDER,
+            format!("{}…", t("move_to")),
+            CtxAction::MoveMenu,
+            false,
+        ));
         v.push(sep());
-        let delete = if kind == FolderKind::Trash { t("delete_forever") } else { t("delete") };
+        let delete = if kind == FolderKind::Trash {
+            t("delete_forever")
+        } else {
+            t("delete")
+        };
         v.push(item(icons::TRASH, delete.into(), CtxAction::Delete, true));
         v
     };
@@ -1208,15 +1476,27 @@ fn context_menu<'a>(app: &'a App, m: &'a crate::app::ContextMenu, p: Palette) ->
         .padding(6)
         .style(move |_| container::Style {
             background: Some(Background::Color(p.bg)),
-            border: Border { color: p.line, width: 1.0, radius: radius(10.0) },
-            shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.18), offset: Vector::new(0.0, 8.0), blur_radius: 24.0 },
+            border: Border {
+                color: p.line,
+                width: 1.0,
+                radius: radius(10.0),
+            },
+            shadow: Shadow {
+                color: Color::from_rgba(0.0, 0.0, 0.0, 0.18),
+                offset: Vector::new(0.0, 8.0),
+                blur_radius: 24.0,
+            },
             ..Default::default()
         });
     // Keep the menu inside the window.
     let x = m.at.x.min(app.window_width - 250.0).max(0.0);
     let y = m.at.y.min(app.window_height - 400.0).max(0.0);
-    let placed = container(opaque(menu))
-        .padding(Padding { top: y, left: x, right: 0.0, bottom: 0.0 });
+    let placed = container(opaque(menu)).padding(Padding {
+        top: y,
+        left: x,
+        right: 0.0,
+        bottom: 0.0,
+    });
     // Click anywhere else closes it.
     stack![
         mouse_area(container(space()).width(Fill).height(Fill))
@@ -1251,9 +1531,12 @@ fn preview_overlay<'a>(
             .width(Fill)
             .into(),
             button(
-                row![icon(icons::DOWNLOAD, 16.0, p.on_accent), text(t("download")).size(14).font(semibold())]
-                    .spacing(8)
-                    .align_y(Alignment::Center),
+                row![
+                    icon(icons::DOWNLOAD, 16.0, p.on_accent),
+                    text(t("download")).size(14).font(semibold())
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
             )
             .padding([9, 14])
             .style(accent_btn(p))
@@ -1277,40 +1560,58 @@ fn preview_overlay<'a>(
     let body: Element<'a, Message> = match content {
         None => centered(text(t("html_loading")).size(14).color(p.muted).into()).into(),
         Some(Content::Image(h)) => scrollable(centered(
-            iced::widget::image(h.clone()).content_fit(iced::ContentFit::ScaleDown).into(),
+            iced::widget::image(h.clone())
+                .content_fit(iced::ContentFit::ScaleDown)
+                .into(),
         ))
         .height(Fill)
         .style(scroll_style(p))
         .into(),
-        Some(Content::Svg(h)) => centered(iced::widget::svg(h.clone()).width(Fill).height(Fill).into()).into(),
+        Some(Content::Svg(h)) => {
+            centered(iced::widget::svg(h.clone()).width(Fill).height(Fill).into()).into()
+        }
         Some(Content::Pages(pages, total)) => {
             let mut col = Column::new().spacing(16).align_x(Alignment::Center);
             for (h, w, ht) in pages {
                 col = col.push(
-                    container(iced::widget::image(h.clone()).width(*w as f32 * 0.75).height(*ht as f32 * 0.75))
-                        .style(move |_| container::Style {
-                            shadow: Shadow {
-                                color: Color::from_rgba(0.0, 0.0, 0.0, 0.18),
-                                offset: Vector::new(0.0, 2.0),
-                                blur_radius: 10.0,
-                            },
-                            ..Default::default()
-                        }),
+                    container(
+                        iced::widget::image(h.clone())
+                            .width(*w as f32 * 0.75)
+                            .height(*ht as f32 * 0.75),
+                    )
+                    .style(move |_| container::Style {
+                        shadow: Shadow {
+                            color: Color::from_rgba(0.0, 0.0, 0.0, 0.18),
+                            offset: Vector::new(0.0, 2.0),
+                            blur_radius: 10.0,
+                        },
+                        ..Default::default()
+                    }),
                 );
             }
             if *total > pages.len() {
                 col = col.push(
-                    text(tf("pdf_more_pages", &[("n", &(total - pages.len()).to_string())])).size(13).color(p.muted),
+                    text(tf("pdf_more_pages", &[("n", &(total - pages.len()).to_string())]))
+                        .size(13)
+                        .color(p.muted),
                 );
             }
-            scrollable(centered(col.into())).height(Fill).style(scroll_style(p)).into()
+            scrollable(centered(col.into()))
+                .height(Fill)
+                .style(scroll_style(p))
+                .into()
         }
         Some(Content::Text(t_, cut)) => {
-            let mut col = Column::new().spacing(10).push(text(t_.as_str()).font(MONO).size(13).color(p.text));
+            let mut col = Column::new()
+                .spacing(10)
+                .push(text(t_.as_str()).font(MONO).size(13).color(p.text));
             if *cut {
                 col = col.push(text(t("preview_cut")).size(12).color(p.muted));
             }
-            scrollable(container(col).padding(24).width(Fill)).height(Fill).style(scroll_style(p)).into()
+            scrollable(container(col).padding(24).width(Fill))
+                .height(Fill)
+                .style(scroll_style(p))
+                .into()
         }
         Some(Content::Error(e)) => centered(
             column![
@@ -1330,8 +1631,15 @@ fn preview_overlay<'a>(
         .clip(true)
         .style(move |_| container::Style {
             background: Some(Background::Color(p.chrome)),
-            border: Border { radius: radius(14.0), ..Default::default() },
-            shadow: Shadow { color: Color::from_rgba(0.0, 0.0, 0.0, 0.3), offset: Vector::new(0.0, 12.0), blur_radius: 40.0 },
+            border: Border {
+                radius: radius(14.0),
+                ..Default::default()
+            },
+            shadow: Shadow {
+                color: Color::from_rgba(0.0, 0.0, 0.0, 0.3),
+                offset: Vector::new(0.0, 12.0),
+                blur_radius: 40.0,
+            },
             ..Default::default()
         });
     opaque(

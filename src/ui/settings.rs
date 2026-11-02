@@ -12,14 +12,25 @@ pub fn view(app: &App, section: Section) -> Element<'_, Message> {
     let first_run = app.config.account().is_none();
 
     let back: Element<'_, Message> = if first_run {
-        row![logo(&p, 32.0), text("Ferrowl").size(18).font(INTER_BOLD).color(p.text)]
-            .spacing(10)
-            .align_y(Alignment::Center)
-            .into()
+        row![
+            logo(&p, 32.0),
+            text("Ferrowl").size(18).font(INTER_BOLD).color(p.text)
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center)
+        .into()
     } else {
         button(
             row![
-                icon(if i18n::is_rtl() { icons::CHEVRON_RIGHT } else { icons::CHEVRON_LEFT }, 18.0, p.text2),
+                icon(
+                    if i18n::is_rtl() {
+                        icons::CHEVRON_RIGHT
+                    } else {
+                        icons::CHEVRON_LEFT
+                    },
+                    18.0,
+                    p.text2
+                ),
                 text(t("back_to_mail")).size(14).font(medium())
             ]
             .spacing(8)
@@ -46,14 +57,18 @@ pub fn view(app: &App, section: Section) -> Element<'_, Message> {
 
     let nav_btn = |s: Section, label: &'static str| {
         button(
-            container(text(label).size(14).font(if s == section { semibold() } else { medium() }))
-                .center_y(Fill),
+            container(
+                text(label)
+                    .size(14)
+                    .font(if s == section { semibold() } else { medium() }),
+            )
+            .center_y(Fill),
         )
         .width(Fill)
         .height(40)
         .padding([0, 12])
-            .style(nav_item(p, s == section))
-            .on_press(Message::OpenSettings(s))
+        .style(nav_item(p, s == section))
+        .on_press(Message::OpenSettings(s))
     };
     let nav = container(
         column![
@@ -68,7 +83,12 @@ pub fn view(app: &App, section: Section) -> Element<'_, Message> {
                     .size(12)
                     .color(p.muted)
             )
-            .padding(Padding { top: 16.0, right: 12.0, bottom: 4.0, left: 12.0 }),
+            .padding(Padding {
+                top: 16.0,
+                right: 12.0,
+                bottom: 4.0,
+                left: 12.0
+            }),
         ]
         .spacing(2),
     )
@@ -85,7 +105,12 @@ pub fn view(app: &App, section: Section) -> Element<'_, Message> {
     };
     let main = scrollable(
         container(container(content).max_width(760))
-            .padding(Padding { top: 32.0, right: 40.0, bottom: 48.0, left: 40.0 })
+            .padding(Padding {
+                top: 32.0,
+                right: 40.0,
+                bottom: 48.0,
+                left: 40.0,
+            })
             .width(Fill),
     )
     .height(Fill)
@@ -114,7 +139,13 @@ fn title<'a>(title: &'a str, desc: &'a str, p: Palette) -> Element<'a, Message> 
 }
 
 /// Settings row: title + description on one side, control on the other.
-fn setting_row<'a>(name: &'a str, desc: &'a str, control: Element<'a, Message>, p: Palette, last: bool) -> Element<'a, Message> {
+fn setting_row<'a>(
+    name: &'a str,
+    desc: &'a str,
+    control: Element<'a, Message>,
+    p: Palette,
+    last: bool,
+) -> Element<'a, Message> {
     let r = container(
         dir_row(vec![
             column![
@@ -164,16 +195,21 @@ fn general(app: &App, p: Palette) -> Element<'_, Message> {
         code: "auto",
         label: tf("language_system", &[("lang", i18n::system_lang().native)]),
     }];
-    choices.extend(LANGS.iter().map(|l| LangChoice { code: l.code, label: l.native.to_string() }));
+    choices.extend(LANGS.iter().map(|l| LangChoice {
+        code: l.code,
+        label: l.native.to_string(),
+    }));
     let selected = choices
         .iter()
         .find(|c| c.code == app.config.ui.language)
         .cloned()
         .or_else(|| choices.first().cloned());
-    let picker = pick_list(choices, selected, |c: LangChoice| Message::SetLanguage(c.code.to_string()))
-        .text_size(14)
-        .padding([10, 12])
-        .width(220);
+    let picker = pick_list(choices, selected, |c: LangChoice| {
+        Message::SetLanguage(c.code.to_string())
+    })
+    .text_size(14)
+    .padding([10, 12])
+    .width(220);
 
     column![
         title(t("section_general"), t("general_desc"), p),
@@ -202,8 +238,15 @@ fn security(app: &App, p: Palette) -> Element<'_, Message> {
         return title(t("section_security"), t("security_desc"), p);
     };
     let btn = |label: &'static str, msg: Message, primary: bool| -> Element<'_, Message> {
-        let b = button(text(label).size(14).font(medium())).height(40).padding([10, 16]).on_press(msg);
-        if primary { b.style(accent_btn(p)).into() } else { b.style(outline_btn(p, p.text)).into() }
+        let b = button(text(label).size(14).font(medium()))
+            .height(40)
+            .padding([10, 16])
+            .on_press(msg);
+        if primary {
+            b.style(accent_btn(p)).into()
+        } else {
+            b.style(outline_btn(p, p.text)).into()
+        }
     };
 
     let key_line: Element<'_, Message> = match &app.pgp_fpr {
@@ -245,7 +288,10 @@ fn security(app: &App, p: Palette) -> Element<'_, Message> {
 
     let own = container(
         column![
-            text(tf("pgp_key_for", &[("email", &acc.email)])).size(16).font(INTER_BOLD).color(p.text),
+            text(tf("pgp_key_for", &[("email", &acc.email)]))
+                .size(16)
+                .font(INTER_BOLD)
+                .color(p.text),
             key_line,
             passphrase,
             dir_row(actions).spacing(10),
@@ -259,7 +305,9 @@ fn security(app: &App, p: Palette) -> Element<'_, Message> {
     let contacts = container(
         column![
             text(t("pgp_contacts")).size(16).font(INTER_BOLD).color(p.text),
-            text(tf("pgp_contacts_desc", &[("n", &app.pgp_contacts.to_string())])).size(14).color(p.text2),
+            text(tf("pgp_contacts_desc", &[("n", &app.pgp_contacts.to_string())]))
+                .size(14)
+                .color(p.text2),
             btn(t("pgp_import_contacts"), Message::PgpImportContacts, false),
         ]
         .spacing(14),
@@ -278,9 +326,14 @@ fn security(app: &App, p: Palette) -> Element<'_, Message> {
         )],
         p,
     );
-    column![title(t("section_security"), t("security_desc"), p), privacy, own, contacts]
-        .spacing(28)
-        .into()
+    column![
+        title(t("section_security"), t("security_desc"), p),
+        privacy,
+        own,
+        contacts
+    ]
+    .spacing(28)
+    .into()
 }
 
 // ---------------------------------------------------------------- Accounts
@@ -307,12 +360,23 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
         } else {
             (p.chip, p.muted, t("account_inactive"))
         };
-        let name = if acc.display_name.is_empty() { acc.email.as_str() } else { acc.display_name.as_str() };
+        let name = if acc.display_name.is_empty() {
+            acc.email.as_str()
+        } else {
+            acc.display_name.as_str()
+        };
         let mut cells: Vec<Element<'_, Message>> = vec![
-            avatar(acc.initials(), if in_use { p.ink } else { p.field }, p.on_ink, 40.0),
+            avatar(
+                acc.initials(),
+                if in_use { p.ink } else { p.field },
+                p.on_ink,
+                40.0,
+            ),
             column![
                 text(name).size(15).font(semibold()).color(p.text),
-                text(format!("{} · {}", acc.email, acc.imap_host)).size(13).color(p.muted)
+                text(format!("{} · {}", acc.email, acc.imap_host))
+                    .size(13)
+                    .color(p.muted)
             ]
             .spacing(2)
             .width(Fill)
@@ -367,21 +431,22 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
     }
 
     let d = &app.draft;
-    let field = |label: &'static str, value: &str, f: Field, secure: bool, mono: bool| -> Element<'_, Message> {
-        column![
-            text(label).size(13).font(medium()).color(p.text2),
-            text_input("", value)
-                .on_input(move |v| Message::Draft(f, v))
-                .secure(secure)
-                .size(14)
-                .padding([10, 12])
-                .font(if mono { MONO } else { INTER })
-                .style(input(p, 8.0))
-        ]
-        .spacing(6)
-        .width(Fill)
-        .into()
-    };
+    let field =
+        |label: &'static str, value: &str, f: Field, secure: bool, mono: bool| -> Element<'_, Message> {
+            column![
+                text(label).size(13).font(medium()).color(p.text2),
+                text_input("", value)
+                    .on_input(move |v| Message::Draft(f, v))
+                    .secure(secure)
+                    .size(14)
+                    .padding([10, 12])
+                    .font(if mono { MONO } else { INTER })
+                    .style(input(p, 8.0))
+            ]
+            .spacing(6)
+            .width(Fill)
+            .into()
+        };
     let port = |label: &'static str, value: &str, f: Field| -> Element<'_, Message> {
         column![
             text(label).size(13).font(medium()).color(p.text2),
@@ -409,7 +474,11 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
     };
 
     let can_test = d.to_account().is_some() && !app.testing;
-    let test_label = if app.testing { t("testing") } else { t("test_connection") };
+    let test_label = if app.testing {
+        t("testing")
+    } else {
+        t("test_connection")
+    };
     let status: Element<'_, Message> = match &app.test_result {
         Some(Ok(msg)) => text(msg.clone()).size(13).color(p.sec_text).width(Fill).into(),
         Some(Err(e)) => text(trunc(e, 120)).size(13).color(p.danger).width(Fill).into(),
@@ -418,19 +487,32 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
 
     let details = container(
         column![
-            text(if app.editing.is_some() { t("account_details") } else { t("new_account") })
-                .size(16)
-                .font(INTER_BOLD)
-                .color(p.text),
+            text(if app.editing.is_some() {
+                t("account_details")
+            } else {
+                t("new_account")
+            })
+            .size(16)
+            .font(INTER_BOLD)
+            .color(p.text),
             pair(
-                field(t("display_name"), &d.display_name, Field::DisplayName, false, false),
+                field(
+                    t("display_name"),
+                    &d.display_name,
+                    Field::DisplayName,
+                    false,
+                    false
+                ),
                 field(t("email"), &d.email, Field::Email, false, false)
             ),
             pair(
-                column![field(t("username"), &d.username, Field::Username, false, false), username_hint]
-                    .spacing(4)
-                    .width(Fill)
-                    .into(),
+                column![
+                    field(t("username"), &d.username, Field::Username, false, false),
+                    username_hint
+                ]
+                .spacing(4)
+                .width(Fill)
+                .into(),
                 field(t("password"), &d.password, Field::Password, true, false)
             ),
             dir_row(vec![
@@ -474,7 +556,11 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
     if app.editing.is_some() {
         let remove: Element<'_, Message> = if app.confirm_remove {
             dir_row(vec![
-                text(t("confirm_remove_account")).size(13).color(p.danger).width(Fill).into(),
+                text(t("confirm_remove_account"))
+                    .size(13)
+                    .color(p.danger)
+                    .width(Fill)
+                    .into(),
                 button(text(t("cancel")).size(13))
                     .padding([8, 14])
                     .style(outline_btn(p, p.text))
@@ -485,7 +571,10 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
                     .style(move |_, _| button::Style {
                         background: Some(Background::Color(p.danger)),
                         text_color: if p.dark { p.bg } else { Color::WHITE },
-                        border: Border { radius: radius(8.0), ..Default::default() },
+                        border: Border {
+                            radius: radius(8.0),
+                            ..Default::default()
+                        },
                         ..Default::default()
                     })
                     .on_press(Message::RemoveAccount(true))
@@ -515,10 +604,14 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
 fn appearance(app: &App, p: Palette) -> Element<'_, Message> {
     let current = app.config.ui.density;
     let seg = |d: Density, label: &'static str| {
-        button(text(label).size(13).font(if d == current { semibold() } else { INTER }))
-            .padding([6, 12])
-            .style(segment(p, d == current))
-            .on_press(Message::SetDensity(d))
+        button(
+            text(label)
+                .size(13)
+                .font(if d == current { semibold() } else { INTER }),
+        )
+        .padding([6, 12])
+        .style(segment(p, d == current))
+        .on_press(Message::SetDensity(d))
     };
     let density = container(
         row![
@@ -535,8 +628,11 @@ fn appearance(app: &App, p: Palette) -> Element<'_, Message> {
         .on_toggle(Message::TogglePreview)
         .size(24)
         .style(move |_, st| {
-            let on = matches!(st, iced::widget::toggler::Status::Active { is_toggled: true }
-                | iced::widget::toggler::Status::Hovered { is_toggled: true });
+            let on = matches!(
+                st,
+                iced::widget::toggler::Status::Active { is_toggled: true }
+                    | iced::widget::toggler::Status::Hovered { is_toggled: true }
+            );
             iced::widget::toggler::Style {
                 background: Background::Color(if on { p.accent } else { p.knob_off }),
                 background_border_width: 0.0,

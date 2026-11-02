@@ -16,15 +16,18 @@ pub enum Kind {
 
 const IMAGE_EXT: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "tif", "tiff"];
 const TEXT_EXT: &[&str] = &[
-    "txt", "text", "csv", "tsv", "log", "md", "json", "xml", "yaml", "yml", "toml", "ini", "cfg",
-    "conf", "ics", "vcf", "html", "htm", "css", "js", "sql", "sh", "rs", "py", "eml",
+    "txt", "text", "csv", "tsv", "log", "md", "json", "xml", "yaml", "yml", "toml", "ini", "cfg", "conf",
+    "ics", "vcf", "html", "htm", "css", "js", "sql", "sh", "rs", "py", "eml",
 ];
 /// Text previews are cut here.
 const MAX_TEXT: usize = 256 * 1024;
 const MAX_PDF_PAGES: usize = 50;
 
 pub fn kind(name: &str, data: &[u8]) -> Kind {
-    let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+    let ext = name
+        .rsplit_once('.')
+        .map(|(_, e)| e.to_ascii_lowercase())
+        .unwrap_or_default();
     if data.starts_with(b"%PDF") || ext == "pdf" {
         Kind::Pdf
     } else if ext == "svg" {
@@ -42,12 +45,15 @@ pub fn kind(name: &str, data: &[u8]) -> Kind {
     }
 }
 
+/// A rendered PDF page: handle, width and height in pixels.
+pub type Page = (image::Handle, u32, u32);
+
 #[derive(Debug, Clone)]
 pub enum Content {
     Image(image::Handle),
     Svg(iced::widget::svg::Handle),
-    /// PDF pages: handle, width and height in pixels.
-    Pages(Vec<(image::Handle, u32, u32)>, usize),
+    /// PDF pages and the total page count.
+    Pages(Vec<Page>, usize),
     Text(String, bool),
     Error(String),
 }
@@ -74,14 +80,19 @@ pub fn build(name: &str, data: &[u8]) -> Content {
 pub fn thumbnail(name: &str, data: &[u8]) -> Option<image::Handle> {
     match kind(name, data) {
         Kind::Image => Some(image::Handle::from_bytes(data.to_vec())),
-        Kind::Pdf => pdf_pages(data, 160.0, 1).ok()?.0.into_iter().next().map(|(h, _, _)| h),
+        Kind::Pdf => pdf_pages(data, 160.0, 1)
+            .ok()?
+            .0
+            .into_iter()
+            .next()
+            .map(|(h, _, _)| h),
         _ => None,
     }
 }
 
 /// Renders up to `max` pages, each `width` pixels wide. Returns the pages
 /// and the total page count.
-fn pdf_pages(data: &[u8], width: f32, max: usize) -> Result<(Vec<(image::Handle, u32, u32)>, usize), String> {
+fn pdf_pages(data: &[u8], width: f32, max: usize) -> Result<(Vec<Page>, usize), String> {
     use hayro::hayro_interpret::InterpreterSettings;
     use hayro::hayro_syntax::Pdf;
     use hayro::{PixmapSettings, RenderCache, RenderSettings};
@@ -131,7 +142,9 @@ mod tests {
     #[test]
     fn text_is_cut() {
         let big = vec![b'a'; MAX_TEXT + 10];
-        let Content::Text(t, cut) = build("big.txt", &big) else { panic!() };
+        let Content::Text(t, cut) = build("big.txt", &big) else {
+            panic!()
+        };
         assert!(cut && t.len() == MAX_TEXT);
     }
 
@@ -139,7 +152,9 @@ mod tests {
     fn renders_a_minimal_pdf() {
         // One empty A4-ish page.
         let pdf = minimal_pdf();
-        let Content::Pages(pages, total) = build("p.pdf", &pdf) else { panic!("not rendered") };
+        let Content::Pages(pages, total) = build("p.pdf", &pdf) else {
+            panic!("not rendered")
+        };
         assert_eq!(total, 1);
         assert_eq!(pages[0].1, 1100);
         assert!(thumbnail("p.pdf", &pdf).is_some());
@@ -164,7 +179,11 @@ mod tests {
             out.extend_from_slice(format!("{o:010} 00000 n \n").as_bytes());
         }
         out.extend_from_slice(
-            format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objs.len() + 1).as_bytes(),
+            format!(
+                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+                objs.len() + 1
+            )
+            .as_bytes(),
         );
         out
     }

@@ -152,9 +152,8 @@ impl Compose {
     pub fn format(&mut self, fmt: Fmt) {
         use iced::widget::text_editor::{Action, Edit, Motion};
         use std::sync::Arc;
-        let paste = |c: &mut text_editor::Content, s: String| {
-            c.perform(Action::Edit(Edit::Paste(Arc::new(s))))
-        };
+        let paste =
+            |c: &mut text_editor::Content, s: String| c.perform(Action::Edit(Edit::Paste(Arc::new(s))));
         let back = |c: &mut text_editor::Content, n: usize| {
             for _ in 0..n {
                 c.perform(Action::Move(Motion::Left));
@@ -174,7 +173,11 @@ impl Compose {
                     .lines()
                     .enumerate()
                     .map(|(i, l)| {
-                        if numbered { format!("{}. {l}", i + 1) } else { format!("{p}{l}") }
+                        if numbered {
+                            format!("{}. {l}", i + 1)
+                        } else {
+                            format!("{p}{l}")
+                        }
                     })
                     .collect();
                 paste(c, lines.join("\n"))
@@ -231,7 +234,11 @@ pub struct AccountDraft {
 
 impl AccountDraft {
     pub fn blank() -> Self {
-        Self { imap_port: "993".into(), smtp_port: "465".into(), ..Default::default() }
+        Self {
+            imap_port: "993".into(),
+            smtp_port: "465".into(),
+            ..Default::default()
+        }
     }
 
     fn from(a: &Account) -> Self {
@@ -361,6 +368,9 @@ pub struct App {
 
 // ---------------------------------------------------------------- messages
 
+// FullMessage results are large, but messages are short-lived: boxing them
+// would only add indirection to every update.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum Message {
     /// Result of a backend operation started for account generation `.0`.
@@ -370,9 +380,16 @@ pub enum Message {
     Unseen(Res<HashMap<String, u32>>),
     SelectFolder(String),
     ToggleNode(String),
-    HeadersLoaded { folder: String, silent: bool, result: Res<(Vec<Header>, u32)> },
+    HeadersLoaded {
+        folder: String,
+        silent: bool,
+        result: Res<(Vec<Header>, u32)>,
+    },
     /// A background indexing step finished; `Some(seq)` = continue from there.
-    Indexed { folder: String, result: Res<Option<u32>> },
+    Indexed {
+        folder: String,
+        result: Res<Option<u32>>,
+    },
     /// The IDLE connection saw a change in the inbox (account generation).
     Push(u64),
     /// Inbox checked after a push while another folder is open.
@@ -435,8 +452,15 @@ pub enum Message {
     Delete,
     ConfirmDelete(bool),
     ToggleRead,
-    Done { uid: u32, note: &'static str, result: Res<()> },
-    Archived { uid: u32, result: Res<String> },
+    Done {
+        uid: u32,
+        note: &'static str,
+        result: Res<()>,
+    },
+    Archived {
+        uid: u32,
+        result: Res<String>,
+    },
     SeenChanged(Res<()>),
     SaveAttachment(usize),
     // appearance
@@ -497,7 +521,10 @@ impl App {
             config.ui.theme = theme;
         }
         i18n::set(Some(&config.ui.language));
-        let draft = config.account().map(AccountDraft::from).unwrap_or_else(AccountDraft::blank);
+        let draft = config
+            .account()
+            .map(AccountDraft::from)
+            .unwrap_or_else(AccountDraft::blank);
         let editing = config.account().map(|_| config.active);
         let mut app = App {
             screen: if config.account().is_some() {
@@ -629,7 +656,8 @@ impl App {
         }
         // Push: IDLE on the inbox of the account in use.
         if self.conn == Conn::Online
-            && let (Some(account), Some(inbox)) = (self.config.account(), self.folder_by_kind(FolderKind::Inbox))
+            && let (Some(account), Some(inbox)) =
+                (self.config.account(), self.folder_by_kind(FolderKind::Inbox))
         {
             subs.push(crate::push::subscription(crate::push::Watch {
                 account: account.clone(),
@@ -660,7 +688,10 @@ impl App {
         let Some(max) = headers.iter().map(|h| h.uid).max() else {
             return Task::none();
         };
-        let Some(previous) = self.inbox_max_uid.replace(max.max(self.inbox_max_uid.unwrap_or(0))) else {
+        let Some(previous) = self
+            .inbox_max_uid
+            .replace(max.max(self.inbox_max_uid.unwrap_or(0)))
+        else {
             return Task::none();
         };
         let new: Vec<&Header> = headers.iter().filter(|h| h.uid > previous && !h.seen).collect();
@@ -671,7 +702,11 @@ impl App {
             [one] => (one.from.clone(), one.subject.clone()),
             many => (
                 tf("notif_many", &[("n", &many.len().to_string())]),
-                many.iter().take(3).map(|h| format!("{} — {}", h.from, h.subject)).collect::<Vec<_>>().join("\n"),
+                many.iter()
+                    .take(3)
+                    .map(|h| format!("{} — {}", h.from, h.subject))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
             ),
         };
         Task::perform(
@@ -696,7 +731,12 @@ impl App {
             .attachments
             .iter()
             .enumerate()
-            .filter(|(_, a)| matches!(crate::preview::kind(&a.name, &a.data), crate::preview::Kind::Image | crate::preview::Kind::Pdf))
+            .filter(|(_, a)| {
+                matches!(
+                    crate::preview::kind(&a.name, &a.data),
+                    crate::preview::Kind::Image | crate::preview::Kind::Pdf
+                )
+            })
             .map(|(i, a)| (i, a.name.clone(), a.data.clone()))
             .collect();
         if atts.is_empty() {
@@ -749,9 +789,10 @@ impl App {
         }
         let b = self.backend.clone();
         let folders = self.folders.clone();
-        self.perform(async move { b.archive(folder, uid, folders).await }, move |result| {
-            Message::Archived { uid, result }
-        })
+        self.perform(
+            async move { b.archive(folder, uid, folders).await },
+            move |result| Message::Archived { uid, result },
+        )
     }
 
     fn delete(&mut self, uid: u32) -> Task<Message> {
@@ -762,13 +803,22 @@ impl App {
             // Outside Trash: move to Trash (recoverable).
             Some(trash) if trash != folder => {
                 let b = self.backend.clone();
-                self.perform(async move { b.move_to(folder, uid, trash).await }, move |result| {
-                    Message::Done { uid, note: "moved_to_trash", result }
-                })
+                self.perform(
+                    async move { b.move_to(folder, uid, trash).await },
+                    move |result| Message::Done {
+                        uid,
+                        note: "moved_to_trash",
+                        result,
+                    },
+                )
             }
             // In Trash (or no Trash folder): open it and ask for confirmation.
             _ => {
-                let open = if self.selected != Some(uid) { self.open(uid) } else { Task::none() };
+                let open = if self.selected != Some(uid) {
+                    self.open(uid)
+                } else {
+                    Task::none()
+                };
                 self.confirm_delete = true;
                 open
             }
@@ -781,9 +831,14 @@ impl App {
         };
         let b = self.backend.clone();
         let refresh = self.refresh_unseen();
-        let mv = self.perform(async move { b.move_to(folder, uid, target).await }, move |result| {
-            Message::Done { uid, note: "moved_ok", result }
-        });
+        let mv = self.perform(
+            async move { b.move_to(folder, uid, target).await },
+            move |result| Message::Done {
+                uid,
+                note: "moved_ok",
+                result,
+            },
+        );
         Task::batch([mv, refresh])
     }
 
@@ -804,7 +859,10 @@ impl App {
             *n = if seen { n.saturating_sub(1) } else { *n + 1 };
         }
         let b = self.backend.clone();
-        self.perform(async move { b.set_seen(folder, uid, seen).await }, Message::SeenChanged)
+        self.perform(
+            async move { b.set_seen(folder, uid, seen).await },
+            Message::SeenChanged,
+        )
     }
 
     fn header_mut(&mut self, uid: u32) -> Option<&mut Header> {
@@ -841,9 +899,13 @@ impl App {
     fn index_step(&self, folder: String, before: u32) -> Task<Message> {
         let b = self.backend.clone();
         let f = folder.clone();
-        self.perform(async move { b.index_older(f, before, 150).await }, move |result| {
-            Message::Indexed { folder: folder.clone(), result }
-        })
+        self.perform(
+            async move { b.index_older(f, before, 150).await },
+            move |result| Message::Indexed {
+                folder: folder.clone(),
+                result,
+            },
+        )
     }
 
     /// Re-reads the OpenPGP state of the active account.
@@ -947,7 +1009,11 @@ impl App {
         let b = self.backend.clone();
         let f = folder.clone();
         self.perform(async move { b.headers(f).await }, move |result| {
-            Message::HeadersLoaded { folder: folder.clone(), silent, result }
+            Message::HeadersLoaded {
+                folder: folder.clone(),
+                silent,
+                result,
+            }
         })
     }
 
@@ -958,10 +1024,10 @@ impl App {
             .filter(|f| matches!(f.kind, FolderKind::Inbox | FolderKind::Spam | FolderKind::Drafts))
             .map(|f| f.name.clone())
             .collect();
-        if let Some(c) = &self.current_folder {
-            if !names.contains(c) {
-                names.push(c.clone());
-            }
+        if let Some(c) = &self.current_folder
+            && !names.contains(c)
+        {
+            names.push(c.clone());
         }
         let b = self.backend.clone();
         self.perform(async move { b.unseen(names).await }, Message::Unseen)
@@ -1026,7 +1092,11 @@ impl App {
     fn toast(&mut self, text: impl Into<String>, error: bool) -> Task<Message> {
         self.toast_seq += 1;
         let id = self.toast_seq;
-        self.toast = Some(Toast { id, text: text.into(), error });
+        self.toast = Some(Toast {
+            id,
+            text: text.into(),
+            error,
+        });
         let secs = if error { 12 } else { 5 };
         Task::perform(tokio::time::sleep(Duration::from_secs(secs)), move |_| {
             Message::DismissToast(id)
@@ -1212,7 +1282,11 @@ impl App {
                 }
                 Task::none()
             }
-            Message::HeadersLoaded { folder, silent, result } => {
+            Message::HeadersLoaded {
+                folder,
+                silent,
+                result,
+            } => {
                 if self.current_folder.as_deref() != Some(&folder) {
                     return Task::none();
                 }
@@ -1220,7 +1294,10 @@ impl App {
                 match result {
                     Ok((headers, first_seq)) => {
                         self.conn = Conn::Online;
-                        let notify = if self.folder_by_kind(FolderKind::Inbox).is_some_and(|f| f.name == folder) {
+                        let notify = if self
+                            .folder_by_kind(FolderKind::Inbox)
+                            .is_some_and(|f| f.name == folder)
+                        {
                             self.note_new_mail(&headers)
                         } else {
                             Task::none()
@@ -1437,13 +1514,18 @@ impl App {
                 if let Some(h) = self.headers.iter_mut().find(|h| h.uid == msg.uid) {
                     h.seen = true;
                 }
-                if let Some(h) = self.search_results.iter_mut().flatten().find(|h| h.uid == msg.uid) {
+                if let Some(h) = self
+                    .search_results
+                    .iter_mut()
+                    .flatten()
+                    .find(|h| h.uid == msg.uid)
+                {
                     h.seen = true;
                 }
-                if let Some(c) = &self.current_folder {
-                    if let Some(n) = self.unseen.get_mut(c) {
-                        *n = n.saturating_sub(1);
-                    }
+                if let Some(c) = &self.current_folder
+                    && let Some(n) = self.unseen.get_mut(c)
+                {
+                    *n = n.saturating_sub(1);
                 }
                 self.body = text_editor::Content::with_text(&msg.body);
                 self.message = Some(msg);
@@ -1474,7 +1556,11 @@ impl App {
             }
             Message::ToggleHtml => {
                 self.config.ui.prefer_html = !self.config.ui.prefer_html;
-                let render = if self.html_render.is_none() { self.start_html_render() } else { Task::none() };
+                let render = if self.html_render.is_none() {
+                    self.start_html_render()
+                } else {
+                    Task::none()
+                };
                 Task::batch([self.save_config(), render])
             }
             Message::HtmlRendered(rendered) => {
@@ -1486,7 +1572,10 @@ impl App {
                     let first = self.html_render.is_none();
                     self.html_render = rendered;
                     if first {
-                        return operation::snap_to(READER_ID, iced::widget::scrollable::RelativeOffset::START);
+                        return operation::snap_to(
+                            READER_ID,
+                            iced::widget::scrollable::RelativeOffset::START,
+                        );
                     }
                 }
                 Task::none()
@@ -1501,7 +1590,10 @@ impl App {
             }
             Message::HtmlPointer(x, y) => {
                 self.html_pointer = Some((x, y));
-                if self.hover_probe.is_some_and(|(px, py)| (px - x).abs() + (py - y).abs() < 6.0) {
+                if self
+                    .hover_probe
+                    .is_some_and(|(px, py)| (px - x).abs() + (py - y).abs() < 6.0)
+                {
                     return Task::none();
                 }
                 self.hover_probe = Some((x, y));
@@ -1529,7 +1621,8 @@ impl App {
                 Task::none()
             }
             Message::HtmlClick => {
-                let (Some((x, y)), Some(uid)) = (self.html_pointer, self.html_render.as_ref().map(|r| r.uid)) else {
+                let (Some((x, y)), Some(uid)) = (self.html_pointer, self.html_render.as_ref().map(|r| r.uid))
+                else {
                     return Task::none();
                 };
                 Task::perform(
@@ -1573,7 +1666,10 @@ impl App {
                 Task::none()
             }
             Message::PreviewAttachment(i) => {
-                let Some((uid, a)) = self.message.as_ref().and_then(|m| Some((m.uid, m.attachments.get(i)?.clone())))
+                let Some((uid, a)) = self
+                    .message
+                    .as_ref()
+                    .and_then(|m| Some((m.uid, m.attachments.get(i)?.clone())))
                 else {
                     return Task::none();
                 };
@@ -1621,16 +1717,19 @@ impl App {
                         .find(|h| h.uid == uid)
                         .map(|h| ui::trunc(&h.subject, 40))
                         .unwrap_or_default();
-                    self.drag = Some(Drag { uid, start: self.cursor, active: false, label });
+                    self.drag = Some(Drag {
+                        uid,
+                        start: self.cursor,
+                        active: false,
+                        label,
+                    });
                 }
                 Task::none()
             }
-            Message::MouseUp => {
-                match (self.drag.take(), self.drop_folder.clone()) {
-                    (Some(d), Some(target)) if d.active => self.move_message(d.uid, target),
-                    _ => Task::none(),
-                }
-            }
+            Message::MouseUp => match (self.drag.take(), self.drop_folder.clone()) {
+                (Some(d), Some(target)) if d.active => self.move_message(d.uid, target),
+                _ => Task::none(),
+            },
             Message::RowEnter(uid) => {
                 self.hover_row = Some(uid);
                 Task::none()
@@ -1653,7 +1752,11 @@ impl App {
             }
             Message::OpenMenu(uid) => {
                 self.drag = None;
-                self.menu = Some(ContextMenu { uid, at: self.cursor, folders: false });
+                self.menu = Some(ContextMenu {
+                    uid,
+                    at: self.cursor,
+                    folders: false,
+                });
                 Task::none()
             }
             Message::CloseMenu => {
@@ -1715,10 +1818,17 @@ impl App {
                 if let Some(m) = &self.message {
                     let mut c = self.reply_draft(m);
                     // Everyone else on the thread, without ourselves or duplicates.
-                    let me = self.config.account().map(|a| a.email.to_lowercase()).unwrap_or_default();
+                    let me = self
+                        .config
+                        .account()
+                        .map(|a| a.email.to_lowercase())
+                        .unwrap_or_default();
                     let mut seen: HashSet<String> = [me, m.from_address.to_lowercase()].into_iter().collect();
                     let mut keep = |list: &[String]| -> Vec<String> {
-                        list.iter().filter(|a| seen.insert(a.to_lowercase())).cloned().collect()
+                        list.iter()
+                            .filter(|a| seen.insert(a.to_lowercase()))
+                            .cloned()
+                            .collect()
                     };
                     let to = keep(&m.to_addrs);
                     let cc = keep(&m.cc_addrs);
@@ -1769,13 +1879,19 @@ impl App {
             },
             Message::ConfirmDelete(yes) => {
                 self.confirm_delete = false;
-                let (true, Some(uid), Some(folder)) = (yes, self.selected, self.current_folder.clone()) else {
+                let (true, Some(uid), Some(folder)) = (yes, self.selected, self.current_folder.clone())
+                else {
                     return Task::none();
                 };
                 let b = self.backend.clone();
-                self.perform(async move { b.delete_forever(folder, uid).await }, move |result| {
-                    Message::Done { uid, note: "deleted_forever", result }
-                })
+                self.perform(
+                    async move { b.delete_forever(folder, uid).await },
+                    move |result| Message::Done {
+                        uid,
+                        note: "deleted_forever",
+                        result,
+                    },
+                )
             }
             Message::Done { uid, note, result } => match result {
                 Ok(()) => {
@@ -1877,8 +1993,7 @@ impl App {
             }
             Message::Tested(result) => {
                 self.testing = false;
-                self.test_result =
-                    Some(result.map(|n| tf("test_ok", &[("n", &n.to_string())])));
+                self.test_result = Some(result.map(|n| tf("test_ok", &[("n", &n.to_string())])));
                 Task::none()
             }
             Message::SaveAccount => {
@@ -1907,7 +2022,8 @@ impl App {
                 Task::batch([save, self.switch_account(index)])
             }
             Message::SwitchAccount(i) => {
-                if i >= self.config.accounts.len() || (i == self.config.active && self.conn != Conn::Offline) {
+                if i >= self.config.accounts.len() || (i == self.config.active && self.conn != Conn::Offline)
+                {
                     return Task::none();
                 }
                 let save = {
@@ -2061,10 +2177,10 @@ impl App {
                 Task::none()
             }
             Message::ComposeRemove(i) => {
-                if let Some(c) = self.compose.as_mut() {
-                    if i < c.attachments.len() {
-                        c.attachments.remove(i);
-                    }
+                if let Some(c) = self.compose.as_mut()
+                    && i < c.attachments.len()
+                {
+                    c.attachments.remove(i);
                 }
                 Task::none()
             }
@@ -2138,13 +2254,21 @@ impl App {
             }
             Message::DevScreenshot => {
                 // Open the first message so the reader pane is populated.
-                if std::env::var_os("FERROWL_DEV_MENU").is_some() && self.menu.is_none() {
-                    if let Some(uid) = self.visible().get(1).map(|h| h.uid) {
-                        self.menu = Some(ContextMenu { uid, at: iced::Point::new(420.0, 260.0), folders: false });
-                    }
+                if std::env::var_os("FERROWL_DEV_MENU").is_some()
+                    && self.menu.is_none()
+                    && let Some(uid) = self.visible().get(1).map(|h| h.uid)
+                {
+                    self.menu = Some(ContextMenu {
+                        uid,
+                        at: iced::Point::new(420.0, 260.0),
+                        folders: false,
+                    });
                 }
                 if std::env::var_os("FERROWL_SCREENSHOT_OPEN").is_some() && self.selected.is_none() {
-                    let nth = std::env::var("FERROWL_DEV_OPEN_NTH").ok().and_then(|n| n.parse().ok()).unwrap_or(0);
+                    let nth = std::env::var("FERROWL_DEV_OPEN_NTH")
+                        .ok()
+                        .and_then(|n| n.parse().ok())
+                        .unwrap_or(0);
                     if let Some(uid) = self.visible().get(nth).map(|h| h.uid) {
                         return self.open(uid);
                     }
@@ -2168,7 +2292,11 @@ impl App {
                     .ok()
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(1);
-                if self.dev_shots >= wanted { iced::exit() } else { Task::none() }
+                if self.dev_shots >= wanted {
+                    iced::exit()
+                } else {
+                    Task::none()
+                }
             }
             Message::Noop => Task::none(),
         }
@@ -2252,7 +2380,13 @@ fn save_png(path: &std::path::Path, shot: &iced::window::Screenshot) -> anyhow::
 fn safe_name(name: &str) -> String {
     let s: String = name
         .chars()
-        .map(|c| if matches!(c, '/' | '\\' | '\0' | ':') { '_' } else { c })
+        .map(|c| {
+            if matches!(c, '/' | '\\' | '\0' | ':') {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect();
     let s = s.trim_start_matches('.').to_string();
     if s.is_empty() { "attachment".into() } else { s }
@@ -2281,8 +2415,10 @@ fn percent_decode(s: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%'
-            && let (Some(h), Some(l)) =
-                (bytes.get(i + 1).and_then(|&b| hex(b)), bytes.get(i + 2).and_then(|&b| hex(b)))
+            && let (Some(h), Some(l)) = (
+                bytes.get(i + 1).and_then(|&b| hex(b)),
+                bytes.get(i + 2).and_then(|&b| hex(b)),
+            )
         {
             out.push(h * 16 + l);
             i += 3;

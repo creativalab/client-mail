@@ -1,0 +1,17 @@
+# cargo-deny configuration (https://embarkstudios.github.io/cargo-deny/).
+# CI runs `cargo deny check advisories`: any new vulnerability fails the build.
+
+[advisories]
+# "Unmaintained" notices only for our direct dependencies; transitive ones
+# (pulled in by iced, notify-rust, …) are tracked upstream.
+unmaintained = "workspace"
+ignore = [
+    # rsa (via pgp): Marvin timing side channel on RSA decryption. No fixed
+    # version exists. Decryption happens locally, with no network oracle an
+    # attacker could time. Remove when rsa ships a constant-time release.
+    { id = "RUSTSEC-2023-0071", reason = "no fix available; local-only RSA decryption" },
+    # crypto-bigint 0.5 (via pgp → elliptic-curve 0.13): timing variability.
+    # The fix is in 0.7, which pgp 0.21 does not use yet. Local operations only.
+    # Remove when pgp moves to elliptic-curve 0.14 / crypto-bigint 0.7.
+    { id = "RUSTSEC-2026-0387", reason = "fixed only in crypto-bigint 0.7, not yet used by pgp" },
+]

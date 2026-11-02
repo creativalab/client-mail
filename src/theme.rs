@@ -89,8 +89,8 @@ pub fn hex(s: &str) -> Color {
 fn all() -> &'static Vec<ThemeDef> {
     static THEMES: OnceLock<Vec<ThemeDef>> = OnceLock::new();
     THEMES.get_or_init(|| {
-        let file: RawFile = serde_json::from_str(include_str!("../design/themes.json"))
-            .expect("design/themes.json invalid");
+        let file: RawFile =
+            serde_json::from_str(include_str!("../design/themes.json")).expect("design/themes.json invalid");
         ORDER
             .iter()
             .filter_map(|key| {
@@ -137,9 +137,7 @@ pub fn themes() -> &'static [ThemeDef] {
 
 pub fn get(key: &str) -> &'static ThemeDef {
     let all = all();
-    all.iter()
-        .find(|t| t.key == key)
-        .unwrap_or_else(|| &all[0])
+    all.iter().find(|t| t.key == key).unwrap_or_else(|| &all[0])
 }
 
 /// Base iced theme: colors widgets we don't style explicitly.
