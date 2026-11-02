@@ -23,7 +23,7 @@ A fast desktop email client written in Rust, with a native UI built on [iced](ht
 - **HTML mail rendered like a browser** with [Blitz](https://github.com/DioxusLabs/blitz) (Firefox's Stylo CSS engine, no JavaScript): layout, colors, tables and images. Remote images can be turned off in Settings › Security (they let senders know when you open a message); `cid:` inline images always work. Links show their destination on hover and open in the browser; `mailto:` opens a new message. One click switches to plain text
 - **6 color themes** (Ruggine, Ardesia, Bosco, Lavanda, Sabbia, Notte) defined in [`design/themes.json`](design/themes.json)
 - **10 languages**: English, Italiano, Français, Deutsch, Español, Português, 中文, 日本語, 한국어, العربية (right-to-left layout). The system language is used by default, falling back to English.
-- Keyboard shortcuts: `C` compose · `R` reply · `A` reply all · `F` forward · `E` archive · `U` mark unread · `J`/`K` or ↓/↑ next/previous · `Del` delete · `Ctrl K` or `/` search · `Ctrl Enter` send · `Esc` close
+- Keyboard shortcuts: `C` compose · `R` reply · `A` reply all · `F` forward · `E` archive · `U` mark unread · `J`/`K` or ↓/↑ next/previous · `Del` delete (to Trash) · `Shift Del` delete forever, after confirmation · `Ctrl K` or `/` search · `Ctrl Enter` send · `Esc` close
 - **Push**: a second IMAP connection waits in IDLE on the inbox, so new mail shows up as soon as the server reports it, with a desktop notification (can be turned off in Settings › General). Servers without IDLE fall back to the refresh every 2 minutes
 
 ## Download
@@ -96,6 +96,10 @@ Environment variables useful during development:
 | `FERROWL_DEV_VIEW=settings\|appearance\|general\|security\|compose\|popover` | Open a view directly |
 | `FERROWL_SCREENSHOT=out.png` | Capture the window after `FERROWL_SCREENSHOT_DELAY` seconds (default 8) and quit |
 | `FERROWL_SCREENSHOT_OPEN=1` | Open the first message before capturing (`FERROWL_DEV_OPEN_NTH=n` for another row, `FERROWL_DEV_PREVIEW_ATT=1` to preview its first attachment) |
+| `FERROWL_SCREENSHOT_COUNT=n` | Take n captures (`out.png`, `out.2.png`, …) before quitting |
+| `FERROWL_DEV_MENU=1` | Open the context menu on the second message |
+| `FERROWL_DEV_CONFIRM=1` | Show the "delete forever?" dialog for the open message |
+| `FERROWL_DEV_PREVIEW=1` | With `FERROWL_DEV_VIEW=compose`, show the formatted preview |
 
 The design handoff (mockups, tokens, icon) is in [`design/`](design/).
 
