@@ -90,15 +90,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # Linux packages are built on the oldest supported Ubuntu so they
+          # run on older distributions too (glibc is forward compatible).
+          - os: ubuntu-22.04
             name: ferrowl-linux-x86_64
             bin: ferrowl
+            pkg: linux
           - os: windows-latest
             name: ferrowl-windows-x86_64
             bin: ferrowl.exe
+            pkg: windows
           - os: macos-latest
             name: ferrowl-macos-arm64
             bin: ferrowl
+            pkg: macos
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -110,37 +115,31 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: release
+          shared-key: release-${{ matrix.os }}
           save-if: ${{ github.ref == 'refs/heads/master' }}
+
+      - name: cargo-deb (Linux)
+        if: runner.os == 'Linux'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deb
 
       - name: Build
         run: cargo build --release --locked
 
+      # AppImage + .deb + tar.gz on Linux, .dmg (Ferrowl.app) + tar.gz on
+      # macOS, zip on Windows. See packaging/build.sh.
       - name: Package
         shell: bash
-        run: |
-          mkdir dist
-          cp target/release/${{ matrix.bin }} dist/
-          cp README.md LICENSE dist/
+        run: packaging/build.sh ${{ matrix.pkg }}
 
       - uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.name }}
           path: dist/
 
-      - name: Release archive
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        run: |
-          cd dist
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            7z a ../${{ matrix.name }}.zip *
-          else
-            tar czf ../${{ matrix.name }}.tar.gz *
-          fi
-
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v3
         with:
-          files: ${{ matrix.name }}.*
+          files: dist/*

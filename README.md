@@ -28,10 +28,16 @@ A fast desktop email client written in Rust, with a native UI built on [iced](ht
 
 ## Download
 
-Prebuilt binaries for Linux (x86_64), Windows (x86_64) and macOS (Apple Silicon) are attached to each [release](https://github.com/creativalab/client-mail/releases).
+Prebuilt packages are attached to each [release](https://github.com/creativalab/ferrowl/releases):
 
-The binaries are not signed yet:
-- **macOS**: right-click → Open, or `xattr -d com.apple.quarantine ferrowl`
+| System | Package |
+|---|---|
+| Linux x86_64 | `Ferrowl-x86_64.AppImage` (run directly: `chmod +x` and double-click), `ferrowl_<version>_amd64.deb` (Debian/Ubuntu: adds Ferrowl to the applications menu), `ferrowl-linux-x86_64.tar.gz` |
+| Windows x86_64 | `ferrowl-windows-x86_64.zip` |
+| macOS (Apple Silicon) | `Ferrowl-macos-arm64.dmg` (drag Ferrowl to Applications) |
+
+The packages are not signed yet:
+- **macOS**: right-click Ferrowl → Open the first time, or `xattr -dr com.apple.quarantine /Applications/Ferrowl.app`
 - **Windows**: SmartScreen → "More info" → "Run anyway"
 
 ## Build from source
