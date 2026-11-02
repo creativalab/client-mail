@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Window theme before Compose draws (splash, status bar). Colors of the
+         app itself are in ui/theme/Theme.kt. -->
+    <style name="Theme.Ferrowl" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/white</item>
+    </style>
+</resources>
