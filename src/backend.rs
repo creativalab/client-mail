@@ -27,6 +27,45 @@ fn text(e: anyhow::Error) -> String {
     format!("{e:#}")
 }
 
+const MAX_THROTTLE_RETRIES: u32 = 3;
+
+/// If the server refused because of rate limits, how long to wait.
+///
+/// Exchange Online: "Request is throttled. Suggested Backoff Time: N
+/// milliseconds"; others use [UNAVAILABLE], "too many connections", etc.
+fn throttle_delay(e: &anyhow::Error) -> Option<std::time::Duration> {
+    use std::time::Duration;
+    let msg = format!("{e:#}").to_lowercase();
+    let throttled = [
+        "throttl",
+        "[unavailable]",
+        "too many",
+        "rate limit",
+        "try again later",
+    ]
+    .iter()
+    .any(|k| msg.contains(k));
+    if !throttled {
+        return None;
+    }
+    let suggested = msg
+        .split("backoff time:")
+        .nth(1)
+        .and_then(|rest| {
+            rest.split_whitespace()
+                .next()?
+                .trim_end_matches('.')
+                .parse::<u64>()
+                .ok()
+        })
+        .map(Duration::from_millis);
+    Some(
+        suggested
+            .unwrap_or(Duration::from_secs(5))
+            .clamp(Duration::from_millis(500), Duration::from_secs(30)),
+    )
+}
+
 fn is_connection_error(e: &anyhow::Error) -> bool {
     e.chain().any(|c| {
         c.downcast_ref::<imap::Error>()
@@ -55,17 +94,33 @@ impl Backend {
     fn with_session_sync<T>(&self, op: impl Fn(&mut ImapSession) -> anyhow::Result<T>) -> Res<T> {
         let mut g = self.lock();
         let account = g.account.clone().ok_or_else(|| t("err_no_account").to_string())?;
-        if let Some(s) = g.session.as_mut() {
-            match op(s) {
+        let mut attempt = 0u32;
+        loop {
+            let result: anyhow::Result<T> = (|| {
+                if let Some(s) = g.session.as_mut() {
+                    match op(s) {
+                        Ok(v) => return Ok(v),
+                        Err(e) if !is_connection_error(&e) => return Err(e),
+                        Err(_) => g.session = None,
+                    }
+                }
+                let mut session = mail::connect(&account)?;
+                let result = op(&mut session);
+                g.session = Some(session);
+                result
+            })();
+            match result {
                 Ok(v) => return Ok(v),
-                Err(e) if !is_connection_error(&e) => return Err(text(e)),
-                Err(_) => g.session = None,
+                // The server asked to slow down: wait and try again a few times.
+                Err(e) => match throttle_delay(&e) {
+                    Some(delay) if attempt < MAX_THROTTLE_RETRIES => {
+                        attempt += 1;
+                        std::thread::sleep(delay * attempt);
+                    }
+                    _ => return Err(text(e)),
+                },
             }
         }
-        let mut session = mail::connect(&account).map_err(text)?;
-        let result = op(&mut session).map_err(text);
-        g.session = Some(session);
-        result
     }
 
     /// Connects an account (replaces any previous session).
@@ -254,5 +309,26 @@ impl Backend {
             }
         })
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::throttle_delay;
+    use std::time::Duration;
+
+    #[test]
+    fn recognizes_throttling() {
+        let e =
+            anyhow::anyhow!("Bad Response: Request is throttled. Suggested Backoff Time: 2453 milliseconds");
+        assert_eq!(throttle_delay(&e), Some(Duration::from_millis(2453)));
+        let e = anyhow::anyhow!("NO [UNAVAILABLE] Server busy, try again later");
+        assert_eq!(throttle_delay(&e), Some(Duration::from_secs(5)));
+        let e = anyhow::anyhow!("Request is throttled. Suggested Backoff Time: 999999 milliseconds");
+        assert_eq!(throttle_delay(&e), Some(Duration::from_secs(30)));
+        assert_eq!(
+            throttle_delay(&anyhow::anyhow!("NO [AUTHENTICATIONFAILED] Invalid credentials")),
+            None
+        );
     }
 }

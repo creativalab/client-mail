@@ -5,6 +5,9 @@
 #   Skip in an emergency:    git commit --no-verify
 set -euo pipefail
 
+# GUI git clients and plain shells may not have cargo on PATH.
+command -v cargo >/dev/null 2>&1 || . "$HOME/.cargo/env" 2>/dev/null || true
+
 # Nothing to check if no Rust code or manifest is staged.
 if ! git diff --cached --name-only | grep -qE '\.rs$|^Cargo\.(toml|lock)$|^rustfmt\.toml$'; then
     exit 0
