@@ -177,7 +177,7 @@ fn classify(name: &str, segments: &[String], attrs: &[imap::types::NameAttribute
 
 // ---------------------------------------------------------------- message types
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Header {
     pub uid: u32,
     pub from: String,
@@ -188,6 +188,11 @@ pub struct Header {
     pub has_attachment: bool,
     /// Start of the body as text (for the search index; empty from the cache).
     pub text: String,
+    /// Message-ID without angle brackets (empty if the message has none).
+    pub message_id: String,
+    /// Ids this message replies to (References, then In-Reply-To), for
+    /// grouping into conversations (see `threads`).
+    pub parents: Vec<String>,
 }
 
 /// A slice of a folder's message list, by sequence number.
@@ -625,7 +630,29 @@ pub fn header_from_raw(uid: u32, raw: &[u8], seen: bool) -> Header {
         seen,
         has_attachment,
         text: text.chars().take(4000).collect(),
+        message_id: msg.and_then(|m| m.message_id()).map(bare_id).unwrap_or_default(),
+        parents: thread_parents(raw),
     }
+}
+
+/// A message id without spaces and angle brackets.
+pub fn bare_id(id: &str) -> String {
+    id.trim().trim_matches(['<', '>']).to_string()
+}
+
+/// References and In-Reply-To ids, in order, without duplicates.
+fn thread_parents(raw: &[u8]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for name in ["references", "in-reply-to"] {
+        for value in raw_header_values(raw, name) {
+            for id in value.split_whitespace().map(bare_id).filter(|s| !s.is_empty()) {
+                if !out.contains(&id) {
+                    out.push(id);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Downloads the full message (marks it as read on the server).

@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS messages (
     attach   INTEGER NOT NULL,
     body     TEXT NOT NULL DEFAULT '',
     full     INTEGER NOT NULL DEFAULT 0,
+    msgid    TEXT NOT NULL DEFAULT '',
+    parents  TEXT NOT NULL DEFAULT '',
     UNIQUE (account, folder, uid)
 );
 CREATE INDEX IF NOT EXISTS messages_list ON messages (account, folder, ts DESC);
@@ -103,6 +105,21 @@ impl Cache {
 
     fn with_connection(conn: Connection) -> Result<Cache> {
         conn.execute_batch(SCHEMA).context("creating cache schema")?;
+        // Columns added after the first release (conversations).
+        for (column, ddl) in [
+            (
+                "msgid",
+                "ALTER TABLE messages ADD COLUMN msgid TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "parents",
+                "ALTER TABLE messages ADD COLUMN parents TEXT NOT NULL DEFAULT ''",
+            ),
+        ] {
+            if !has_column(&conn, "messages", column)? {
+                conn.execute_batch(ddl)?;
+            }
+        }
         Ok(Cache {
             conn: Mutex::new(conn),
         })
@@ -147,10 +164,12 @@ impl Cache {
         let tx = conn.transaction()?;
         {
             let mut stmt = tx.prepare_cached(
-                "INSERT INTO messages (account, folder, uid, sender, subject, preview, ts, seen, attach, body)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                "INSERT INTO messages (account, folder, uid, sender, subject, preview, ts, seen, attach, body, msgid, parents)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                  ON CONFLICT (account, folder, uid) DO UPDATE SET
                     seen = excluded.seen,
+                    msgid = excluded.msgid,
+                    parents = excluded.parents,
                     sender = excluded.sender,
                     subject = excluded.subject,
                     preview = excluded.preview,
@@ -168,7 +187,9 @@ impl Cache {
                     h.timestamp,
                     h.seen,
                     h.has_attachment,
-                    h.text
+                    h.text,
+                    h.message_id,
+                    h.parents.join(" ")
                 ])?;
             }
         }
@@ -227,7 +248,7 @@ impl Cache {
     pub fn headers(&self, account: &str, folder: &str, limit: u32) -> Result<Vec<Header>> {
         let conn = self.lock();
         let mut stmt = conn.prepare_cached(
-            "SELECT uid, sender, subject, preview, ts, seen, attach FROM messages
+            "SELECT uid, sender, subject, preview, ts, seen, attach, msgid, parents FROM messages
              WHERE account = ?1 AND folder = ?2 ORDER BY ts DESC, uid DESC LIMIT ?3",
         )?;
         let rows = stmt.query_map(params![account, folder, limit], row_to_header)?;
@@ -251,7 +272,7 @@ impl Cache {
         };
         let conn = self.lock();
         let mut stmt = conn.prepare_cached(
-            "SELECT m.uid, m.sender, m.subject, m.preview, m.ts, m.seen, m.attach
+            "SELECT m.uid, m.sender, m.subject, m.preview, m.ts, m.seen, m.attach, m.msgid, m.parents
              FROM messages_fts f JOIN messages m ON m.id = f.rowid
              WHERE messages_fts MATCH ?3 AND m.account = ?1 AND m.folder = ?2
              ORDER BY m.ts DESC LIMIT ?4",
@@ -271,7 +292,25 @@ fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<Header> {
         seen: r.get(5)?,
         has_attachment: r.get(6)?,
         text: String::new(),
+        message_id: r.get(7)?,
+        parents: r
+            .get::<_, String>(8)?
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect(),
     })
+}
+
+/// Whether a table already has a column (for adding columns to old files).
+pub(crate) fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
+    let names = stmt.query_map([], |r| r.get::<_, String>(1))?;
+    for name in names {
+        if name? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Builds an FTS5 query from user words: each word quoted (so operators and
@@ -305,6 +344,7 @@ mod tests {
             seen: false,
             has_attachment: false,
             text: text.into(),
+            ..Default::default()
         }
     }
 

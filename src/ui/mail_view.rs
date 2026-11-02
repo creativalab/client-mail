@@ -518,6 +518,25 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         left: 20.0,
     });
 
+    let mode = |label: &'static str, threaded: bool| {
+        let on = app.config.ui.threaded == threaded;
+        button(text(label).size(12).font(if on { semibold() } else { INTER }))
+            .padding([4, 8])
+            .style(segment(p, on))
+            .on_press(Message::SetThreaded(threaded))
+    };
+    let view_mode = container(
+        container(row![mode(t("view_threads"), true), mode(t("view_messages"), false)].spacing(4))
+            .padding(3)
+            .style(chip_box(p.chip, p.text2, 9.0)),
+    )
+    .padding(Padding {
+        top: 0.0,
+        right: 20.0,
+        bottom: 10.0,
+        left: 20.0,
+    });
+
     let visible = app.visible();
     let content: Element<'a, Message> = if visible.is_empty() {
         let msg = if app.loading_list || app.conn == Conn::Connecting {
@@ -532,10 +551,20 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     } else {
         let pad = app.density_padding();
         let preview = app.config.ui.show_preview;
+        // One row per conversation (its newest message) or per message.
+        let rows: Vec<(&crate::mail::Header, usize, bool)> = if app.config.ui.threaded {
+            ferrowl_core::threads::group(&visible)
+                .into_iter()
+                .map(|t| (visible[t.latest()], t.members.len(), t.unread > 0))
+                .collect()
+        } else {
+            visible.iter().map(|h| (*h, 1, !h.seen)).collect()
+        };
+        let open_thread = app.selected.map(|uid| app.conversation(uid)).unwrap_or_default();
         let mut col = Column::new();
-        for h in visible {
-            let selected = app.selected == Some(h.uid);
-            let unread = !h.seen;
+        for (h, count, unread) in rows {
+            let selected =
+                app.selected == Some(h.uid) || (count > 1 && open_thread.iter().any(|m| m.uid == h.uid));
             let mut top = vec![
                 container(space().width(8).height(8))
                     .style(chip_box(
@@ -554,6 +583,14 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             ];
             if h.has_attachment {
                 top.push(icon(icons::CLIP, 14.0, p.muted));
+            }
+            if count > 1 {
+                top.push(
+                    container(text(count.to_string()).size(11).font(semibold()))
+                        .padding([1, 6])
+                        .style(chip_box(p.chip, p.text2, 999.0))
+                        .into(),
+                );
             }
             top.push(
                 text(short_date(h.timestamp))
@@ -628,7 +665,7 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         scrollable(col).height(Fill).style(scroll_style(p)).into()
     };
 
-    container(column![header, content])
+    container(column![header, view_mode, content])
         .width(410)
         .height(Fill)
         .style(panel(p.bg))
@@ -842,11 +879,13 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             .font(INTER_BOLD)
             .color(p.text)
             .line_height(1.25),
-        sender,
-        body,
     ]
     .spacing(24)
     .max_width(820);
+    if let Some(strip) = conversation_strip(app, msg.uid, p) {
+        content = content.push(strip);
+    }
+    content = content.push(sender).push(body);
 
     if !msg.attachments.is_empty() {
         let label = if msg.attachments.len() == 1 {
@@ -1029,6 +1068,76 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
 }
 
 /// The HTML message as rendered tiles, with link hover/click.
+/// The other messages of the open conversation, oldest first: one compact
+/// row each (sender, date, preview); the open one is highlighted.
+fn conversation_strip<'a>(app: &'a App, open: u32, p: Palette) -> Option<Element<'a, Message>> {
+    let thread = app.conversation(open);
+    if thread.len() < 2 {
+        return None;
+    }
+    let mut list = Column::new().spacing(2);
+    list = list.push(
+        text(tf("conversation_count", &[("n", &thread.len().to_string())]))
+            .size(12)
+            .font(semibold())
+            .color(p.muted),
+    );
+    for h in thread {
+        let current = h.uid == open;
+        let unread = !h.seen;
+        let row = dir_row(vec![
+            text(trunc(&h.from, 28))
+                .size(13)
+                .font(if unread || current { semibold() } else { INTER })
+                .color(p.text)
+                .wrapping(Wrapping::None)
+                .width(Length::Fixed(200.0))
+                .into(),
+            text(trunc(&h.preview, 60))
+                .size(13)
+                .color(p.muted)
+                .wrapping(Wrapping::None)
+                .width(Fill)
+                .into(),
+            text(short_date(h.timestamp))
+                .font(MONO)
+                .size(12)
+                .color(p.muted)
+                .into(),
+        ])
+        .spacing(12)
+        .align_y(Alignment::Center);
+        list = list.push(
+            button(row)
+                .width(Fill)
+                .padding([6, 10])
+                .style(move |_, st| button::Style {
+                    background: Some(Background::Color(if current {
+                        p.soft
+                    } else if matches!(st, button::Status::Hovered) {
+                        p.chip
+                    } else {
+                        Color::TRANSPARENT
+                    })),
+                    text_color: p.text,
+                    border: Border {
+                        radius: radius(8.0),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                })
+                .on_press_maybe((!current).then_some(Message::Open(h.uid))),
+        );
+    }
+    Some(
+        container(list)
+            .padding(10)
+            .width(Fill)
+            .style(card(p, p.line, 12.0))
+            .into(),
+    )
+}
+
 fn html_body<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     let Some(r) = &app.html_render else {
         return container(text(t("html_loading")).size(14).color(p.muted))
