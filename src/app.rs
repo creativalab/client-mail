@@ -66,6 +66,24 @@ pub struct Compose {
     pub references: Vec<String>,
     pub sending: bool,
     pub error: Option<String>,
+    /// Markdown formatting on: the message also gets an HTML part.
+    pub rich: bool,
+    /// Rendered preview, shown instead of the editor while `Some`.
+    pub preview: Option<Vec<iced::widget::markdown::Item>>,
+}
+
+/// Formatting actions of the compose toolbar (they insert Markdown).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fmt {
+    Bold,
+    Italic,
+    Strike,
+    Code,
+    Link,
+    Bullets,
+    Numbers,
+    Quote,
+    Heading,
 }
 
 impl Compose {
@@ -83,6 +101,74 @@ impl Compose {
             references: Vec::new(),
             sending: false,
             error: None,
+            rich: true,
+            preview: None,
+        }
+    }
+
+    /// Applies a toolbar action to the editor: wraps the selection
+    /// (or inserts an empty pair and puts the cursor inside it), or prefixes lines.
+    pub fn format(&mut self, fmt: Fmt) {
+        use iced::widget::text_editor::{Action, Edit, Motion};
+        use std::sync::Arc;
+        let paste = |c: &mut text_editor::Content, s: String| {
+            c.perform(Action::Edit(Edit::Paste(Arc::new(s))))
+        };
+        let back = |c: &mut text_editor::Content, n: usize| {
+            for _ in 0..n {
+                c.perform(Action::Move(Motion::Left));
+            }
+        };
+        let selection = self.body.selection().filter(|s| !s.is_empty());
+        let wrap = |c: &mut text_editor::Content, l: &str, r: &str| match &selection {
+            Some(sel) => paste(c, format!("{l}{sel}{r}")),
+            None => {
+                paste(c, format!("{l}{r}"));
+                back(c, r.chars().count());
+            }
+        };
+        let prefix = |c: &mut text_editor::Content, numbered: bool, p: &str| match &selection {
+            Some(sel) => {
+                let lines: Vec<String> = sel
+                    .lines()
+                    .enumerate()
+                    .map(|(i, l)| {
+                        if numbered { format!("{}. {l}", i + 1) } else { format!("{p}{l}") }
+                    })
+                    .collect();
+                paste(c, lines.join("\n"))
+            }
+            None => {
+                c.perform(Action::Move(Motion::Home));
+                paste(c, if numbered { "1. ".into() } else { p.to_string() });
+                c.perform(Action::Move(Motion::End));
+            }
+        };
+        match fmt {
+            Fmt::Bold => wrap(&mut self.body, "**", "**"),
+            Fmt::Italic => wrap(&mut self.body, "_", "_"),
+            Fmt::Strike => wrap(&mut self.body, "~~", "~~"),
+            Fmt::Code => match &selection {
+                Some(sel) if sel.contains('\n') => paste(&mut self.body, format!("```\n{sel}\n```")),
+                _ => wrap(&mut self.body, "`", "`"),
+            },
+            Fmt::Link => match &selection {
+                Some(sel) if sel.starts_with("http://") || sel.starts_with("https://") => {
+                    paste(&mut self.body, format!("[{sel}]({sel})"))
+                }
+                Some(sel) => {
+                    paste(&mut self.body, format!("[{sel}](https://)"));
+                    back(&mut self.body, 1);
+                }
+                None => {
+                    paste(&mut self.body, "[](https://)".into());
+                    back(&mut self.body, 11);
+                }
+            },
+            Fmt::Bullets => prefix(&mut self.body, false, "- "),
+            Fmt::Numbers => prefix(&mut self.body, true, ""),
+            Fmt::Quote => prefix(&mut self.body, false, "> "),
+            Fmt::Heading => prefix(&mut self.body, false, "## "),
         }
     }
 }
@@ -233,6 +319,9 @@ pub enum Message {
     ComposeField(ComposeField, String),
     ComposeToggleCc,
     ComposeEdit(text_editor::Action),
+    ComposeFormat(Fmt),
+    ComposeToggleRich,
+    ComposeTogglePreview,
     ComposeAttach,
     ComposeAttached(Vec<PathBuf>),
     ComposeRemove(usize),
@@ -313,7 +402,12 @@ impl App {
                 let mut c = Compose::new(ComposeMode::New);
                 c.to = "giulia.ferri@example.com".into();
                 c.subject = "Customer portal quote".into();
-                c.body = text_editor::Content::with_text("Hi Giulia,\n\nsounds good to me.\n\nFabio");
+                c.body = text_editor::Content::with_text(
+                    "Hi Giulia,\n\nsounds **good** to me. Two notes:\n\n- delivery in _two_ phases\n- see [the brief](https://example.com)\n\nFabio",
+                );
+                if std::env::var("FERROWL_DEV_PREVIEW").is_ok() {
+                    c.preview = Some(iced::widget::markdown::parse(&c.body.text()).collect());
+                }
                 app.compose = Some(c);
             }
             _ => {}
@@ -510,6 +604,7 @@ impl App {
 
     fn reply_draft(&self, msg: &FullMessage) -> Compose {
         let mut c = Compose::new(ComposeMode::Reply);
+        c.rich = self.config.ui.rich_compose;
         c.to = msg.from_address.clone();
         c.subject = if msg.subject.to_lowercase().starts_with("re:") {
             msg.subject.clone()
@@ -529,6 +624,7 @@ impl App {
 
     fn forward_draft(&self, msg: &FullMessage) -> Compose {
         let mut c = Compose::new(ComposeMode::Forward);
+        c.rich = self.config.ui.rich_compose;
         c.subject = format!("Fwd: {}", msg.subject);
         c.body = text_editor::Content::with_text(&format!(
             "\n\n{}\n{}: {} <{}>\n{}: {}\n{}: {}\n{}: {}\n\n{}",
@@ -893,7 +989,9 @@ impl App {
             }
             Message::ComposeNew => {
                 if self.compose.is_none() && self.config.account.is_some() {
-                    self.compose = Some(Compose::new(ComposeMode::New));
+                    let mut c = Compose::new(ComposeMode::New);
+                    c.rich = self.config.ui.rich_compose;
+                    self.compose = Some(c);
                 }
                 Task::none()
             }
@@ -912,6 +1010,35 @@ impl App {
             Message::ComposeToggleCc => {
                 if let Some(c) = self.compose.as_mut() {
                     c.show_cc = !c.show_cc;
+                }
+                Task::none()
+            }
+            Message::ComposeFormat(fmt) => {
+                if let Some(c) = self.compose.as_mut()
+                    && c.rich
+                    && c.preview.is_none()
+                {
+                    c.format(fmt);
+                }
+                Task::none()
+            }
+            Message::ComposeToggleRich => {
+                let Some(c) = self.compose.as_mut() else {
+                    return Task::none();
+                };
+                c.rich = !c.rich;
+                if !c.rich {
+                    c.preview = None;
+                }
+                self.config.ui.rich_compose = c.rich;
+                self.save_config()
+            }
+            Message::ComposeTogglePreview => {
+                if let Some(c) = self.compose.as_mut() {
+                    c.preview = match c.preview {
+                        Some(_) => None,
+                        None => Some(iced::widget::markdown::parse(&c.body.text()).collect()),
+                    };
                 }
                 Task::none()
             }
@@ -970,6 +1097,8 @@ impl App {
                     bcc: c.bcc.clone(),
                     subject: c.subject.clone(),
                     body: c.body.text(),
+                    html: (c.rich && crate::markdown::has_formatting(&c.body.text()))
+                        .then(|| crate::markdown::to_html_document(&c.body.text())),
                     in_reply_to: c.in_reply_to.clone(),
                     references: c.references.clone(),
                     attachments: c.attachments.clone(),

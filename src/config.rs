@@ -69,6 +69,8 @@ pub struct Ui {
     pub theme: String,
     pub density: Density,
     pub show_preview: bool,
+    /// Compose with Markdown formatting (sent as HTML + plain text).
+    pub rich_compose: bool,
 }
 
 impl Default for Ui {
@@ -78,6 +80,7 @@ impl Default for Ui {
             theme: "ruggine".into(),
             density: Density::Comfortable,
             show_preview: true,
+            rich_compose: true,
         }
     }
 }

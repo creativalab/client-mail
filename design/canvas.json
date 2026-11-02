@@ -4,14 +4,14 @@
   "boards": {
     "Compose.dc.html": {
       "h": 640,
-      "title": "Nuovo messaggio",
+      "title": "New message",
       "w": 760,
       "x": 0,
       "y": 1020
     },
     "Icon.dc.html": {
       "h": 640,
-      "title": "Icona dell'app",
+      "title": "App icon",
       "w": 1200,
       "x": 840,
       "y": 1020
@@ -20,7 +20,7 @@
       "expand": "fill",
       "h": 900,
       "is_interactive": true,
-      "title": "Finestra principale",
+      "title": "Main window",
       "w": 1440,
       "x": 0,
       "y": 0
@@ -29,7 +29,7 @@
       "expand": "fill",
       "h": 900,
       "is_interactive": true,
-      "title": "Impostazioni",
+      "title": "Settings",
       "w": 1280,
       "x": 1520,
       "y": 0
@@ -58,7 +58,7 @@
     "title": {
       "kind": "title1",
       "maxW": 2800,
-      "text": "Ferrowl — client di posta in Rust",
+      "text": "Ferrowl — email client in Rust",
       "w": 240,
       "x": 0,
       "y": -260
@@ -71,5 +71,5 @@
     "Icon.dc.html"
   ],
   "pages": [],
-  "title": "Ferrowl — client di posta"
+  "title": "Ferrowl — email client"
 }

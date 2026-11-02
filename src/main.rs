@@ -6,6 +6,7 @@ mod backend;
 mod config;
 mod i18n;
 mod mail;
+mod markdown;
 mod theme;
 mod ui;
 

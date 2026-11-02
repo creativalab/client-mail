@@ -14,6 +14,7 @@ A fast desktop email client written in Rust, with a native UI built on [iced](ht
 - **Delete moves to Trash**; deleting inside Trash asks for confirmation and removes the message for good
 - Sent messages are saved to the Sent folder
 - Compose with Cc/Bcc and file attachments
+- Formatted messages: toolbar and shortcuts (`Ctrl B`/`I`/`K`) write Markdown, with a live preview; sent as `multipart/alternative` (HTML + plain text). Raw HTML is escaped and only `http`/`https`/`mailto`/`tel` links are kept. Can be switched to plain text only.
 - Attachments saved to the Downloads folder with one click
 - DKIM badge when the server reports `dkim=pass`
 - **6 color themes** (Ruggine, Ardesia, Bosco, Lavanda, Sabbia, Notte) defined in [`design/themes.json`](design/themes.json)

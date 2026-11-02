@@ -2,7 +2,7 @@
 //! and following the active theme.
 
 use super::*;
-use crate::app::{App, Compose, ComposeField, ComposeMode};
+use crate::app::{App, Compose, ComposeField, ComposeMode, Fmt};
 use crate::i18n::t;
 use iced::keyboard::{Key, key::Named};
 use iced::widget::{Column, column, opaque, row, scrollable, space, text_editor};
@@ -102,22 +102,76 @@ pub fn view<'a>(app: &'a App, c: &'a Compose, p: Palette) -> Element<'a, Message
     }
     fields = fields.push(field_row(t("subject"), input(&c.subject, ComposeField::Subject, true)));
 
-    // Format bar: plain text only for now (no rich-text toolbar until HTML sending exists).
-    let format_bar = column![
-        container(
-            dir_row(vec![
-                space::horizontal().into(),
-                container(text(t("plain_text")).size(12).color(p.muted))
-                    .padding([4, 8])
-                    .style(move |_| container::Style {
-                        border: Border { color: p.line, width: 1.0, radius: radius(6.0) },
-                        ..Default::default()
-                    })
-                    .into(),
-            ])
-            .align_y(Alignment::Center),
+    // Format bar: Markdown helpers (sent as HTML + plain text), or plain text only.
+    let fmt_btn = |svg: &'static str, tip: &'static str, fmt: Fmt| -> Element<'a, Message> {
+        let enabled = c.rich && c.preview.is_none();
+        tooltip(
+            button(icon(svg, 16.0, if enabled { p.text2 } else { p.line }))
+                .width(32)
+                .height(32)
+                .padding(8)
+                .style(ghost(p, p.text2))
+                .on_press_maybe(enabled.then_some(Message::ComposeFormat(fmt))),
+            tip,
+            p,
         )
-        .padding([6, 14]),
+    };
+    let sep = || -> Element<'a, Message> {
+        container(space::horizontal().width(1))
+            .height(18)
+            .style(panel(p.line))
+            .into()
+    };
+    let pill = |label: &'static str, on: bool, msg: Message| -> Element<'a, Message> {
+        button(text(label).size(12).font(medium()))
+            .padding([5, 10])
+            .style(move |_, st| button::Style {
+                background: Some(Background::Color(if on {
+                    p.soft
+                } else if matches!(st, button::Status::Hovered) {
+                    p.chip
+                } else {
+                    Color::TRANSPARENT
+                })),
+                text_color: if on { p.accent_text } else { p.muted },
+                border: Border {
+                    color: if on { mix(p.accent, p.bg, 0.6) } else { p.line },
+                    width: 1.0,
+                    radius: radius(6.0),
+                },
+                ..Default::default()
+            })
+            .on_press(msg)
+            .into()
+    };
+    let mut tools: Vec<Element<'a, Message>> = vec![
+        fmt_btn(icons::BOLD, t("fmt_bold"), Fmt::Bold),
+        fmt_btn(icons::ITALIC, t("fmt_italic"), Fmt::Italic),
+        fmt_btn(icons::STRIKE, t("fmt_strike"), Fmt::Strike),
+        fmt_btn(icons::HEADING, t("fmt_heading"), Fmt::Heading),
+        sep(),
+        fmt_btn(icons::LIST, t("fmt_bullets"), Fmt::Bullets),
+        fmt_btn(icons::LIST_NUM, t("fmt_numbers"), Fmt::Numbers),
+        fmt_btn(icons::QUOTE, t("fmt_quote"), Fmt::Quote),
+        sep(),
+        fmt_btn(icons::LINK, t("fmt_link"), Fmt::Link),
+        fmt_btn(icons::CODE, t("fmt_code"), Fmt::Code),
+        space::horizontal().into(),
+    ];
+    if c.rich {
+        tools.push(pill(
+            if c.preview.is_some() { t("compose_edit") } else { t("compose_preview") },
+            c.preview.is_some(),
+            Message::ComposeTogglePreview,
+        ));
+    }
+    tools.push(pill(
+        if c.rich { t("rich_text") } else { t("plain_text") },
+        c.rich,
+        Message::ComposeToggleRich,
+    ));
+    let format_bar = column![
+        container(dir_row(tools).spacing(2).align_y(Alignment::Center)).padding([6, 14]),
         hline(p.line_soft),
     ];
 
@@ -125,9 +179,18 @@ pub fn view<'a>(app: &'a App, c: &'a Compose, p: Palette) -> Element<'a, Message
         .placeholder(t("body_placeholder"))
         .on_action(Message::ComposeEdit)
         .key_binding(|kp: KeyPress| {
-            // Ctrl/⌘ + Enter sends.
-            if kp.modifiers.command() && matches!(kp.key.as_ref(), Key::Named(Named::Enter)) {
-                return Some(Binding::Custom(Message::ComposeSend));
+            if kp.modifiers.command() {
+                let fmt = match kp.key.as_ref() {
+                    // Ctrl/⌘ + Enter sends.
+                    Key::Named(Named::Enter) => return Some(Binding::Custom(Message::ComposeSend)),
+                    Key::Character("b") => Some(Fmt::Bold),
+                    Key::Character("i") => Some(Fmt::Italic),
+                    Key::Character("k") => Some(Fmt::Link),
+                    _ => None,
+                };
+                if let Some(fmt) = fmt {
+                    return Some(Binding::Custom(Message::ComposeFormat(fmt)));
+                }
             }
             Binding::from_key_press(kp)
         })
@@ -142,6 +205,33 @@ pub fn view<'a>(app: &'a App, c: &'a Compose, p: Palette) -> Element<'a, Message
             value: p.text2,
             selection: mix(p.accent, p.bg, 0.7),
         });
+
+    let body_area: Element<'a, Message> = match &c.preview {
+        Some(items) => {
+            let style = iced::widget::markdown::Style {
+                font: INTER,
+                inline_code_highlight: iced::advanced::text::Highlight {
+                    background: Background::Color(p.chip),
+                    border: Border { radius: radius(4.0), ..Default::default() },
+                },
+                inline_code_padding: Padding::from([0, 3]),
+                inline_code_color: p.accent_text,
+                inline_code_font: MONO,
+                code_block_font: MONO,
+                link_color: p.accent_text,
+            };
+            let md = iced::widget::markdown::view(
+                items,
+                iced::widget::markdown::Settings::with_text_size(15, style),
+            )
+            .map(|_url| Message::Noop);
+            scrollable(container(md).padding([18, 20]).width(Fill))
+                .height(Fill)
+                .style(scroll_style(p))
+                .into()
+        }
+        None => editor.into(),
+    };
 
     let mut attachments = iced::widget::Row::new().spacing(10);
     for (i, path) in c.attachments.iter().enumerate() {
@@ -225,7 +315,7 @@ pub fn view<'a>(app: &'a App, c: &'a Compose, p: Palette) -> Element<'a, Message
             .style(panel(p.chrome)),
     ];
 
-    let mut body = column![head, fields, format_bar, editor];
+    let mut body = column![head, fields, format_bar, body_area];
     if !c.attachments.is_empty() {
         body = body.push(
             container(scrollable(attachments.wrap().vertical_spacing(10)).height(iced::Length::Shrink))

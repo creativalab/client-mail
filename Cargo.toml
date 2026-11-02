@@ -11,11 +11,12 @@ readme = "README.md"
 anyhow = "1.0.104"
 chrono = "0.4.45"
 dirs = "7.0.0"
-iced = { version = "0.14", features = ["tokio", "svg", "image", "advanced"] }
+iced = { version = "0.14", features = ["tokio", "svg", "image", "advanced", "markdown"] }
 imap = { version = "2.4.1", default-features = false }
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "rustls-tls", "hostname"] }
 mail-parser = "1.0.0"
 png = "0.18"
+pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }
 rfd = "0.17.2"
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "logging", "tls12"] }
 serde = { version = "1.0.229", features = ["derive"] }

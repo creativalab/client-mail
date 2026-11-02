@@ -196,6 +196,8 @@ pub struct Outgoing {
     pub bcc: String,
     pub subject: String,
     pub body: String,
+    /// HTML alternative of `body` (sent as multipart/alternative).
+    pub html: Option<String>,
     pub in_reply_to: Option<String>,
     pub references: Vec<String>,
     pub attachments: Vec<PathBuf>,
@@ -575,10 +577,20 @@ pub fn send(account: &Account, mail: &Outgoing) -> Result<Vec<u8>> {
     let text = SinglePart::builder()
         .header(header::ContentType::TEXT_PLAIN)
         .body(mail.body.clone());
+    let alternative = mail
+        .html
+        .as_ref()
+        .map(|html| MultiPart::alternative_plain_html(mail.body.clone(), html.clone()));
     let email = if mail.attachments.is_empty() {
-        builder.singlepart(text)?
+        match alternative {
+            Some(alt) => builder.multipart(alt)?,
+            None => builder.singlepart(text)?,
+        }
     } else {
-        let mut multi = MultiPart::mixed().singlepart(text);
+        let mut multi = match alternative {
+            Some(alt) => MultiPart::mixed().multipart(alt),
+            None => MultiPart::mixed().singlepart(text),
+        };
         for path in &mail.attachments {
             let data = std::fs::read(path)
                 .with_context(|| tf("err_attach_read", &[("path", &path.display().to_string())]))?;

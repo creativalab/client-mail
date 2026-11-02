@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="it">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Ferrowl — Posta in arrivo</title>
+<title>Ferrowl — Inbox</title>
 <script src="./support.js"></script>
 </head>
 <body>
@@ -25,14 +25,14 @@ button{font-family:inherit}
     </div>
     <label for="search" style="flex: 1 1 320px; display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 14px; border: 1px solid {{t.field}}; border-radius: 10px; background: {{t.bg}}; color: {{t.muted}}">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
-      <input id="search" type="search" placeholder="Cerca in tutta la posta (from:, has:attachment, label:)" aria-label="Cerca" style="flex: 1; border: 0; outline: 0; font: inherit; font-size: 14px; background: transparent; color: {{t.text}}">
+      <input id="search" type="search" placeholder="Search all mail (from:, has:attachment, label:)" aria-label="Search" style="flex: 1; border: 0; outline: 0; font: inherit; font-size: 14px; background: transparent; color: {{t.text}}">
       <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: {{t.muted}}; border: 1px solid {{t.field}}; border-radius: 6px; padding: 2px 6px">Ctrl K</span>
     </label>
     <div style="display: flex; align-items: center; gap: 8px">
-      <button aria-label="Sincronizza" style="width: 44px; height: 44px; border: 0; border-radius: 10px; background: transparent; color: {{t.text2}}; cursor: pointer; display: flex; align-items: center; justify-content: center">
+      <button aria-label="Sync" style="width: 44px; height: 44px; border: 0; border-radius: 10px; background: transparent; color: {{t.text2}}; cursor: pointer; display: flex; align-items: center; justify-content: center">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"></path><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"></path><path d="M21 3v5h-5"></path><path d="M3 21v-5h5"></path></svg>
       </button>
-      <button aria-label="Impostazioni" aria-expanded="{{settingsOpen}}" onClick="{{toggleSettings}}" style="width: 44px; height: 44px; border: 0; border-radius: 10px; background: {{gearBg}}; color: {{gearColor}}; cursor: pointer; display: flex; align-items: center; justify-content: center">
+      <button aria-label="Settings" aria-expanded="{{settingsOpen}}" onClick="{{toggleSettings}}" style="width: 44px; height: 44px; border: 0; border-radius: 10px; background: {{gearBg}}; color: {{gearColor}}; cursor: pointer; display: flex; align-items: center; justify-content: center">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path></svg>
       </button>
       <div aria-label="Account: Fabio" role="img" style="width: 36px; height: 36px; border-radius: 50%; background: {{t.ink}}; color: {{t.onInk}}; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600">FC</div>
@@ -41,10 +41,10 @@ button{font-family:inherit}
 
   <div style="flex: 1; display: flex; flex-wrap: wrap; align-items: stretch">
 
-    <nav aria-label="Cartelle" style="flex: 1 1 220px; box-sizing: border-box; padding: 16px 12px; background: {{t.side}}; border-right: 1px solid {{t.line}}; display: flex; flex-direction: column; gap: 20px">
+    <nav aria-label="Folders" style="flex: 1 1 220px; box-sizing: border-box; padding: 16px 12px; background: {{t.side}}; border-right: 1px solid {{t.line}}; display: flex; flex-direction: column; gap: 20px">
       <a href="Compose.dc.html" style="display: flex; align-items: center; justify-content: center; gap: 10px; height: 44px; border-radius: 10px; background: {{t.accent}}; color: {{t.onAccent}}; font-size: 15px; font-weight: 600; text-decoration: none">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg>
-        Scrivi
+        Compose
       </a>
 
       <div style="display: flex; flex-direction: column; gap: 2px">
@@ -66,33 +66,33 @@ button{font-family:inherit}
       </div>
 
       <div style="display: flex; flex-direction: column; gap: 6px">
-        <span style="padding: 0 12px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{t.muted}}">Etichette</span>
-        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; color: {{t.text2}}"><span style="width: 10px; height: 10px; border-radius: 3px; background: #3B78C9"></span>Clienti</div>
-        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; color: {{t.text2}}"><span style="width: 10px; height: 10px; border-radius: 3px; background: #C4511F"></span>Fatture</div>
+        <span style="padding: 0 12px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{t.muted}}">Labels</span>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; color: {{t.text2}}"><span style="width: 10px; height: 10px; border-radius: 3px; background: #3B78C9"></span>Clients</div>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; color: {{t.text2}}"><span style="width: 10px; height: 10px; border-radius: 3px; background: #C4511F"></span>Invoices</div>
         <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; color: {{t.text2}}"><span style="width: 10px; height: 10px; border-radius: 3px; background: #3C9462"></span>Server</div>
-        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; color: {{t.text2}}"><span style="width: 10px; height: 10px; border-radius: 3px; background: #8466BE"></span>Personale</div>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; color: {{t.text2}}"><span style="width: 10px; height: 10px; border-radius: 3px; background: #8466BE"></span>Personal</div>
       </div>
 
       <div style="display: flex; flex-direction: column; gap: 6px">
         <span style="padding: 0 12px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{t.muted}}">Account</span>
-        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; color: {{t.text2}}"><span style="width: 8px; height: 8px; border-radius: 50%; background: #3C9462"></span>Lavoro · IMAP</div>
-        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; color: {{t.text2}}"><span style="width: 8px; height: 8px; border-radius: 50%; background: #3C9462"></span>Personale · JMAP</div>
-        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; color: {{t.muted}}"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{t.field}}"></span>Archivio · offline</div>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; color: {{t.text2}}"><span style="width: 8px; height: 8px; border-radius: 50%; background: #3C9462"></span>Work · IMAP</div>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; color: {{t.text2}}"><span style="width: 8px; height: 8px; border-radius: 50%; background: #3C9462"></span>Personal · JMAP</div>
+        <div style="display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 14px; color: {{t.muted}}"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{t.field}}"></span>Archive · offline</div>
       </div>
 
       <div style="margin-top: auto; padding: 12px; border-radius: 10px; background: {{t.chip}}; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: {{t.text2}}; display: flex; flex-direction: column; gap: 4px">
-        <span>Sincronizzato · 2 min fa</span>
-        <span>Indice locale · 48.212 msg</span>
+        <span>Synced · 2 min ago</span>
+        <span>Local index · 48,212 msg</span>
       </div>
     </nav>
 
-    <section aria-label="Elenco messaggi" style="flex: 3 1 340px; box-sizing: border-box; border-right: 1px solid {{t.line}}; display: flex; flex-direction: column; min-width: 0">
+    <section aria-label="Message list" style="flex: 3 1 340px; box-sizing: border-box; border-right: 1px solid {{t.line}}; display: flex; flex-direction: column; min-width: 0">
       <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px 12px">
-        <h1 style="margin: 0; font-size: 20px; font-weight: 700">Posta in arrivo</h1>
+        <h1 style="margin: 0; font-size: 20px; font-weight: 700">Inbox</h1>
         <div style="display: flex; gap: 4px; padding: 3px; background: {{t.chip}}; border-radius: 9px; font-size: 13px">
-          <button style="border: 0; border-radius: 7px; padding: 6px 10px; background: {{t.bg}}; color: {{t.text}}; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.12); cursor: pointer">Tutti</button>
-          <button style="border: 0; border-radius: 7px; padding: 6px 10px; background: transparent; color: {{t.text2}}; cursor: pointer">Non letti</button>
-          <button style="border: 0; border-radius: 7px; padding: 6px 10px; background: transparent; color: {{t.text2}}; cursor: pointer">Allegati</button>
+          <button style="border: 0; border-radius: 7px; padding: 6px 10px; background: {{t.bg}}; color: {{t.text}}; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.12); cursor: pointer">All</button>
+          <button style="border: 0; border-radius: 7px; padding: 6px 10px; background: transparent; color: {{t.text2}}; cursor: pointer">Unread</button>
+          <button style="border: 0; border-radius: 7px; padding: 6px 10px; background: transparent; color: {{t.text2}}; cursor: pointer">Attachments</button>
         </div>
       </div>
       <div style="flex: 1; max-height: 780px; overflow-y: auto">
@@ -101,7 +101,7 @@ button{font-family:inherit}
             <div style="display: flex; align-items: center; gap: 8px">
               <span style="{{m.dotStyle}}"></span>
               <span style="{{m.fromStyle}}">{{m.from}}</span>
-              <sc-if value="{{m.hasAttach}}" hint-placeholder-val="{{false}}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{{t.muted}}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="Con allegati" role="img"><path d="M21 11l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8"></path></svg></sc-if>
+              <sc-if value="{{m.hasAttach}}" hint-placeholder-val="{{false}}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="{{t.muted}}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="Has attachments" role="img"><path d="M21 11l-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8"></path></svg></sc-if>
               <span style="font-size: 12px; color: {{t.muted}}; font-family: 'JetBrains Mono', monospace">{{m.time}}</span>
             </div>
             <span style="{{m.subjectStyle}}">{{m.subject}}</span>
@@ -114,17 +114,17 @@ button{font-family:inherit}
       </div>
     </section>
 
-    <article aria-label="Lettura messaggio" style="flex: 999 1 480px; min-width: 0; box-sizing: border-box; display: flex; flex-direction: column">
+    <article aria-label="Reading pane" style="flex: 999 1 480px; min-width: 0; box-sizing: border-box; display: flex; flex-direction: column">
       <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 10px 16px; border-bottom: 1px solid {{t.line}}">
         <button style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; border: 0; border-radius: 10px; background: transparent; color: {{t.text2}}; font-size: 14px; cursor: pointer">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"></path><path d="M4 9h10a6 6 0 0 1 6 6v5"></path></svg>Rispondi</button>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"></path><path d="M4 9h10a6 6 0 0 1 6 6v5"></path></svg>Reply</button>
         <button style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; border: 0; border-radius: 10px; background: transparent; color: {{t.text2}}; font-size: 14px; cursor: pointer">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14l5-5-5-5"></path><path d="M20 9H10a6 6 0 0 0-6 6v5"></path></svg>Inoltra</button>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14l5-5-5-5"></path><path d="M20 9H10a6 6 0 0 0-6 6v5"></path></svg>Forward</button>
         <button style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; border: 0; border-radius: 10px; background: transparent; color: {{t.text2}}; font-size: 14px; cursor: pointer">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="5" rx="1"></rect><path d="M4 9v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"></path><path d="M10 13h4"></path></svg>Archivia</button>
-        <button aria-label="Elimina" style="width: 44px; height: 44px; border: 0; border-radius: 10px; background: transparent; color: {{t.text2}}; cursor: pointer; display: flex; align-items: center; justify-content: center">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="5" rx="1"></rect><path d="M4 9v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"></path><path d="M10 13h4"></path></svg>Archive</button>
+        <button aria-label="Delete" style="width: 44px; height: 44px; border: 0; border-radius: 10px; background: transparent; color: {{t.text2}}; cursor: pointer; display: flex; align-items: center; justify-content: center">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4h8v2"></path><path d="M6 6l1 15h10l1-15"></path></svg></button>
-        <button aria-label="Posticipa" style="width: 44px; height: 44px; border: 0; border-radius: 10px; background: transparent; color: {{t.text2}}; cursor: pointer; display: flex; align-items: center; justify-content: center">
+        <button aria-label="Snooze" style="width: 44px; height: 44px; border: 0; border-radius: 10px; background: transparent; color: {{t.text2}}; cursor: pointer; display: flex; align-items: center; justify-content: center">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"></circle><path d="M12 9v4l2 2"></path><path d="M5 3L2 6"></path><path d="M19 3l3 3"></path></svg></button>
         <span style="flex: 1"></span>
         <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: {{t.secText}}; background: {{t.secBg}}; padding: 6px 10px; border-radius: 8px; font-weight: 500">
@@ -139,9 +139,9 @@ button{font-family:inherit}
           <div style="width: 44px; height: 44px; border-radius: 50%; background: {{current.avatarBg}}; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 15px; flex: none">{{current.initials}}</div>
           <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
             <span style="font-size: 15px; font-weight: 600">{{current.from}} <span style="font-weight: 400; color: {{t.muted}}">&lt;{{current.email}}&gt;</span></span>
-            <span style="font-size: 13px; color: {{t.muted}}">a me · {{current.date}}</span>
+            <span style="font-size: 13px; color: {{t.muted}}">to me · {{current.date}}</span>
           </div>
-          <button aria-label="Aggiungi ai preferiti" style="width: 44px; height: 44px; border: 0; border-radius: 10px; background: transparent; color: {{t.muted}}; cursor: pointer; display: flex; align-items: center; justify-content: center">
+          <button aria-label="Add to starred" style="width: 44px; height: 44px; border: 0; border-radius: 10px; background: transparent; color: {{t.muted}}; cursor: pointer; display: flex; align-items: center; justify-content: center">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"></path></svg>
           </button>
         </div>
@@ -166,7 +166,7 @@ button{font-family:inherit}
 
         <div style="display: flex; align-items: center; gap: 12px; padding: 14px 16px; border: 1px solid {{t.field}}; border-radius: 12px; color: {{t.muted}}; font-size: 14px">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14L4 9l5-5"></path><path d="M4 9h10a6 6 0 0 1 6 6v5"></path></svg>
-          <span style="flex: 1">Rispondi a {{current.from}}…</span>
+          <span style="flex: 1">Reply to {{current.from}}…</span>
           <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; border: 1px solid {{t.field}}; border-radius: 6px; padding: 2px 6px">R</span>
         </div>
       </div>
@@ -174,17 +174,17 @@ button{font-family:inherit}
   </div>
 
   <sc-if value="{{settingsOpen}}" hint-placeholder-val="{{false}}">
-    <div role="dialog" aria-label="Impostazioni — Aspetto" style="position: absolute; top: 64px; right: 20px; width: 440px; max-width: calc(100% - 40px); box-sizing: border-box; background: {{t.bg}}; color: {{t.text}}; border: 1px solid {{t.line}}; border-radius: 16px; box-shadow: 0 20px 50px rgba(0,0,0,.22); display: flex; flex-direction: column; overflow: hidden">
+    <div role="dialog" aria-label="Settings — Appearance" style="position: absolute; top: 64px; right: 20px; width: 440px; max-width: calc(100% - 40px); box-sizing: border-box; background: {{t.bg}}; color: {{t.text}}; border: 1px solid {{t.line}}; border-radius: 16px; box-shadow: 0 20px 50px rgba(0,0,0,.22); display: flex; flex-direction: column; overflow: hidden">
       <div style="display: flex; align-items: center; gap: 12px; padding: 14px 12px 14px 20px; border-bottom: 1px solid {{t.line}}">
         <div style="flex: 1; display: flex; flex-direction: column; gap: 2px">
-          <span style="font-size: 12px; color: {{t.muted}}">Impostazioni</span>
-          <span style="font-size: 17px; font-weight: 700">Aspetto</span>
+          <span style="font-size: 12px; color: {{t.muted}}">Settings</span>
+          <span style="font-size: 17px; font-weight: 700">Appearance</span>
         </div>
-        <button aria-label="Chiudi impostazioni" onClick="{{toggleSettings}}" style="width: 44px; height: 44px; border: 0; border-radius: 10px; background: transparent; color: {{t.text2}}; cursor: pointer; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg></button>
+        <button aria-label="Close settings" onClick="{{toggleSettings}}" style="width: 44px; height: 44px; border: 0; border-radius: 10px; background: transparent; color: {{t.text2}}; cursor: pointer; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg></button>
       </div>
 
       <div style="padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 14px">
-        <span style="font-size: 13px; font-weight: 600; color: {{t.text2}}">Tema colore</span>
+        <span style="font-size: 13px; font-weight: 600; color: {{t.text2}}">Color theme</span>
         <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px">
           <sc-for list="{{themeCards}}" as="c" hint-placeholder-count="6">
             <button onClick="{{c.pick}}" aria-pressed="{{c.on}}" style="{{c.cardStyle}}">
@@ -209,12 +209,12 @@ button{font-family:inherit}
 
         <label for="followSystem" style="display: flex; align-items: center; gap: 12px; min-height: 44px; margin-top: 6px; padding: 0 2px; font-size: 14px; color: {{t.text2}}; cursor: pointer">
           <input id="followSystem" type="checkbox" style="width: 18px; height: 18px; margin: 0; accent-color: {{t.accent}}">
-          <span style="flex: 1">Passa a Notte quando il sistema è in modalità scura</span>
+          <span style="flex: 1">Switch to Notte when the system is in dark mode</span>
         </label>
         <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 10px; background: {{t.chip}}; font-size: 13px; color: {{t.text2}}">
-          <span style="flex: 1">Il tema vale per tutte le finestre e per l'icona nella barra di sistema.</span>
+          <span style="flex: 1">The theme applies to all windows and to the system tray icon.</span>
         </div>
-        <a href="Settings.dc.html" style="display: flex; align-items: center; justify-content: center; gap: 8px; height: 44px; border-radius: 10px; border: 1px solid {{t.field}}; color: {{t.text}}; text-decoration: none; font-size: 14px; font-weight: 600">Tutte le impostazioni<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></a>
+        <a href="Settings.dc.html" style="display: flex; align-items: center; justify-content: center; gap: 8px; height: 44px; border-radius: 10px; border: 1px solid {{t.field}}; color: {{t.text}}; text-decoration: none; font-size: 14px; font-weight: 600">All settings<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></a>
       </div>
     </div>
   </sc-if>
@@ -243,24 +243,24 @@ class Component extends DCLogic {
     const sel = this.state.sel;
     const folder = this.state.folder;
     const msgs = [
-      { from: 'Giulia Ferri', initials: 'GF', avatarBg: '#1E5AA8', email: 'giulia.ferri@studioferri.it', time: '09:42', date: 'oggi, 09:42', unread: true, subject: 'Preventivo portale clienti — revisione 2', preview: 'Ciao Fabio, ti allego la versione aggiornata con le modifiche…', tag: 'Clienti', security: 'Firmato · DKIM ok',
-        body: 'Ciao Fabio,\n\nti allego la versione aggiornata del preventivo con le modifiche di cui abbiamo parlato giovedì: ho tolto il modulo di reportistica avanzata e aggiunto l\'integrazione con lo SDI.\n\nSe per te va bene, la presento al cliente lunedì mattina.\n\nGrazie,\nGiulia',
-        attachments: [{ ext: 'PDF', name: 'Preventivo_v2.pdf', size: '284 KB' }, { ext: 'XLSX', name: 'Stima_ore.xlsx', size: '41 KB' }] },
-      { from: 'Monitor server', initials: 'MS', avatarBg: '#2F7D4F', email: 'alert@monitor.local', time: '08:15', date: 'oggi, 08:15', unread: true, subject: 'Certificato TLS in scadenza tra 14 giorni', preview: 'Il certificato per mail.esempio.it scade il 14 novembre…', tag: 'Server', security: 'Firmato · DKIM ok',
-        body: 'Il certificato TLS per mail.esempio.it scade il 14 novembre 2026.\n\nRinnovo automatico: disattivato\nUltimo controllo: 31/10/2026 08:15\n\nAccedi al pannello per rinnovarlo.', attachments: [] },
-      { from: 'Marco Bellini', initials: 'MB', avatarBg: '#6B4FA0', email: 'marco@bellini.dev', time: 'Ieri', date: 'ieri, 18:03', unread: false, subject: 'Re: crate per il parsing MIME', preview: 'Ho provato mail-parser e va molto meglio di quello che usavamo…', tag: null, security: 'Cifrato · OpenPGP',
-        body: 'Ho provato il nuovo parser MIME e va molto meglio di quello che usavamo: gestisce bene le codifiche strane e gli allegati annidati.\n\nSul nostro archivio di test (circa 50.000 messaggi) l\'indicizzazione è scesa da 4 minuti a 40 secondi.\n\nNe parliamo domani?\nMarco', attachments: [] },
-      { from: 'Amministrazione', initials: 'AM', avatarBg: '#A63A0C', email: 'amministrazione@esempio.it', time: 'Ieri', date: 'ieri, 11:20', unread: false, subject: 'Fattura n. 214/2026', preview: 'In allegato la fattura relativa al mese di ottobre.', tag: 'Fatture', security: 'Firmato · DKIM ok',
-        body: 'Buongiorno,\n\nin allegato la fattura relativa al mese di ottobre.\n\nCordiali saluti,\nUfficio amministrazione',
+      { from: 'Giulia Ferri', initials: 'GF', avatarBg: '#1E5AA8', email: 'giulia.ferri@studioferri.it', time: '09:42', date: 'today, 09:42', unread: true, subject: 'Client portal quote — revision 2', preview: 'Hi Fabio, attached is the updated version with the changes…', tag: 'Clients', security: 'Signed · DKIM ok',
+        body: 'Hi Fabio,\n\nattached is the updated quote with the changes we discussed on Thursday: I removed the advanced reporting module and added the SDI e-invoicing integration.\n\nIf that works for you, I\'ll present it to the client Monday morning.\n\nThanks,\nGiulia',
+        attachments: [{ ext: 'PDF', name: 'Quote_v2.pdf', size: '284 KB' }, { ext: 'XLSX', name: 'Hours_estimate.xlsx', size: '41 KB' }] },
+      { from: 'Server monitor', initials: 'MS', avatarBg: '#2F7D4F', email: 'alert@monitor.local', time: '08:15', date: 'today, 08:15', unread: true, subject: 'TLS certificate expires in 14 days', preview: 'The certificate for mail.esempio.it expires on November 14…', tag: 'Server', security: 'Signed · DKIM ok',
+        body: 'The TLS certificate for mail.esempio.it expires on November 14, 2026.\n\nAuto-renewal: off\nLast check: Oct 31, 2026 08:15\n\nSign in to the dashboard to renew it.', attachments: [] },
+      { from: 'Marco Bellini', initials: 'MB', avatarBg: '#6B4FA0', email: 'marco@bellini.dev', time: 'Yesterday', date: 'yesterday, 18:03', unread: false, subject: 'Re: crate for MIME parsing', preview: 'I tried mail-parser and it works much better than what we used…', tag: null, security: 'Encrypted · OpenPGP',
+        body: 'I tried the new MIME parser and it works much better than what we used: it handles odd encodings and nested attachments well.\n\nOn our test archive (about 50,000 messages) indexing dropped from 4 minutes to 40 seconds.\n\nShall we talk tomorrow?\nMarco', attachments: [] },
+      { from: 'Accounting', initials: 'AM', avatarBg: '#A63A0C', email: 'amministrazione@esempio.it', time: 'Yesterday', date: 'yesterday, 11:20', unread: false, subject: 'Invoice no. 214/2026', preview: 'Please find attached the invoice for October.', tag: 'Invoices', security: 'Signed · DKIM ok',
+        body: 'Good morning,\n\nplease find attached the invoice for the month of October.\n\nKind regards,\nAccounting office',
         attachments: [{ ext: 'XML', name: 'IT01234567890_00214.xml', size: '12 KB' }] },
-      { from: 'Sara Conti', initials: 'SC', avatarBg: '#1E5AA8', email: 'sara.conti@esempio.it', time: '29 ott', date: '29 ottobre, 16:47', unread: false, subject: 'Riunione di avanzamento progetto', preview: 'Propongo martedì alle 10:00, va bene a tutti?', tag: 'Clienti', security: 'Firmato · DKIM ok',
-        body: 'Ciao a tutti,\n\npropongo martedì alle 10:00 per la riunione di avanzamento. Ordine del giorno:\n– stato dei moduli\n– test con gli utenti\n– date di rilascio\n\nFatemi sapere.\nSara',
-        attachments: [{ ext: 'ICS', name: 'invito.ics', size: '2 KB' }] },
-      { from: 'Luca Moretti', initials: 'LM', avatarBg: '#6B4FA0', email: 'luca.moretti@esempio.it', time: '28 ott', date: '28 ottobre, 21:10', unread: false, subject: 'Foto della gita', preview: 'Ecco le foto di domenica, alcune sono venute benissimo!', tag: 'Personale', security: 'Firmato · DKIM ok',
-        body: 'Ecco le foto di domenica, alcune sono venute benissimo!\n\nLuca',
-        attachments: [{ ext: 'ZIP', name: 'foto_gita.zip', size: '38,2 MB' }] },
-      { from: 'Newsletter Dev', initials: 'ND', avatarBg: '#4A443F', email: 'news@esempio.dev', time: '27 ott', date: '27 ottobre, 07:00', unread: false, subject: 'Novità della settimana nel mondo Rust', preview: 'Async in evoluzione, nuove versioni di Tokio e altro…', tag: null, security: 'Firmato · DKIM ok',
-        body: 'Le novità della settimana: aggiornamenti su async, nuove versioni delle librerie più usate e i progetti emergenti della comunità.\n\nPer non ricevere più questa newsletter, annulla l\'iscrizione.', attachments: [] }
+      { from: 'Sara Conti', initials: 'SC', avatarBg: '#1E5AA8', email: 'sara.conti@esempio.it', time: 'Oct 29', date: 'October 29, 16:47', unread: false, subject: 'Project progress meeting', preview: 'I suggest Tuesday at 10:00, does that work for everyone?', tag: 'Clients', security: 'Signed · DKIM ok',
+        body: 'Hi everyone,\n\nI suggest Tuesday at 10:00 for the progress meeting. Agenda:\n– module status\n– user testing\n– release dates\n\nLet me know.\nSara',
+        attachments: [{ ext: 'ICS', name: 'invite.ics', size: '2 KB' }] },
+      { from: 'Luca Moretti', initials: 'LM', avatarBg: '#6B4FA0', email: 'luca.moretti@esempio.it', time: 'Oct 28', date: 'October 28, 21:10', unread: false, subject: 'Photos from the trip', preview: 'Here are the photos from Sunday, some came out great!', tag: 'Personal', security: 'Signed · DKIM ok',
+        body: 'Here are the photos from Sunday, some came out great!\n\nLuca',
+        attachments: [{ ext: 'ZIP', name: 'trip_photos.zip', size: '38.2 MB' }] },
+      { from: 'Dev Newsletter', initials: 'ND', avatarBg: '#4A443F', email: 'news@esempio.dev', time: 'Oct 27', date: 'October 27, 07:00', unread: false, subject: 'This week in the Rust world', preview: 'Async keeps evolving, new Tokio releases and more…', tag: null, security: 'Signed · DKIM ok',
+        body: 'This week\'s news: async updates, new releases of the most popular libraries and emerging community projects.\n\nTo stop receiving this newsletter, unsubscribe.', attachments: [] }
     ];
     const messages = msgs.map((m, i) => {
       const active = i === sel;
@@ -275,15 +275,15 @@ class Component extends DCLogic {
     });
     const cur = messages[sel];
     const n = cur.attachments.length;
-    const current = Object.assign({}, cur, { attachLabel: n === 1 ? '1 allegato' : n + ' allegati' });
+    const current = Object.assign({}, cur, { attachLabel: n === 1 ? '1 attachment' : n + ' attachments' });
     const defs = [
-      { id: 'inbox', label: 'Posta in arrivo', count: '2' },
-      { id: 'star', label: 'Speciali', count: '' },
-      { id: 'sent', label: 'Inviati', count: '' },
-      { id: 'draft', label: 'Bozze', count: '3' },
-      { id: 'archive', label: 'Archivio', count: '' },
+      { id: 'inbox', label: 'Inbox', count: '2' },
+      { id: 'star', label: 'Starred', count: '' },
+      { id: 'sent', label: 'Sent', count: '' },
+      { id: 'draft', label: 'Drafts', count: '3' },
+      { id: 'archive', label: 'Archive', count: '' },
       { id: 'spam', label: 'Spam', count: '12' },
-      { id: 'trash', label: 'Cestino', count: '' }
+      { id: 'trash', label: 'Trash', count: '' }
     ];
     const folders = defs.map((d) => {
       const on = d.id === folder;
