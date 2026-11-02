@@ -364,6 +364,104 @@ pub fn translate(key: String) -> String {
     i18n::t(&key).to_string()
 }
 
+// ---------------------------------------------------------------- drafts
+
+/// Full date in the engine's language, e.g. "2 novembre 2026, 09:42".
+fn full_date(ts: i64) -> String {
+    use chrono::{Datelike, Local, TimeZone};
+    let Some(d) = Local.timestamp_opt(ts, 0).single() else {
+        return String::new();
+    };
+    i18n::tf(
+        "date_other",
+        &[
+            ("day", &d.day().to_string()),
+            ("month", i18n::t(&format!("month_{}", d.month()))),
+            ("year", &d.year().to_string()),
+            ("time", &d.format("%H:%M").to_string()),
+        ],
+    )
+}
+
+fn blank_draft() -> Outgoing {
+    Outgoing {
+        to: String::new(),
+        cc: String::new(),
+        bcc: String::new(),
+        subject: String::new(),
+        body: String::new(),
+        html: None,
+        in_reply_to: None,
+        references: Vec::new(),
+        attachments: Vec::new(),
+        sign: false,
+        encrypt: false,
+    }
+}
+
+/// A reply, as the desktop writes it: "Re:" subject, quoted text with a
+/// translated "On <date>, <name> wrote:" line, threading headers.
+/// `reply_all` adds the other recipients (never `own_address`).
+#[uniffi::export]
+pub fn reply_draft(message: Message, reply_all: bool, own_address: String) -> Outgoing {
+    let own = own_address.trim().to_lowercase();
+    let not_me = |a: &&String| a.trim().to_lowercase() != own;
+    let mut to = vec![message.from_address.clone()];
+    let mut cc = Vec::new();
+    if reply_all {
+        to.extend(message.to_addresses.iter().filter(not_me).cloned());
+        cc.extend(message.cc_addresses.iter().filter(not_me).cloned());
+    }
+    to.dedup();
+    let subject = if message.subject.to_lowercase().starts_with("re:") {
+        message.subject.clone()
+    } else {
+        format!("Re: {}", message.subject)
+    };
+    let quoted: String = message.text.lines().map(|l| format!("> {l}\n")).collect();
+    let header = i18n::tf(
+        "quote_header",
+        &[("date", &full_date(message.timestamp)), ("name", &message.from)],
+    );
+    // The engine adds the replied-to id to References when sending.
+    let references = message.references.clone();
+    Outgoing {
+        to: to.join(", "),
+        cc: cc.join(", "),
+        subject,
+        body: format!("\n\n{header}\n{quoted}"),
+        in_reply_to: message.message_id.clone(),
+        references,
+        encrypt: message.pgp.as_ref().is_some_and(|p| p.encrypted),
+        ..blank_draft()
+    }
+}
+
+/// A forward: "Fwd:" subject and the original headers and text. Attachments
+/// are not carried over yet.
+#[uniffi::export]
+pub fn forward_draft(message: Message) -> Outgoing {
+    let body = format!(
+        "\n\n{}\n{}: {} <{}>\n{}: {}\n{}: {}\n{}: {}\n\n{}",
+        i18n::t("forward_header"),
+        i18n::t("from"),
+        message.from,
+        message.from_address,
+        i18n::t("date"),
+        full_date(message.timestamp),
+        i18n::t("subject"),
+        message.subject,
+        i18n::t("to"),
+        message.to,
+        message.text
+    );
+    Outgoing {
+        subject: format!("Fwd: {}", message.subject),
+        body,
+        ..blank_draft()
+    }
+}
+
 // ---------------------------------------------------------------- engine
 
 /// The engine: one per app process.
@@ -499,6 +597,46 @@ mod tests {
         assert!(list.iter().any(|p| p.name == "Google"));
         let i = provider_for_email("someone@gmail.com".into()).expect("gmail") as usize;
         assert_eq!(list[i].imap_host, "imap.gmail.com");
+    }
+
+    fn sample() -> Message {
+        Message {
+            uid: 1,
+            from: "Ada".into(),
+            from_address: "ada@example.org".into(),
+            to: "me, Bob".into(),
+            cc: String::new(),
+            to_addresses: vec!["me@example.org".into(), "bob@example.org".into()],
+            cc_addresses: vec!["carl@example.org".into()],
+            subject: "Engines".into(),
+            timestamp: 1_790_000_000,
+            message_id: Some("<1@x>".into()),
+            references: vec!["<0@x>".into()],
+            text: "line 1\nline 2".into(),
+            html: None,
+            inline: HashMap::new(),
+            attachments: Vec::new(),
+            dkim_pass: false,
+            pgp: None,
+        }
+    }
+
+    #[test]
+    fn reply_and_forward_drafts() {
+        let r = reply_draft(sample(), false, "me@example.org".into());
+        assert_eq!(r.to, "ada@example.org");
+        assert_eq!(r.subject, "Re: Engines");
+        assert!(r.body.contains("> line 1\n> line 2"));
+        assert_eq!(r.in_reply_to.as_deref(), Some("<1@x>"));
+        assert_eq!(r.references, vec!["<0@x>".to_string()]);
+
+        let all = reply_draft(sample(), true, "ME@example.org".into());
+        assert_eq!(all.to, "ada@example.org, bob@example.org");
+        assert_eq!(all.cc, "carl@example.org");
+
+        let f = forward_draft(sample());
+        assert_eq!(f.subject, "Fwd: Engines");
+        assert!(f.to.is_empty() && f.body.contains("line 2"));
     }
 
     #[test]

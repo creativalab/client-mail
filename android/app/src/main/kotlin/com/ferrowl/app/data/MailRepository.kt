@@ -6,9 +6,15 @@ import com.ferrowl.core.Folder
 import com.ferrowl.core.FolderKind
 import com.ferrowl.core.Header
 import com.ferrowl.core.Message
+import com.ferrowl.core.Outgoing
+import com.ferrowl.core.markdownToHtml
+import com.ferrowl.core.translate
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
@@ -32,9 +38,17 @@ class MailRepository @Inject constructor(
 ) {
     private val connectLock = Mutex()
     private val _folders = MutableStateFlow<List<Folder>>(emptyList())
+    private val _changes = MutableSharedFlow<Unit>(extraBufferCapacity = 8)
+    private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 8)
 
     /** Folders of the connected account (empty until [ensureConnected]). */
     val folders: StateFlow<List<Folder>> = _folders.asStateFlow()
+
+    /** Emits after messages were moved, deleted or sent: lists reload. */
+    val changes: SharedFlow<Unit> = _changes.asSharedFlow()
+
+    /** Short confirmations to show in a snackbar ("Archived", "Sent"). */
+    val notices: SharedFlow<String> = _notices.asSharedFlow()
 
     suspend fun savedAccount(): Account? = accounts.account.first()
 
@@ -57,7 +71,11 @@ class MailRepository @Inject constructor(
         true
     }
 
-    fun inboxId(): String = _folders.value.firstOrNull { it.kind == FolderKind.INBOX }?.id ?: "INBOX"
+    fun folder(id: String): Folder? = _folders.value.firstOrNull { it.id == id }
+
+    private fun folderOf(kind: FolderKind): Folder? = _folders.value.firstOrNull { it.kind == kind }
+
+    fun inboxId(): String = folderOf(FolderKind.INBOX)?.id ?: "INBOX"
 
     /** Messages already on the phone (local database, off the main thread). */
     suspend fun cachedHeaders(folderId: String): List<Header> =
@@ -66,8 +84,51 @@ class MailRepository @Inject constructor(
     /** Newest messages from the server. */
     suspend fun headers(folderId: String): List<Header> = engine.headers(folderId).headers
 
-    suspend fun message(folderId: String, uid: UInt): Message = engine.message(folderId, uid)
-
     suspend fun search(folderId: String, query: String): List<Header> =
         withContext(Dispatchers.IO) { engine.search(folderId, query) }
+
+    /** Unread count of every folder. */
+    suspend fun unread(): Map<String, UInt> =
+        engine.unread(_folders.value.filter { it.selectable }.map { it.id })
+
+    suspend fun message(folderId: String, uid: UInt): Message = engine.message(folderId, uid)
+
+    suspend fun setSeen(folderId: String, uid: UInt, seen: Boolean) {
+        engine.setSeen(folderId, uid, seen)
+        _changes.emit(Unit)
+    }
+
+    suspend fun archive(folderId: String, uid: UInt) {
+        engine.archive(folderId, uid)
+        changed(translate("archived"))
+    }
+
+    /** Whether deleting from this folder is final (it is the Trash). */
+    fun deletesForever(folderId: String): Boolean =
+        folder(folderId)?.kind == FolderKind.TRASH || folderOf(FolderKind.TRASH) == null
+
+    /** Moves to the Trash, or deletes for good when already there. */
+    suspend fun delete(folderId: String, uid: UInt) {
+        if (deletesForever(folderId)) {
+            engine.deleteForever(folderId, uid)
+            changed(translate("deleted_forever"))
+        } else {
+            engine.moveTo(folderId, uid, folderOf(FolderKind.TRASH)!!.id)
+            changed(translate("moved_to_trash"))
+        }
+    }
+
+    /**
+     * Sends; Markdown formatting typed by the user also goes out as HTML,
+     * as on desktop. A warning is shown when the copy in Sent failed.
+     */
+    suspend fun send(draft: Outgoing) {
+        val warning = engine.send(draft.copy(html = markdownToHtml(draft.body)))
+        changed(warning?.let { translate("sent_no_copy").replace("{err}", it) } ?: translate("sent_ok"))
+    }
+
+    private suspend fun changed(notice: String) {
+        _changes.emit(Unit)
+        _notices.emit(notice)
+    }
 }

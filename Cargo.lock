@@ -2289,6 +2289,7 @@ dependencies = [
 name = "ferrowl-ffi"
 version = "0.3.0"
 dependencies = [
+ "chrono",
  "ferrowl-core",
  "rustls",
  "tokio",

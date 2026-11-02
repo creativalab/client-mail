@@ -818,6 +818,22 @@ pub fn create_folder(session: &mut ImapSession, like: &[Folder], leaf: &str) -> 
 
 // ---------------------------------------------------------------- sending
 
+/// A unique Message-ID in the sender's domain: `<random@domain>`.
+fn new_message_id(sender: &str) -> String {
+    use rand::Rng;
+    let domain = sender
+        .rsplit_once('@')
+        .map(|(_, d)| d.trim())
+        .filter(|d| !d.is_empty())
+        .unwrap_or("ferrowl.invalid");
+    let id: String = rand::thread_rng()
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(24)
+        .map(char::from)
+        .collect();
+    format!("<{id}.ferrowl@{domain}>")
+}
+
 /// Sends via SMTP and returns the formatted message (to save it in Sent).
 pub fn send(account: &Account, mail: &Outgoing) -> Result<Vec<u8>> {
     use lettre::message::Mailbox;
@@ -829,7 +845,12 @@ pub fn send(account: &Account, mail: &Outgoing) -> Result<Vec<u8>> {
         .or_else(|_| account.email.parse())
         .context(t("err_bad_sender"))?;
 
-    let mut builder = Message::builder().from(from).subject(&mail.subject);
+    // A Message-ID lets replies thread to this message and is expected by
+    // spam filters; lettre adds none by itself.
+    let mut builder = Message::builder()
+        .from(from)
+        .subject(&mail.subject)
+        .message_id(Some(new_message_id(&account.email)));
     let split = |s: &str| {
         s.split([',', ';'])
             .map(str::trim)
@@ -1112,6 +1133,46 @@ mod tests {
     }
 
     /// Requires network: `cargo test -- --ignored`
+    /// Sends a message to the account itself and checks its headers:
+    /// `FERROWL_TEST_CONFIG=<config.toml with [account]> cargo test -p ferrowl-core live_send_has_message_id -- --ignored`
+    #[test]
+    #[ignore]
+    fn live_send_has_message_id() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let path = std::env::var("FERROWL_TEST_CONFIG").expect("FERROWL_TEST_CONFIG");
+        let table: toml::Table = toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let account: Account = table["account"].clone().try_into().unwrap();
+        let raw = send(
+            &account,
+            &Outgoing {
+                to: account.email.clone(),
+                cc: String::new(),
+                bcc: String::new(),
+                subject: "Ferrowl Message-ID test".into(),
+                body: "Safe to delete.".into(),
+                html: None,
+                in_reply_to: Some("<parent@example.org>".into()),
+                references: Vec::new(),
+                attachments: Vec::new(),
+                sign: false,
+                encrypt: false,
+            },
+        )
+        .unwrap();
+        let head = String::from_utf8_lossy(&raw);
+        assert!(head.contains("Message-ID: <"), "no Message-ID");
+        assert!(head.contains("In-Reply-To: <parent@example.org>"));
+    }
+
+    #[test]
+    fn message_ids_are_unique_and_in_sender_domain() {
+        let a = new_message_id("ada@example.org");
+        let b = new_message_id("ada@example.org");
+        assert!(a.starts_with('<') && a.ends_with(".ferrowl@example.org>"));
+        assert_ne!(a, b);
+        assert!(new_message_id("broken").ends_with("@ferrowl.invalid>"));
+    }
+
     #[test]
     #[ignore]
     fn tls_handshake_and_login_rejected() {

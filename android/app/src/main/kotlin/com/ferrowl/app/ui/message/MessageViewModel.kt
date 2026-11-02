@@ -16,22 +16,46 @@ sealed interface MessageState {
     data object Loading : MessageState
     data class Shown(val message: Message) : MessageState
     data class Failed(val error: String) : MessageState
+    /** Archived or deleted: the screen closes. */
+    data object Gone : MessageState
 }
 
 @HiltViewModel
 class MessageViewModel @Inject constructor(private val repo: MailRepository) : ViewModel() {
     private val _state = MutableStateFlow<MessageState>(MessageState.Loading)
     val state: StateFlow<MessageState> = _state.asStateFlow()
-    private var loaded: Pair<String, UInt>? = null
+    private var folderId = ""
+    private var uid = 0u
 
     fun load(folderId: String, uid: UInt) {
-        if (loaded == folderId to uid) return
-        loaded = folderId to uid
+        if (this.folderId == folderId && this.uid == uid) return
+        this.folderId = folderId
+        this.uid = uid
         viewModelScope.launch {
             _state.value = try {
                 MessageState.Shown(repo.message(folderId, uid))
             } catch (e: FerrowlException) {
                 MessageState.Failed(e.message ?: "")
+            }
+        }
+    }
+
+    /** True when Delete removes for good (the message is in the Trash). */
+    val deletesForever: Boolean get() = repo.deletesForever(folderId)
+
+    fun archive() = act { repo.archive(folderId, uid) }
+
+    fun delete() = act { repo.delete(folderId, uid) }
+
+    fun markUnread() = act { repo.setSeen(folderId, uid, false) }
+
+    private fun act(action: suspend () -> Unit) {
+        viewModelScope.launch {
+            try {
+                action()
+                _state.value = MessageState.Gone
+            } catch (e: FerrowlException) {
+                _state.value = MessageState.Failed(e.message ?: "")
             }
         }
     }

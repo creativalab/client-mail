@@ -20,6 +20,20 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,26 +47,80 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrowl.app.R
 import com.ferrowl.core.Message
 
+/** What the user can do with an open message. */
+enum class ReplyKind { REPLY, REPLY_ALL, FORWARD }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MessageScreen(folderId: String, uid: UInt, onBack: () -> Unit, vm: MessageViewModel = hiltViewModel()) {
+fun MessageScreen(
+    folderId: String,
+    uid: UInt,
+    onBack: () -> Unit,
+    onReply: (ReplyKind) -> Unit,
+    vm: MessageViewModel = hiltViewModel(),
+) {
     LaunchedEffect(folderId, uid) { vm.load(folderId, uid) }
     val state by vm.state.collectAsStateWithLifecycle()
+    LaunchedEffect(state) { if (state == MessageState.Gone) onBack() }
+    var menu by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {},
-                navigationIcon = { TextButton(onClick = onBack) { Text("‹ " + stringResource(R.string.folder_inbox)) } },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back_to_mail))
+                    }
+                },
+                actions = {
+                    if (state is MessageState.Shown) {
+                        IconButton(onClick = { if (vm.deletesForever) confirmDelete = true else vm.delete() }) {
+                            Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.delete))
+                        }
+                        IconButton(onClick = { menu = true }) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = null)
+                        }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.archive)) }, onClick = { menu = false; vm.archive() })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.mark_unread)) }, onClick = { menu = false; vm.markUnread() })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.reply_all)) }, onClick = { menu = false; onReply(ReplyKind.REPLY_ALL) })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.forward)) }, onClick = { menu = false; onReply(ReplyKind.FORWARD) })
+                        }
+                    }
+                },
             )
+        },
+        floatingActionButton = {
+            if (state is MessageState.Shown) {
+                ExtendedFloatingActionButton(
+                    onClick = { onReply(ReplyKind.REPLY) },
+                    icon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                    text = { Text(stringResource(R.string.reply)) },
+                )
+            }
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (val s = state) {
-                MessageState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                MessageState.Loading, MessageState.Gone -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 is MessageState.Failed -> Text(s.error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
                 is MessageState.Shown -> Body(s.message)
             }
         }
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text(stringResource(R.string.confirm_delete_title)) },
+            text = { Text(stringResource(R.string.cannot_undo)) },
+            confirmButton = {
+                TextButton(onClick = { confirmDelete = false; vm.delete() }) { Text(stringResource(R.string.delete_forever)) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text(stringResource(R.string.cancel)) } },
+        )
     }
 }
 

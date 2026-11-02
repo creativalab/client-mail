@@ -21,6 +21,7 @@ required-features = ["bindgen"]
 bindgen = ["uniffi/cli"]
 
 [dependencies]
+chrono = "0.4.45"
 # Mobile apps keep secrets through the platform (Android Keystore, iOS Keychain).
 ferrowl-core = { path = "../core", default-features = false }
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "logging", "tls12"] }
