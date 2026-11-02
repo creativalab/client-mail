@@ -184,6 +184,8 @@ pub struct FullMessage {
     pub message_id: Option<String>,
     pub references: Vec<String>,
     pub body: String,
+    /// HTML body converted to Markdown (only when the message has an HTML part).
+    pub html_md: Option<String>,
     pub attachments: Vec<Attachment>,
     /// DKIM result reported by the server (Authentication-Results header).
     pub dkim_pass: bool,
@@ -416,6 +418,14 @@ pub fn fetch_message(session: &mut ImapSession, folder: &str, uid: u32) -> Resul
         .body_text(0)
         .map(|b| b.into_owned())
         .unwrap_or_else(|| t("no_text").into());
+    let html: Vec<String> = msg
+        .html_body()
+        .filter(|part| matches!(part.kind(), mail_parser::PartKind::Html))
+        .filter_map(|part| part.text().map(|t| t.into_owned()))
+        .collect();
+    let html_md = (!html.is_empty())
+        .then(|| crate::html::to_markdown(&html.join("\n")))
+        .filter(|md| !md.is_empty());
     let attachments = msg
         .attachments()
         .enumerate()
@@ -446,6 +456,7 @@ pub fn fetch_message(session: &mut ImapSession, folder: &str, uid: u32) -> Resul
         message_id: msg.message_id().map(str::to_string),
         references,
         body,
+        html_md,
         attachments,
         dkim_pass,
     })

@@ -71,6 +71,8 @@ pub struct Ui {
     pub show_preview: bool,
     /// Compose with Markdown formatting (sent as HTML + plain text).
     pub rich_compose: bool,
+    /// Show the HTML version of messages (converted, images blocked) when present.
+    pub prefer_html: bool,
 }
 
 impl Default for Ui {
@@ -81,6 +83,7 @@ impl Default for Ui {
             density: Density::Comfortable,
             show_preview: true,
             rich_compose: true,
+            prefer_html: true,
         }
     }
 }

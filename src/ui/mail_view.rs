@@ -545,6 +545,7 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             .into();
     };
 
+    let show_html = app.config.ui.prefer_html && msg.html_md.is_some();
     let kind = app.current_kind();
     let mut tools = vec![
         tool_btn(p, icons::REPLY, Some(t("reply")), Message::Reply),
@@ -561,6 +562,17 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     tools.push(tooltip(tool_btn(p, icons::TRASH, None, Message::Delete), delete_tip, p));
     tools.push(tooltip(tool_btn(p, icons::MAIL, None, Message::ToggleRead), t("mark_unread"), p));
     tools.push(space::horizontal().into());
+    if msg.html_md.is_some() {
+        let label = if show_html { t("view_text") } else { t("view_html") };
+        tools.push(tooltip(
+            button(text(label).size(12).font(medium()))
+                .padding([6, 10])
+                .style(outline_btn(p, p.text2))
+                .on_press(Message::ToggleHtml),
+            t("view_toggle_tip"),
+            p,
+        ));
+    }
     if msg.dkim_pass {
         tools.push(
             container(
@@ -632,18 +644,27 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     .spacing(14)
     .align_y(Alignment::Center);
 
-    let body = text_editor(&app.body)
-        .on_action(Message::BodyAction)
-        .size(15)
-        .line_height(1.65)
-        .padding(0)
-        .style(move |_, _| text_editor::Style {
-            background: Background::Color(Color::TRANSPARENT),
-            border: Border::default(),
-            placeholder: p.muted,
-            value: p.text2,
-            selection: mix(p.accent, p.bg, 0.7),
-        });
+    let body: Element<'a, Message> = if show_html {
+        container(
+            iced::widget::markdown::view(&app.body_md, md_settings(p, 15.0)).map(Message::OpenLink),
+        )
+        .style(move |_| container::Style { text_color: Some(p.text2), ..Default::default() })
+        .into()
+    } else {
+        text_editor(&app.body)
+            .on_action(Message::BodyAction)
+            .size(15)
+            .line_height(1.65)
+            .padding(0)
+            .style(move |_, _| text_editor::Style {
+                background: Background::Color(Color::TRANSPARENT),
+                border: Border::default(),
+                placeholder: p.muted,
+                value: p.text2,
+                selection: mix(p.accent, p.bg, 0.7),
+            })
+            .into()
+    };
 
     let mut content = column![
         text(&msg.subject).size(26).font(INTER_BOLD).color(p.text).line_height(1.25),

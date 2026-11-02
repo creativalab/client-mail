@@ -177,3 +177,8 @@ fmt_code = "رمز برمجي"
 compose_preview = "معاينة"
 compose_edit = "تحرير"
 rich_text = "منسق"
+
+# Reader: HTML view
+view_html = "منسق"
+view_text = "نص فقط"
+view_toggle_tip = "لا يتم تحميل الصور والمحتوى البعيد أبدًا"

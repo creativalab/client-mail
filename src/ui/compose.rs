@@ -208,22 +208,7 @@ pub fn view<'a>(app: &'a App, c: &'a Compose, p: Palette) -> Element<'a, Message
 
     let body_area: Element<'a, Message> = match &c.preview {
         Some(items) => {
-            let style = iced::widget::markdown::Style {
-                font: INTER,
-                inline_code_highlight: iced::advanced::text::Highlight {
-                    background: Background::Color(p.chip),
-                    border: Border { radius: radius(4.0), ..Default::default() },
-                },
-                inline_code_padding: Padding::from([0, 3]),
-                inline_code_color: p.accent_text,
-                inline_code_font: MONO,
-                code_block_font: MONO,
-                link_color: p.accent_text,
-            };
-            let md = iced::widget::markdown::view(
-                items,
-                iced::widget::markdown::Settings::with_text_size(15, style),
-            )
+            let md = iced::widget::markdown::view(items, md_settings(p, 15.0))
             .map(|_url| Message::Noop);
             scrollable(container(md).padding([18, 20]).width(Fill))
                 .height(Fill)

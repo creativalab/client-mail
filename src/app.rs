@@ -257,6 +257,8 @@ pub struct App {
     pub selected: Option<u32>,
     pub message: Option<FullMessage>,
     pub body: text_editor::Content,
+    /// Parsed Markdown of the open message's HTML body.
+    pub body_md: Vec<iced::widget::markdown::Item>,
     pub loading_message: bool,
     pub confirm_delete: bool,
     pub appearance_open: bool,
@@ -287,6 +289,8 @@ pub enum Message {
     SetFilter(ListFilter),
     Open(u32),
     Loaded(Res<FullMessage>),
+    ToggleHtml,
+    OpenLink(String),
     BodyAction(text_editor::Action),
     // message actions
     Reply,
@@ -380,6 +384,7 @@ impl App {
             selected: None,
             message: None,
             body: text_editor::Content::new(),
+            body_md: Vec::new(),
             loading_message: false,
             confirm_delete: false,
             appearance_open: false,
@@ -760,12 +765,45 @@ impl App {
                     }
                 }
                 self.body = text_editor::Content::with_text(&msg.body);
+                self.body_md = msg
+                    .html_md
+                    .as_deref()
+                    .map(|md| iced::widget::markdown::parse(md).collect())
+                    .unwrap_or_default();
                 self.message = Some(msg);
                 Task::none()
             }
             Message::Loaded(Err(e)) => {
                 self.loading_message = false;
                 self.toast(e, true)
+            }
+            Message::ToggleHtml => {
+                self.config.ui.prefer_html = !self.config.ui.prefer_html;
+                self.save_config()
+            }
+            Message::OpenLink(url) => {
+                if !crate::html::is_openable(&url) {
+                    return Task::none();
+                }
+                if let Some(rest) = url.strip_prefix("mailto:") {
+                    if self.compose.is_none() && self.config.account.is_some() {
+                        let mut c = Compose::new(ComposeMode::New);
+                        c.rich = self.config.ui.rich_compose;
+                        let (to, query) = rest.split_once('?').unwrap_or((rest, ""));
+                        c.to = to.to_string();
+                        for (k, v) in query.split('&').filter_map(|kv| kv.split_once('=')) {
+                            if k.eq_ignore_ascii_case("subject") {
+                                c.subject = percent_decode(v);
+                            }
+                        }
+                        self.compose = Some(c);
+                    }
+                    return Task::none();
+                }
+                if let Err(e) = open::that_detached(&url) {
+                    return self.toast(e.to_string(), true);
+                }
+                Task::none()
             }
             Message::BodyAction(action) => {
                 // Read-only text: selection and copy allowed, edits not.
@@ -1265,4 +1303,25 @@ fn save_attachment(name: &str, data: &[u8]) -> anyhow::Result<PathBuf> {
     }
     std::fs::write(&path, data)?;
     Ok(path)
+}
+
+/// Minimal percent-decoding for `mailto:` query values.
+fn percent_decode(s: &str) -> String {
+    let hex = |b: u8| (b as char).to_digit(16).map(|d| d as u8);
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%'
+            && let (Some(h), Some(l)) =
+                (bytes.get(i + 1).and_then(|&b| hex(b)), bytes.get(i + 2).and_then(|&b| hex(b)))
+        {
+            out.push(h * 16 + l);
+            i += 3;
+            continue;
+        }
+        out.push(if bytes[i] == b'+' { b' ' } else { bytes[i] });
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }

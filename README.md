@@ -17,6 +17,7 @@ A fast desktop email client written in Rust, with a native UI built on [iced](ht
 - Formatted messages: toolbar and shortcuts (`Ctrl B`/`I`/`K`) write Markdown, with a live preview; sent as `multipart/alternative` (HTML + plain text). Raw HTML is escaped and only `http`/`https`/`mailto`/`tel` links are kept. Can be switched to plain text only.
 - Attachments saved to the Downloads folder with one click
 - DKIM badge when the server reports `dkim=pass`
+- HTML mail shown formatted (headings, emphasis, lists, quotes, links, tables) without a web engine: scripts, styles and forms are dropped and **images/remote content are never loaded**, so tracking pixels don't fire. One click switches to plain text. Links open in the browser; `mailto:` links open a new message.
 - **6 color themes** (Ruggine, Ardesia, Bosco, Lavanda, Sabbia, Notte) defined in [`design/themes.json`](design/themes.json)
 - **10 languages**: English, Italiano, Français, Deutsch, Español, Português, 中文, 日本語, 한국어, العربية (right-to-left layout). The system language is used by default, falling back to English.
 - Keyboard shortcuts: `C` compose · `R` reply · `F` forward · `E` archive · `U` mark unread · `J`/`K` or ↓/↑ next/previous · `Del` delete · `Ctrl K` or `/` search · `Ctrl Enter` send · `Esc` close
@@ -82,7 +83,7 @@ The design handoff (mockups, tokens, icon) is in [`design/`](design/).
 
 - Password in the system keychain
 - Local cache (SQLite) and full-text search (tantivy)
-- HTML rendering (sanitized, remote images blocked by default)
+- Optional image loading per sender
 - IMAP IDLE (push), notifications, tray icon
 - OpenPGP signing/encryption
 - Multiple accounts, JMAP

@@ -177,3 +177,8 @@ fmt_code = "代码"
 compose_preview = "预览"
 compose_edit = "编辑"
 rich_text = "格式文本"
+
+# Reader: HTML view
+view_html = "格式视图"
+view_text = "纯文本"
+view_toggle_tip = "从不加载图片和远程内容"

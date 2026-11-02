@@ -177,3 +177,8 @@ fmt_code = "Código"
 compose_preview = "Pré-visualizar"
 compose_edit = "Editar"
 rich_text = "Formatado"
+
+# Reader: HTML view
+view_html = "Formatado"
+view_text = "Só texto"
+view_toggle_tip = "Imagens e conteúdo remoto nunca são carregados"

@@ -4,6 +4,7 @@
 mod app;
 mod backend;
 mod config;
+mod html;
 mod i18n;
 mod mail;
 mod markdown;

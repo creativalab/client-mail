@@ -668,3 +668,26 @@ pub fn theme_grid<'a>(current: &str, p: Palette, h: f32, gap: f32) -> Element<'a
     }
     col.into()
 }
+
+/// Markdown rendering settings following the theme (compose preview, HTML mail).
+pub fn md_settings(p: Palette, size: f32) -> iced::widget::markdown::Settings {
+    let style = iced::widget::markdown::Style {
+        font: INTER,
+        inline_code_highlight: iced::advanced::text::Highlight {
+            background: Background::Color(p.chip),
+            border: Border { radius: radius(4.0), ..Default::default() },
+        },
+        inline_code_padding: iced::Padding::from([0, 3]),
+        inline_code_color: p.accent_text,
+        inline_code_font: MONO,
+        code_block_font: MONO,
+        link_color: p.accent_text,
+    };
+    let mut settings = iced::widget::markdown::Settings::with_text_size(size, style);
+    // Mail headings are often oversized: keep them closer to body text.
+    settings.h1_size = iced::Pixels(size * 1.5);
+    settings.h2_size = iced::Pixels(size * 1.3);
+    settings.h3_size = iced::Pixels(size * 1.15);
+    settings.h4_size = iced::Pixels(size * 1.05);
+    settings
+}

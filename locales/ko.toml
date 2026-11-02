@@ -177,3 +177,8 @@ fmt_code = "코드"
 compose_preview = "미리 보기"
 compose_edit = "편집"
 rich_text = "서식 있음"
+
+# Reader: HTML view
+view_html = "서식 보기"
+view_text = "텍스트만"
+view_toggle_tip = "이미지와 원격 콘텐츠는 불러오지 않습니다"

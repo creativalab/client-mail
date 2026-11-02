@@ -177,3 +177,8 @@ fmt_code = "コード"
 compose_preview = "プレビュー"
 compose_edit = "編集"
 rich_text = "書式あり"
+
+# Reader: HTML view
+view_html = "書式表示"
+view_text = "テキストのみ"
+view_toggle_tip = "画像やリモートコンテンツは読み込まれません"
