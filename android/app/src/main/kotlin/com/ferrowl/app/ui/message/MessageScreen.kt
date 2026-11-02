@@ -85,6 +85,10 @@ private fun Body(m: Message) {
  * HTML mail in a locked-down WebView: no JavaScript, no file or content
  * access, links open in the browser. Remote images load, as on desktop by
  * default; blocking them will come with the privacy setting.
+ *
+ * Fitting the screen: the page gets the phone's width (see [fitToScreen]);
+ * layouts wider than that (fixed-width newsletters) are zoomed out to fit
+ * by the overview mode, and can be pinched to zoom in.
  */
 @Composable
 private fun HtmlView(html: String) {
@@ -95,8 +99,11 @@ private fun HtmlView(html: String) {
                 settings.allowFileAccess = false
                 settings.allowContentAccess = false
                 settings.domStorageEnabled = false
-                settings.loadWithOverviewMode = true
                 settings.useWideViewPort = true
+                settings.loadWithOverviewMode = true
+                settings.setSupportZoom(true)
+                settings.builtInZoomControls = true
+                settings.displayZoomControls = false
                 webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                         val url = request.url
@@ -108,7 +115,37 @@ private fun HtmlView(html: String) {
                 }
             }
         },
-        update = { it.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null) },
+        update = { view ->
+            // Load only when the message changes, not on every recomposition.
+            if (view.tag != html) {
+                view.tag = html
+                view.loadDataWithBaseURL(null, fitToScreen(html), "text/html", "UTF-8", null)
+            }
+        },
         modifier = Modifier.fillMaxSize(),
     )
+}
+
+/**
+ * Adds what makes mail readable on a phone. The mail's own viewport is
+ * replaced: many newsletters ask for "device width, scale 1" and then use a
+ * fixed 600 px table, which would run off the screen. Ours keeps the device
+ * width (so responsive layouts still adapt) without fixing the scale, so the
+ * overview mode can zoom wider layouts out to fit. Images and media never
+ * exceed the screen; long words and links wrap.
+ */
+internal fun fitToScreen(html: String): String {
+    val head = "<meta name=\"viewport\" content=\"width=device-width\">" +
+        "<style>" +
+        "body{margin:12px;overflow-wrap:anywhere}" +
+        "img,video{max-width:100%!important;height:auto!important}" +
+        "pre{white-space:pre-wrap}" +
+        "</style>"
+    val clean = html.replace(Regex("<meta[^>]*name\\s*=\\s*[\"']?viewport[^>]*>", RegexOption.IGNORE_CASE), "")
+    val at = Regex("<head[^>]*>", RegexOption.IGNORE_CASE).find(clean)
+    return if (at != null) {
+        clean.substring(0, at.range.last + 1) + head + clean.substring(at.range.last + 1)
+    } else {
+        "<!doctype html><html><head>$head</head><body>$clean</body></html>"
+    }
 }
