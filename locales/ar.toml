@@ -185,6 +185,11 @@ view_toggle_tip = "لا يتم تحميل الصور والمحتوى البعي
 # Multiple accounts
 add_account = "إضافة حساب"
 new_account = "حساب جديد"
+provider_label = "مزوّد البريد"
+provider_other = "آخر"
+app_password_hint = "يتطلب {provider} كلمة مرور للتطبيقات، وليس كلمة مرورك المعتادة."
+app_password_howto = "طريقة إنشائها"
+ms_signin_hint = "لم تعد Microsoft تقبل كلمات المرور في تطبيقات البريد: سجّل الدخول بحساب Microsoft بدلاً من ذلك (متاح في التحديث القادم)."
 remove_account = "إزالة الحساب"
 confirm_remove_account = "هل تريد إزالة هذا الحساب من Ferrowl؟ لن يتأثر البريد على الخادم."
 use_account = "استخدام"

@@ -234,9 +234,24 @@ pub struct AccountDraft {
     pub smtp_port: String,
     /// Not shown in the form (edited under Security): carried through.
     pub pgp_passphrase: String,
+    /// Provider picked for a new account (`None` = manual setup).
+    pub preset: Option<usize>,
 }
 
 impl AccountDraft {
+    /// Fills in the servers of a known provider; the user name is the address.
+    fn apply_preset(&mut self, i: usize) {
+        let Some(p) = crate::providers::PROVIDERS.get(i) else {
+            return;
+        };
+        self.preset = Some(i);
+        self.imap_host = p.imap.0.into();
+        self.imap_port = p.imap.1.to_string();
+        self.smtp_host = p.smtp.0.into();
+        self.smtp_port = p.smtp.1.to_string();
+        self.username = self.email.trim().to_string();
+    }
+
     pub fn blank() -> Self {
         Self {
             imap_port: "993".into(),
@@ -256,6 +271,7 @@ impl AccountDraft {
             smtp_host: a.smtp_host.clone(),
             smtp_port: a.smtp_port.to_string(),
             pgp_passphrase: a.pgp_passphrase.clone(),
+            preset: None,
         }
     }
 
@@ -489,6 +505,8 @@ pub enum Message {
     SwitchAccount(usize),
     EditAccount(usize),
     NewAccount,
+    /// New account: a known provider (index in `providers::PROVIDERS`) or manual setup.
+    PickProvider(Option<usize>),
     /// From the sidebar: open settings on an empty account form.
     AddAccount,
     RemoveAccount(bool),
@@ -595,6 +613,18 @@ impl App {
         // Development: open a given view directly (used for screenshots).
         match std::env::var("FERROWL_DEV_VIEW").as_deref() {
             Ok("settings") => app.screen = Screen::Settings(Section::Accounts),
+            Ok(v) if v.starts_with("new-account") => {
+                app.screen = Screen::Settings(Section::Accounts);
+                app.editing = None;
+                app.draft = AccountDraft::blank();
+                // "new-account:<address>" types an address, as a user would.
+                if let Some(email) = v.strip_prefix("new-account:") {
+                    app.draft.email = email.into();
+                    if let Some(i) = crate::providers::for_email(email) {
+                        app.draft.apply_preset(i);
+                    }
+                }
+            }
             Ok("appearance") => app.screen = Screen::Settings(Section::Appearance),
             Ok("general") => app.screen = Screen::Settings(Section::General),
             Ok("security") => app.screen = Screen::Settings(Section::Security),
@@ -2001,6 +2031,26 @@ impl App {
                     Field::SmtpPort => &mut d.smtp_port,
                 };
                 *target = value;
+                // New account: recognise the provider from the address.
+                if matches!(field, Field::Email) && self.editing.is_none() {
+                    let d = &mut self.draft;
+                    match crate::providers::for_email(&d.email) {
+                        Some(i) if d.preset != Some(i) && (d.preset.is_some() || d.imap_host.is_empty()) => {
+                            d.apply_preset(i)
+                        }
+                        _ if d.preset.is_some() => d.username = d.email.trim().to_string(),
+                        _ => {}
+                    }
+                }
+                self.test_result = None;
+                Task::none()
+            }
+            Message::PickProvider(choice) => {
+                match choice {
+                    Some(i) => self.draft.apply_preset(i),
+                    // Manual setup: keep what is filled in, show every field.
+                    None => self.draft.preset = None,
+                }
                 self.test_result = None;
                 Task::none()
             }
