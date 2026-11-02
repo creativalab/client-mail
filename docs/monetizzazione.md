@@ -17,22 +17,56 @@ Ne seguono tre regole:
    nessuna pubblicità, nessuna vendita di dati: è il motivo per cui la gente
    sceglie Ferrowl.
 
+## Cosa fanno pagare gli altri client
+
+Ricerca del 2 novembre 2026 su siti ufficiali, App Store e comparatori. I
+prezzi cambiano per paese e nel tempo, e le fonti a volte non concordano:
+sono indicativi.
+
+| App | Prezzo | Cosa si paga |
+|---|---|---|
+| **Spark** (Readdle) | Premium ~5–8 $/mese, ~60 $/anno; Teams ~7–10 $/utente/mese | Assistente AI (scrittura, riassunti, traduzione), funzioni avanzate, supporto prioritario, funzioni di team (posta condivisa, bozze condivise). Il piano gratuito ha già Smart Inbox, invio programmato e risposte rapide. |
+| **Airmail** | Pro ~6–8 $/mese o ~30–50 $/anno | **Notifiche push**, azioni personalizzate e swipe, più account, invio programmato, posticipo (snooze), firme per account, sincronizzazione iCloud, cartelle smart. Gratis: un solo account. |
+| **Canary Mail** | Pro+ ~100 $/anno o licenza a vita (~60–90 $ sull'App Store); solo annuale o a vita | AI, funzioni di sicurezza, più dispositivi (5 invece di 2). |
+| **Edison Mail+** | ~15 $/mese o ~100 $/anno | Protezione da phishing, spoofing e malware basata su AI. L'app base resta gratuita. |
+| **Mailbird** (Windows) | ~5,75 $/mese con abbonamento annuale, o ~100 $ una tantum | Più account, integrazioni con app esterne, funzioni avanzate. |
+| **Spike** | Pro ~5 $/utente/mese | Funzioni di team e collaborazione. |
+| **Aqua Mail** (Android) | Pro passato da licenza una tantum (~20 €) ad abbonamento (~10 € il primo anno) | Più account, nessuna pubblicità, funzioni avanzate; il passaggio ad abbonamento è stato criticato dagli utenti. |
+| **FairEmail** (Android, open source) | Pro una tantum | Funzioni comode in più; le funzioni di base restano tutte gratuite, senza pubblicità. È il modello più vicino a Ferrowl. |
+
+Cosa si ripete:
+
+- **prezzo medio 5–8 $ al mese, 30–60 $ all'anno** per un privato;
+- **molte app offrono anche una licenza a vita** (60–100 $), che chi diffida
+  degli abbonamenti apprezza;
+- si paga soprattutto: **AI**, **più account**, **invio programmato e
+  posticipo**, **funzioni di team**, **sicurezza avanzata**;
+- le **notifiche push** sono a pagamento solo in Airmail; per gli altri sono
+  incluse, e gli utenti le considerano una funzione di base;
+- le critiche più forti arrivano quando una funzione prima gratuita (o già
+  pagata una volta) diventa ad abbonamento, come per Aqua Mail.
+
 ## Cosa si può vendere
 
 ### 1. Ferrowl Plus — abbonamento personale
 
 Il prodotto principale, legato all'arrivo dell'app per telefono (vedi
-`piano-mobile.md`).
+`piano-mobile.md`). **Le notifiche push restano gratuite per tutti**: quasi
+tutti i concorrenti le includono e senza di esse l'app per telefono sembrerebbe
+incompleta. Il loro costo (il server che tiene le connessioni) è basso e lo
+coprono gli abbonati Plus e i clienti aziendali.
 
 | Servizio | Perché vale un abbonamento |
 |---|---|
-| **Notifiche push immediate su iPhone e Android** | Su iOS sono impossibili senza un server che tenga la connessione IMAP al posto dell'utente: costo reale per te, valore chiaro per l'utente. |
 | **Sincronizzazione tra dispositivi** | Account, firme, temi, regole e chiavi OpenPGP uguali su desktop e telefono, con cifratura end-to-end (il server vede solo dati cifrati). |
 | **Invio programmato e promemoria** | «Invia domattina alle 9» e «ricordamelo se non risponde entro 3 giorni» funzionano anche a computer spento, perché li esegue il server. |
 | **Backup cifrato della posta** (opzionale, a scaglioni) | Copia di sicurezza della casella, utile con provider dalle caselle piccole o in chiusura. |
 
-Prezzo indicativo: **2,99 € al mese o 24 € all'anno** (in linea con i servizi
-di posta «premium» per privati; da testare con due prezzi diversi).
+Prezzo indicativo: **2,99 € al mese o 24 € all'anno**, sotto la media dei
+concorrenti (5–8 $ al mese) perché Plus non include l'AI. In più una **licenza
+a vita da ~79 €** per chi non vuole abbonamenti: copre la sincronizzazione e le
+funzioni sul server finché il servizio esiste (va scritto chiaramente nei
+termini). Da provare con due prezzi diversi.
 
 ### 2. Ferrowl per aziende
 
@@ -62,6 +96,7 @@ partita IVA e la meno esposta alle commissioni degli store.
 
 | Idea | Perché no |
 |---|---|
+| Far pagare le notifiche push | Funzione di base per quasi tutti i concorrenti; farla pagare farebbe sembrare l'app gratuita «monca». |
 | Far pagare l'accesso Microsoft/Google (OAuth2) | È una funzione di base: chi non può usare il proprio account non prova nemmeno l'app, e con un fork si aggira. |
 | Tracciamento delle aperture | Contraddice tutto il messaggio sulla privacy. |
 | Temi o icone a pagamento | Incassi minimi, si copiano subito. |
@@ -73,7 +108,7 @@ Ipotesi: server su un provider europeo (es. Hetzner), prezzi indicativi 2026.
 
 | Voce | Costo | Note |
 |---|---|---|
-| Server per le notifiche push | ~10–20 € al mese per alcune migliaia di account | Una connessione IMAP in attesa occupa pochissima memoria con un server scritto in Rust; si aggiungono server man mano. |
+| Server per le notifiche push (gratuite per tutti) | ~10–20 € al mese per alcune migliaia di account | Una connessione IMAP in attesa occupa pochissima memoria con un server scritto in Rust; si aggiungono server man mano. È il costo principale da coprire con Plus e aziende. |
 | Sincronizzazione | trascurabile | Pochi kilobyte cifrati per utente. |
 | Backup della posta | ~5–15 € al mese per terabyte | Storage a oggetti; meglio venderlo a scaglioni di spazio. |
 | APNs (Apple) e FCM (Google) | gratuiti | |
@@ -100,7 +135,7 @@ la vendita sul sito per il desktop.
 
 Ipotesi prudente dopo un anno dall'uscita delle app per telefono: 20.000
 utenti attivi, il 2% abbonati a Plus (400), metà annuali e metà mensili, metà
-via store e metà dal sito.
+via store e metà dal sito (senza contare le licenze a vita).
 
 | | Al mese |
 |---|---|
@@ -128,11 +163,20 @@ i primi anni le aziende contano più degli abbonati privati.
 1. **Subito, a costo quasi zero:** donazioni (GitHub Sponsors), pagina
    «Supporto prioritario» sul sito, firma del codice per Windows e
    notarizzazione macOS per togliere gli avvisi.
-2. **Insieme alle app per telefono:** Ferrowl Plus con notifiche push e
-   sincronizzazione.
+2. **Insieme alle app per telefono:** notifiche push gratuite per tutti e
+   Ferrowl Plus con sincronizzazione, invio programmato e promemoria.
 3. **Con i primi clienti aziendali:** configurazione centralizzata e contratto
    di supporto.
 4. **Dopo:** invio programmato, promemoria e backup.
+
+## Fonti della ricerca sui prezzi
+
+- [Spark Mail Pricing 2026](https://aiproductivity.ai/pricing/spark-mail/), [Spark Mail AI guide (Clean Email)](https://clean.email/blog/ai-for-work/spark-mail-ai-review), [Superhuman vs Spark (ToolFinder)](https://toolfinder.com/comparisons/superhuman-vs-spark-mail)
+- [Airmail Pro pricing (help center)](https://help.airmailapp.com/en-us/article/airmail-pro-pricing-and-subscription-plans-189o6bh/), [Airmail Pro subscription](https://help.airmailapp.com/en-us/article/airmail-pro-subscription-pricing-and-plans-1xqnlwe/), [Airmail su App Store](https://apps.apple.com/gb/app/airmail-2-1/id918858936?mt=12)
+- [Canary Mail pricing (help)](https://canarymail.io/help/canary-mail-pricing-updated), [Canary Mail prezzi](https://canarymail.io/fr/prix.html), [Canary Mail su App Store](https://apps.apple.com/us/app/canary-mail-ai-email-client/id1155470386)
+- [Edison Mail+ (supporto)](https://mailsupport.edison.tech/hc/en-us/articles/360048245452-What-is-the-value-that-Edison-Mail-100-per-year-15-per-month-provides-consumers), [Edison Mail acquisti in-app](https://apppricinglab.com/iap/apple/922793622)
+- [Mailbird pricing (G2)](https://www.g2.com/products/mailbird/pricing), [Mailbird vs Spike (G2)](https://www.g2.com/compare/mailbird-vs-spike)
+- [Aqua Mail dopo il passaggio ad abbonamento (GIGA)](https://www.giga.de/artikel/aqua-mail-alternative-nach-der-abo-umstellung/), [Le migliori app email per Android (PC-WELT)](https://www.pcwelt.de/article/1160090/die-besten-e-mail-apps-fuer-android.html)
 
 ## Decisioni da prendere
 
