@@ -109,8 +109,8 @@ dalle revisioni e dall'approvazione di App Store / Play Store.
 | 5 | Store | Icone e screenshot, schede privacy, TestFlight / test interni Play, correzioni dopo la revisione | 1–2 settimane |
 | 6 | Server push (opzionale) | Server, APNs/FCM, cifratura credenziali, informativa privacy | 3–4 settimane |
 
-Totale fino alla pubblicazione sugli store, senza server push: **circa 3,5–4
-mesi** per uno sviluppatore; con due persone Android e iOS (fasi 2–3) vanno in
+Totale fino alla pubblicazione sugli store, senza server push: **circa 3–4 mesi**
+(13–17 settimane) per uno sviluppatore; con due persone Android e iOS (fasi 2–3) vanno in
 parallelo.
 
 ## Account e costi
