@@ -106,6 +106,14 @@ fn watch(
                 return;
             }
             Ok(Ended::Gone) => return,
+            // A refused login is not retried: repeated failures get the
+            // server's IP blocked by mail providers' firewalls, which would
+            // hurt every account watched from here. The phone registers
+            // the account again after the user fixes the password.
+            Err(e) if login_refused(&e) => {
+                eprintln!("account {account_id}: login refused, watching stopped");
+                return;
+            }
             Err(e) => {
                 // Only the error kind: messages may contain the user name.
                 eprintln!("account {account_id}: connection lost ({}), retrying", short(&e));
@@ -177,6 +185,12 @@ fn sleep_unless_stopped(total: Duration, stop: &AtomicBool) {
     }
 }
 
+/// The server rejected the credentials (the core's "login failed" errors;
+/// the server runs the core in English).
+fn login_refused(e: &anyhow::Error) -> bool {
+    format!("{e:#}").to_lowercase().contains("login failed")
+}
+
 /// First line of an error, without the chain (kept short for logs).
 fn short(e: &anyhow::Error) -> String {
     e.to_string()
@@ -186,4 +200,18 @@ fn short(e: &anyhow::Error) -> String {
         .chars()
         .take(120)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recognizes_refused_logins() {
+        ferrowl_core::i18n::set(Some("en"));
+        let auth = anyhow::anyhow!(ferrowl_core::i18n::tf("err_auth", &[("msg", "NO")]));
+        let login = anyhow::anyhow!(ferrowl_core::i18n::tf("err_login", &[("msg", "NO")]));
+        assert!(login_refused(&auth) && login_refused(&login));
+        assert!(!login_refused(&anyhow::anyhow!("Connection reset by peer")));
+    }
 }
