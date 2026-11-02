@@ -236,6 +236,8 @@ pub struct AccountDraft {
     pub pgp_passphrase: String,
     /// Provider picked for a new account (`None` = manual setup).
     pub preset: Option<usize>,
+    pub protocol: crate::config::Protocol,
+    pub pop3_keep_days: Option<u32>,
 }
 
 impl AccountDraft {
@@ -245,6 +247,8 @@ impl AccountDraft {
             return;
         };
         self.preset = Some(i);
+        // Providers in the list all use IMAP.
+        self.protocol = crate::config::Protocol::Imap;
         self.imap_host = p.imap.0.into();
         self.imap_port = p.imap.1.to_string();
         self.smtp_host = p.smtp.0.into();
@@ -272,6 +276,8 @@ impl AccountDraft {
             smtp_port: a.smtp_port.to_string(),
             pgp_passphrase: a.pgp_passphrase.clone(),
             preset: None,
+            protocol: a.protocol,
+            pop3_keep_days: a.pop3_keep_days,
         }
     }
 
@@ -286,6 +292,8 @@ impl AccountDraft {
             smtp_host: self.smtp_host.trim().to_string(),
             smtp_port: self.smtp_port.trim().parse().ok()?,
             pgp_passphrase: self.pgp_passphrase.clone(),
+            protocol: self.protocol,
+            pop3_keep_days: self.pop3_keep_days,
         };
         a.is_complete().then_some(a)
     }
@@ -500,13 +508,16 @@ pub enum Message {
     Draft(Field, String),
     UseEmailAsUsername,
     TestConnection,
-    Tested(Res<usize>),
+    Tested(Res<String>),
     SaveAccount,
     SwitchAccount(usize),
     EditAccount(usize),
     NewAccount,
     /// New account: a known provider (index in `providers::PROVIDERS`) or manual setup.
     PickProvider(Option<usize>),
+    SetProtocol(crate::config::Protocol),
+    /// POP3: days to keep downloaded messages on the server (`None` = always).
+    SetKeepDays(Option<u32>),
     /// From the sidebar: open settings on an empty account form.
     AddAccount,
     RemoveAccount(bool),
@@ -695,9 +706,11 @@ impl App {
             subs.push(iced::time::every(Duration::from_secs(delay)).map(|_| Message::DevScreenshot));
         }
         // Push: IDLE on the inbox of the account in use.
+        // (POP3 has no push: the periodic refresh downloads new mail.)
         if self.conn == Conn::Online
             && let (Some(account), Some(inbox)) =
                 (self.config.account(), self.folder_by_kind(FolderKind::Inbox))
+            && !account.is_pop3()
         {
             subs.push(crate::push::subscription(crate::push::Watch {
                 account: account.clone(),
@@ -939,6 +952,18 @@ impl App {
             }
             _ => None,
         };
+    }
+
+    /// POP3: messages downloaded in the background go straight into the
+    /// open list (it comes from the local mailbox, so this is instant).
+    fn show_pop3_downloads(&mut self, folder: &str) -> Task<Message> {
+        if self.current_folder.as_deref() == Some(folder)
+            && let Some(account) = self.config.account().filter(|a| a.is_pop3())
+        {
+            self.headers = Backend::cached_headers(account, folder);
+            return self.refresh_unseen();
+        }
+        Task::none()
     }
 
     /// One background indexing step, after a pause: the first one leaves the
@@ -1537,15 +1562,17 @@ impl App {
                 // Only the open folder keeps indexing (one step at a time,
                 // so user actions are not stuck behind a long download).
                 Ok(Some(next)) if self.current_folder.as_deref() == Some(&folder) => {
-                    self.index_step(folder, next, INDEX_PAUSE)
+                    let shown = self.show_pop3_downloads(&folder);
+                    Task::batch([shown, self.index_step(folder, next, INDEX_PAUSE)])
                 }
                 Ok(Some(_)) => {
                     self.indexed.remove(&folder);
                     Task::none()
                 }
                 Ok(None) => {
+                    let shown = self.show_pop3_downloads(&folder);
                     self.run_search();
-                    Task::none()
+                    shown
                 }
                 Err(_) => {
                     self.indexed.remove(&folder);
@@ -2054,6 +2081,22 @@ impl App {
                 self.test_result = None;
                 Task::none()
             }
+            Message::SetProtocol(protocol) => {
+                let d = &mut self.draft;
+                // Move the incoming port along with the protocol's TLS port.
+                d.imap_port = match (protocol, d.imap_port.as_str()) {
+                    (crate::config::Protocol::Pop3, "993" | "") => "995".into(),
+                    (crate::config::Protocol::Imap, "995" | "") => "993".into(),
+                    _ => d.imap_port.clone(),
+                };
+                d.protocol = protocol;
+                self.test_result = None;
+                Task::none()
+            }
+            Message::SetKeepDays(days) => {
+                self.draft.pop3_keep_days = days;
+                Task::none()
+            }
             Message::UseEmailAsUsername => {
                 self.draft.username = self.draft.email.trim().to_string();
                 Task::none()
@@ -2068,7 +2111,7 @@ impl App {
             }
             Message::Tested(result) => {
                 self.testing = false;
-                self.test_result = Some(result.map(|n| tf("test_ok", &[("n", &n.to_string())])));
+                self.test_result = Some(result);
                 Task::none()
             }
             Message::SaveAccount => {

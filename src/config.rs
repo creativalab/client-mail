@@ -18,6 +18,22 @@ pub struct Account {
     /// Passphrase of this account's OpenPGP key (empty = none).
     #[serde(default)]
     pub pgp_passphrase: String,
+    /// How incoming mail is read. With POP3, `imap_host`/`imap_port` are the
+    /// POP3 server and messages are kept in a local mailbox.
+    #[serde(default)]
+    pub protocol: Protocol,
+    /// POP3: days a downloaded message stays on the server
+    /// (`None` = never deleted, `Some(0)` = deleted right after download).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pop3_keep_days: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Protocol {
+    #[default]
+    Imap,
+    Pop3,
 }
 
 impl Default for Account {
@@ -32,11 +48,17 @@ impl Default for Account {
             smtp_host: String::new(),
             smtp_port: 465,
             pgp_passphrase: String::new(),
+            protocol: Protocol::Imap,
+            pop3_keep_days: None,
         }
     }
 }
 
 impl Account {
+    pub fn is_pop3(&self) -> bool {
+        self.protocol == Protocol::Pop3
+    }
+
     pub fn is_complete(&self) -> bool {
         !self.email.is_empty()
             && !self.username.is_empty()
