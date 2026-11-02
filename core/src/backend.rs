@@ -308,24 +308,38 @@ impl Backend {
     }
 
     pub async fn set_seen(&self, folder: String, uid: u32, seen: bool) -> Res<()> {
+        self.set_seen_many(folder, vec![uid], seen).await
+    }
+
+    /// Marks several messages read or unread with one server command.
+    pub async fn set_seen_many(&self, folder: String, uids: Vec<u32>, seen: bool) -> Res<()> {
         self.blocking(move |b| {
             if let Some(account) = b.pop3_account() {
-                return local_op(&account, |s, key| s.set_seen(key, uid, seen));
+                return local_op(&account, |s, key| {
+                    uids.iter().try_for_each(|&u| s.set_seen(key, u, seen))
+                });
             }
-            b.with_session_sync(|s| mail::set_seen(s, &folder, uid, seen))?;
-            b.cache(|c, key| c.set_seen(key, &folder, uid, seen));
+            b.with_session_sync(|s| mail::set_seen(s, &folder, &uids, seen))?;
+            b.cache(|c, key| uids.iter().try_for_each(|&u| c.set_seen(key, &folder, u, seen)));
             Ok(())
         })
         .await
     }
 
     pub async fn move_to(&self, folder: String, uid: u32, target: String) -> Res<()> {
+        self.move_many(folder, vec![uid], target).await
+    }
+
+    /// Moves several messages with one server command.
+    pub async fn move_many(&self, folder: String, uids: Vec<u32>, target: String) -> Res<()> {
         self.blocking(move |b| {
             if let Some(account) = b.pop3_account() {
-                return local_op(&account, |s, key| s.move_to(key, uid, &target));
+                return local_op(&account, |s, key| {
+                    uids.iter().try_for_each(|&u| s.move_to(key, u, &target))
+                });
             }
-            b.with_session_sync(|s| mail::move_message(s, &folder, uid, &target))?;
-            b.cache(|c, key| c.remove(key, &folder, uid));
+            b.with_session_sync(|s| mail::move_message(s, &folder, &uids, &target))?;
+            b.cache(|c, key| uids.iter().try_for_each(|&u| c.remove(key, &folder, u)));
             Ok(())
         })
         .await
@@ -334,31 +348,41 @@ impl Backend {
     /// Archive: moves to the Archive folder, creating it if missing.
     /// Returns the name of the folder used.
     pub async fn archive(&self, folder: String, uid: u32, folders: Vec<Folder>) -> Res<String> {
+        self.archive_many(folder, vec![uid], folders).await
+    }
+
+    pub async fn archive_many(&self, folder: String, uids: Vec<u32>, folders: Vec<Folder>) -> Res<String> {
         self.blocking(move |b| {
             if let Some(account) = b.pop3_account() {
-                return local_op(&account, |s, key| s.move_to(key, uid, local::ARCHIVE))
-                    .map(|_| local::ARCHIVE.to_string());
+                return local_op(&account, |s, key| {
+                    uids.iter().try_for_each(|&u| s.move_to(key, u, local::ARCHIVE))
+                })
+                .map(|_| local::ARCHIVE.to_string());
             }
             b.with_session_sync(|s| {
                 let target = match folders.iter().find(|f| f.kind == FolderKind::Archive) {
                     Some(f) => f.name.clone(),
                     None => mail::create_folder(s, &folders, "Archive")?,
                 };
-                mail::move_message(s, &folder, uid, &target)?;
+                mail::move_message(s, &folder, &uids, &target)?;
                 Ok(target)
             })
-            .inspect(|_| b.cache(|c, key| c.remove(key, &folder, uid)))
+            .inspect(|_| b.cache(|c, key| uids.iter().try_for_each(|&u| c.remove(key, &folder, u))))
         })
         .await
     }
 
     pub async fn delete_forever(&self, folder: String, uid: u32) -> Res<()> {
+        self.delete_forever_many(folder, vec![uid]).await
+    }
+
+    pub async fn delete_forever_many(&self, folder: String, uids: Vec<u32>) -> Res<()> {
         self.blocking(move |b| {
             if let Some(account) = b.pop3_account() {
-                return local_op(&account, |s, key| s.delete(key, uid));
+                return local_op(&account, |s, key| uids.iter().try_for_each(|&u| s.delete(key, u)));
             }
-            b.with_session_sync(|s| mail::delete_permanently(s, &folder, uid))?;
-            b.cache(|c, key| c.remove(key, &folder, uid));
+            b.with_session_sync(|s| mail::delete_permanently(s, &folder, &uids))?;
+            b.cache(|c, key| uids.iter().try_for_each(|&u| c.remove(key, &folder, u)));
             Ok(())
         })
         .await

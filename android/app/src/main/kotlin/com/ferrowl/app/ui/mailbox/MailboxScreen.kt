@@ -1,8 +1,18 @@
 package com.ferrowl.app.ui.mailbox
 
 import android.text.format.DateUtils
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.TextButton
+import com.ferrowl.app.ui.fill
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,7 +36,6 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -88,6 +97,7 @@ fun MailboxScreen(
     // With messages on screen, a failed refresh is reported in a snackbar
     // (an empty list shows the error in its place instead).
     LaunchedEffect(s.error) { s.error?.let { if (s.shown.isNotEmpty()) snackbar.showSnackbar(it) } }
+    if (s.confirmDelete) ConfirmBulkDelete(vm)
 
     ModalNavigationDrawer(
         drawerState = drawer,
@@ -121,9 +131,12 @@ fun MailboxScreen(
             }
         },
     ) {
+        BackHandler(enabled = s.selecting) { vm.clearSelection() }
         Scaffold(
             topBar = {
-                TopAppBar(
+                if (s.selecting) {
+                    SelectionBar(s.selected.size, vm)
+                } else TopAppBar(
                     navigationIcon = {
                         IconButton(onClick = { scope.launch { drawer.open() } }) {
                             Icon(Icons.Filled.Menu, contentDescription = stringResource(R.string.section_folders))
@@ -160,11 +173,11 @@ fun MailboxScreen(
                 )
             },
             floatingActionButton = {
-                ExtendedFloatingActionButton(
-                    onClick = onCompose,
-                    icon = { Icon(Icons.Filled.Edit, contentDescription = null) },
-                    text = { Text(stringResource(R.string.compose)) },
-                )
+                if (!s.selecting) {
+                    FloatingActionButton(onClick = onCompose) {
+                        Icon(Icons.Filled.Edit, contentDescription = stringResource(R.string.compose))
+                    }
+                }
             },
             snackbarHost = { SnackbarHost(snackbar) },
         ) { padding ->
@@ -181,8 +194,16 @@ fun MailboxScreen(
                         rows.isEmpty() && !s.refreshing && !s.searching -> Centered(stringResource(R.string.list_empty))
                         else -> LazyColumn(Modifier.fillMaxSize()) {
                             items(rows, key = { it.latest.uid.toLong() }) { c ->
-                                MessageRow(c.latest, count = c.uids.size, unread = c.unread > 0u) {
-                                    if (c.uids.size > 1) {
+                                MessageRow(
+                                    c.latest,
+                                    count = c.uids.size,
+                                    unread = c.unread > 0u,
+                                    checked = if (s.selecting) s.selected.containsAll(c.uids) else null,
+                                    onLongClick = { vm.toggle(c.uids) },
+                                ) {
+                                    if (s.selecting) {
+                                        vm.toggle(c.uids)
+                                    } else if (c.uids.size > 1) {
                                         onOpenConversation(s.folderId, c.uids)
                                     } else {
                                         // Opening reads it: update the dot right away.
@@ -220,14 +241,73 @@ private fun ViewModeSwitch(threaded: Boolean, onChange: (Boolean) -> Unit) {
     }
 }
 
-/** One list row: a message, or the newest message of a conversation of [count]. */
+/** Top bar while messages are checked: count, select menu and bulk actions. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun MessageRow(h: Header, count: Int = 1, unread: Boolean = !h.seen, onClick: () -> Unit) {
+private fun SelectionBar(count: Int, vm: MailboxViewModel) {
+    var menu by remember { mutableStateOf(false) }
+    TopAppBar(
+        navigationIcon = {
+            IconButton(onClick = vm::clearSelection) {
+                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.select_none))
+            }
+        },
+        title = { Text(fill(stringResource(R.string.selected_count), "n" to count)) },
+        actions = {
+            IconButton(onClick = { vm.deleteSelected() }) {
+                Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.delete))
+            }
+            IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = null) }
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                val item = @Composable { label: Int, action: () -> Unit ->
+                    DropdownMenuItem(text = { Text(stringResource(label)) }, onClick = { menu = false; action() })
+                }
+                // "Select" heading over the choices.
+                DropdownMenuItem(text = { Text(stringResource(R.string.select)) }, onClick = {}, enabled = false)
+                item(R.string.select_all) { vm.select(MailboxViewModel.Pick.ALL) }
+                item(R.string.select_read) { vm.select(MailboxViewModel.Pick.READ) }
+                item(R.string.select_unread) { vm.select(MailboxViewModel.Pick.UNREAD) }
+                HorizontalDivider()
+                item(R.string.mark_read) { vm.markSelected(true) }
+                item(R.string.mark_unread) { vm.markSelected(false) }
+                item(R.string.archive) { vm.archiveSelected() }
+            }
+        },
+    )
+}
+
+/**
+ * One list row: a message, or the newest message of a conversation of
+ * [count]. A long press starts selection; [checked] is null outside it.
+ */
+@Composable
+internal fun MessageRow(
+    h: Header,
+    count: Int = 1,
+    unread: Boolean = !h.seen,
+    checked: Boolean? = null,
+    onLongClick: (() -> Unit)? = null,
+    onClick: () -> Unit,
+) {
     val weight = if (!unread) FontWeight.Normal else FontWeight.SemiBold
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(if (checked == true) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(start = if (checked != null) 4.dp else 0.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (checked != null) Checkbox(checked = checked, onCheckedChange = { onClick() })
+        RowBody(h, count, unread, weight)
+    }
+}
+
+@Composable
+private fun RowBody(h: Header, count: Int, unread: Boolean, weight: FontWeight) {
     Column(
         Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
@@ -262,6 +342,17 @@ internal fun MessageRow(h: Header, count: Int = 1, unread: Boolean = !h.seen, on
             overflow = TextOverflow.Ellipsis,
         )
     }
+}
+
+@Composable
+private fun ConfirmBulkDelete(vm: MailboxViewModel) {
+    AlertDialog(
+        onDismissRequest = vm::clearSelection,
+        title = { Text(stringResource(R.string.confirm_delete_title)) },
+        text = { Text(stringResource(R.string.cannot_undo)) },
+        confirmButton = { TextButton(onClick = { vm.deleteSelected(confirmed = true) }) { Text(stringResource(R.string.delete_forever)) } },
+        dismissButton = { TextButton(onClick = vm::clearSelection) { Text(stringResource(R.string.cancel)) } },
+    )
 }
 
 @Composable

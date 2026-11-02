@@ -618,6 +618,25 @@ impl Engine {
         Ok(self.backend.delete_forever(folder_id, uid).await?)
     }
 
+    /// Marks several messages read or unread with one server command.
+    pub async fn set_seen_many(&self, folder_id: String, uids: Vec<u32>, seen: bool) -> Result<()> {
+        Ok(self.backend.set_seen_many(folder_id, uids, seen).await?)
+    }
+
+    pub async fn move_many(&self, folder_id: String, uids: Vec<u32>, target_id: String) -> Result<()> {
+        Ok(self.backend.move_many(folder_id, uids, target_id).await?)
+    }
+
+    /// Moves several messages to the Archive (created if missing).
+    pub async fn archive_many(&self, folder_id: String, uids: Vec<u32>) -> Result<String> {
+        let folders = lock(&self.folders).clone();
+        Ok(self.backend.archive_many(folder_id, uids, folders).await?)
+    }
+
+    pub async fn delete_forever_many(&self, folder_id: String, uids: Vec<u32>) -> Result<()> {
+        Ok(self.backend.delete_forever_many(folder_id, uids).await?)
+    }
+
     /// Sends and stores a copy in Sent. Returns a warning if the message
     /// went out but the copy could not be saved.
     pub async fn send(&self, message: Outgoing) -> Result<Option<String>> {

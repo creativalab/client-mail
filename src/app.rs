@@ -37,6 +37,39 @@ pub enum Section {
     Appearance,
 }
 
+/// "Select" menu above the list (Gmail-style).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Select {
+    All,
+    None,
+    Read,
+    Unread,
+}
+
+impl Select {
+    pub const ALL: [Select; 4] = [Select::All, Select::None, Select::Read, Select::Unread];
+}
+
+impl std::fmt::Display for Select {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(t(match self {
+            Select::All => "select_all",
+            Select::None => "select_none",
+            Select::Read => "select_read",
+            Select::Unread => "select_unread",
+        }))
+    }
+}
+
+/// Actions on the checked messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bulk {
+    Read,
+    Unread,
+    Archive,
+    Delete,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ListFilter {
     All,
@@ -382,6 +415,10 @@ pub struct App {
     pending_action: Option<(u32, CtxAction)>,
     pub loading_message: bool,
     pub confirm_delete: bool,
+    /// Messages checked in the list (uids of the open folder).
+    pub checked: std::collections::BTreeSet<u32>,
+    /// The delete dialog is for the checked messages, not the open one.
+    pub bulk_delete: bool,
     pub appearance_open: bool,
     pub compose: Option<Compose>,
     pub draft: AccountDraft,
@@ -445,6 +482,16 @@ pub enum Message {
     // list
     Search(String),
     SetFilter(ListFilter),
+    /// Checkbox of a list row: its uids (a whole conversation when grouped).
+    Check(Vec<u32>, bool),
+    SelectBy(Select),
+    Bulk(Bulk),
+    BulkDone {
+        uids: Vec<u32>,
+        note: &'static str,
+        result: Res<()>,
+    },
+    BulkSeen(Res<()>),
     /// Conversations (true) or one row per message (false).
     SetThreaded(bool),
     Open(u32),
@@ -614,6 +661,8 @@ impl App {
             pending_action: None,
             loading_message: false,
             confirm_delete: false,
+            checked: Default::default(),
+            bulk_delete: false,
             appearance_open: false,
             compose: None,
             draft,
@@ -837,6 +886,69 @@ impl App {
             CtxAction::DeleteForever => self.ask_delete_forever(uid),
             CtxAction::Move(target) => self.move_message(uid, target),
             CtxAction::MoveMenu => Task::none(),
+        }
+    }
+
+    /// An action on all checked messages, one server command each.
+    fn bulk(&mut self, action: Bulk) -> Task<Message> {
+        let Some(folder) = self.current_folder.clone() else {
+            return Task::none();
+        };
+        let uids: Vec<u32> = self.checked.iter().copied().collect();
+        if uids.is_empty() {
+            return Task::none();
+        }
+        let b = self.backend.clone();
+        let done = |note: &'static str, uids: Vec<u32>| {
+            move |result| Message::BulkDone {
+                uids: uids.clone(),
+                note,
+                result,
+            }
+        };
+        match action {
+            Bulk::Read | Bulk::Unread => {
+                let seen = action == Bulk::Read;
+                for h in self
+                    .headers
+                    .iter_mut()
+                    .chain(self.search_results.iter_mut().flatten())
+                {
+                    if uids.contains(&h.uid) {
+                        h.seen = seen;
+                    }
+                }
+                self.perform(
+                    async move { b.set_seen_many(folder, uids, seen).await },
+                    Message::BulkSeen,
+                )
+            }
+            Bulk::Archive => {
+                if self.current_kind() == FolderKind::Archive {
+                    return Task::none();
+                }
+                let folders = self.folders.clone();
+                let ids = uids.clone();
+                self.perform(
+                    async move { b.archive_many(folder, ids, folders).await.map(|_| ()) },
+                    done("bulk_archived", uids),
+                )
+            }
+            Bulk::Delete => match self.folder_by_kind(FolderKind::Trash).map(|f| f.name.clone()) {
+                Some(trash) if trash != folder => {
+                    let ids = uids.clone();
+                    self.perform(
+                        async move { b.move_many(folder, ids, trash).await },
+                        done("bulk_trashed", uids),
+                    )
+                }
+                // In Trash: confirm, then delete for good.
+                _ => {
+                    self.bulk_delete = true;
+                    self.confirm_delete = true;
+                    Task::none()
+                }
+            },
         }
     }
 
@@ -1358,7 +1470,57 @@ impl App {
                 Task::none()
             }
             Message::Unseen(Err(_)) => Task::none(),
+            Message::Check(uids, on) => {
+                for uid in uids {
+                    if on {
+                        self.checked.insert(uid);
+                    } else {
+                        self.checked.remove(&uid);
+                    }
+                }
+                Task::none()
+            }
+            Message::SelectBy(kind) => {
+                let pick: Vec<u32> = self
+                    .visible()
+                    .iter()
+                    .filter(|h| match kind {
+                        Select::All => true,
+                        Select::None => false,
+                        Select::Read => h.seen,
+                        Select::Unread => !h.seen,
+                    })
+                    .map(|h| h.uid)
+                    .collect();
+                self.checked = pick.into_iter().collect();
+                Task::none()
+            }
+            Message::Bulk(action) => self.bulk(action),
+            Message::BulkSeen(result) => match result {
+                Ok(()) => {
+                    self.checked.clear();
+                    self.refresh_unseen()
+                }
+                Err(e) => self.toast(e, true),
+            },
+            Message::BulkDone { uids, note, result } => match result {
+                Ok(()) => {
+                    self.headers.retain(|h| !uids.contains(&h.uid));
+                    if let Some(r) = self.search_results.as_mut() {
+                        r.retain(|h| !uids.contains(&h.uid));
+                    }
+                    if self.selected.is_some_and(|u| uids.contains(&u)) {
+                        self.selected = None;
+                        self.message = None;
+                    }
+                    self.checked.clear();
+                    let note = tf(note, &[("n", &uids.len().to_string())]);
+                    Task::batch([self.toast(note, false), self.refresh_unseen()])
+                }
+                Err(e) => self.toast(e, true),
+            },
             Message::SelectFolder(name) => {
+                self.checked.clear();
                 self.appearance_open = false;
                 self.screen = Screen::Mail;
                 if self.current_folder.as_deref() == Some(&name) {
@@ -1979,6 +2141,24 @@ impl App {
                 Some(uid) => self.delete(uid),
                 None => Task::none(),
             },
+            Message::ConfirmDelete(yes) if self.bulk_delete => {
+                self.confirm_delete = false;
+                self.bulk_delete = false;
+                let (true, Some(folder)) = (yes, self.current_folder.clone()) else {
+                    return Task::none();
+                };
+                let uids: Vec<u32> = self.checked.iter().copied().collect();
+                let b = self.backend.clone();
+                let ids = uids.clone();
+                self.perform(
+                    async move { b.delete_forever_many(folder, ids).await },
+                    move |result| Message::BulkDone {
+                        uids: uids.clone(),
+                        note: "bulk_deleted_forever",
+                        result,
+                    },
+                )
+            }
             Message::ConfirmDelete(yes) => {
                 self.confirm_delete = false;
                 let (true, Some(uid), Some(folder)) = (yes, self.selected, self.current_folder.clone())
@@ -2408,6 +2588,15 @@ impl App {
                         at: iced::Point::new(420.0, 260.0),
                         folders: false,
                     });
+                }
+                // Development: check the first N rows to show the bulk bar.
+                if let Some(n) = std::env::var("FERROWL_DEV_CHECK")
+                    .ok()
+                    .and_then(|n| n.parse::<usize>().ok())
+                    && self.checked.is_empty()
+                {
+                    let first: Vec<u32> = self.visible().iter().take(n).map(|h| h.uid).collect();
+                    self.checked.extend(first);
                 }
                 if std::env::var_os("FERROWL_SCREENSHOT_OPEN").is_some() && self.selected.is_none() {
                     let nth = std::env::var("FERROWL_DEV_OPEN_NTH")

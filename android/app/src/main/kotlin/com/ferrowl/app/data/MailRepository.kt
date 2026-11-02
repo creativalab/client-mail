@@ -118,6 +118,29 @@ class MailRepository @Inject constructor(
         }
     }
 
+    /** Marks several messages read or unread at once. */
+    suspend fun setSeen(folderId: String, uids: List<UInt>, seen: Boolean) {
+        engine.setSeenMany(folderId, uids, seen)
+        _changes.emit(Unit)
+    }
+
+    suspend fun archive(folderId: String, uids: List<UInt>) {
+        engine.archiveMany(folderId, uids)
+        changed(translate("bulk_archived").replace("{n}", uids.size.toString()))
+    }
+
+    /** Moves several messages to the Trash, or deletes them for good when already there. */
+    suspend fun delete(folderId: String, uids: List<UInt>) {
+        val n = uids.size.toString()
+        if (deletesForever(folderId)) {
+            engine.deleteForeverMany(folderId, uids)
+            changed(translate("bulk_deleted_forever").replace("{n}", n))
+        } else {
+            engine.moveMany(folderId, uids, folderOf(FolderKind.TRASH)!!.id)
+            changed(translate("bulk_trashed").replace("{n}", n))
+        }
+    }
+
     /**
      * Sends; Markdown formatting typed by the user also goes out as HTML,
      * as on desktop. A warning is shown when the copy in Sent failed.
