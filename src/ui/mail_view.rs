@@ -1,7 +1,7 @@
 //! Main window: top bar · folders · list · reader (Main.dc.html).
 
 use super::*;
-use crate::app::{App, Bulk, Conn, ListFilter, READER_ID, SEARCH_ID, Section, Select};
+use crate::app::{App, Bulk, Conn, ListFilter, MoveTarget, READER_ID, SEARCH_ID, Section, Select};
 use crate::i18n::{self, SUPPORT_EMAIL, t, tf};
 use crate::mail::{Folder, FolderKind};
 use crate::theme;
@@ -562,6 +562,23 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             act(icons::EYE, t("mark_read"), Message::Bulk(Bulk::Read)),
             act(icons::MAIL, t("mark_unread"), Message::Bulk(Bulk::Unread)),
             act(icons::ARCHIVE, t("archive"), Message::Bulk(Bulk::Archive)),
+            {
+                // "Move to": every other selectable folder.
+                let targets: Vec<MoveTarget> = app
+                    .folders
+                    .iter()
+                    .filter(|f| f.selectable && app.current_folder.as_deref() != Some(f.name.as_str()))
+                    .map(|f| MoveTarget {
+                        name: f.name.clone(),
+                        label: app.folder_label(&f.name),
+                    })
+                    .collect();
+                iced::widget::pick_list(targets, None::<MoveTarget>, Message::BulkMove)
+                    .placeholder(t("move_to"))
+                    .text_size(12)
+                    .padding([4, 8])
+                    .into()
+            },
             act(icons::TRASH, t("delete"), Message::Bulk(Bulk::Delete)),
             act(icons::CLOSE, t("select_none"), Message::SelectBy(Select::None)),
         ])

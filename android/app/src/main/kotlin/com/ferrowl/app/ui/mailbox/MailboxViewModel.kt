@@ -154,6 +154,8 @@ class MailboxViewModel @Inject constructor(
 
     fun archiveSelected() = bulk { folder, uids -> repo.archive(folder, uids) }
 
+    fun moveSelected(targetId: String) = bulk { folder, uids -> repo.move(folder, uids, targetId) }
+
     /** Trash, or (in the Trash) ask first and then delete for good. */
     fun deleteSelected(confirmed: Boolean = false) {
         val s = _state.value

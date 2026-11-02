@@ -70,6 +70,19 @@ pub enum Bulk {
     Delete,
 }
 
+/// A folder in the "Move to" menu of the selection bar.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MoveTarget {
+    pub name: String,
+    pub label: String,
+}
+
+impl std::fmt::Display for MoveTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.label)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ListFilter {
     All,
@@ -486,6 +499,8 @@ pub enum Message {
     Check(Vec<u32>, bool),
     SelectBy(Select),
     Bulk(Bulk),
+    /// Moves the checked messages to a folder.
+    BulkMove(MoveTarget),
     BulkDone {
         uids: Vec<u32>,
         note: &'static str,
@@ -1496,6 +1511,25 @@ impl App {
                 Task::none()
             }
             Message::Bulk(action) => self.bulk(action),
+            Message::BulkMove(target) => {
+                let Some(folder) = self.current_folder.clone().filter(|f| *f != target.name) else {
+                    return Task::none();
+                };
+                let uids: Vec<u32> = self.checked.iter().copied().collect();
+                if uids.is_empty() {
+                    return Task::none();
+                }
+                let b = self.backend.clone();
+                let ids = uids.clone();
+                self.perform(
+                    async move { b.move_many(folder, ids, target.name).await },
+                    move |result| Message::BulkDone {
+                        uids: uids.clone(),
+                        note: "bulk_moved",
+                        result,
+                    },
+                )
+            }
             Message::BulkSeen(result) => match result {
                 Ok(()) => {
                     self.checked.clear();

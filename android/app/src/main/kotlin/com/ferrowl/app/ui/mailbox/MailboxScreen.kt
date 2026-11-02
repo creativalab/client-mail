@@ -73,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrowl.app.R
+import com.ferrowl.core.Folder
 import com.ferrowl.core.Header
 import kotlinx.coroutines.launch
 
@@ -135,7 +136,7 @@ fun MailboxScreen(
         Scaffold(
             topBar = {
                 if (s.selecting) {
-                    SelectionBar(s.selected.size, vm)
+                    SelectionBar(s.selected.size, vm, s.folders, s.folderId)
                 } else TopAppBar(
                     navigationIcon = {
                         IconButton(onClick = { scope.launch { drawer.open() } }) {
@@ -244,8 +245,15 @@ private fun ViewModeSwitch(threaded: Boolean, onChange: (Boolean) -> Unit) {
 /** Top bar while messages are checked: count, select menu and bulk actions. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SelectionBar(count: Int, vm: MailboxViewModel) {
+private fun SelectionBar(count: Int, vm: MailboxViewModel, folders: List<Folder>, current: String) {
     var menu by remember { mutableStateOf(false) }
+    var moving by remember { mutableStateOf(false) }
+    if (moving) {
+        MoveDialog(folders.filter { it.selectable && it.id != current }, onDismiss = { moving = false }) { target ->
+            moving = false
+            vm.moveSelected(target)
+        }
+    }
     TopAppBar(
         navigationIcon = {
             IconButton(onClick = vm::clearSelection) {
@@ -271,6 +279,7 @@ private fun SelectionBar(count: Int, vm: MailboxViewModel) {
                 item(R.string.mark_read) { vm.markSelected(true) }
                 item(R.string.mark_unread) { vm.markSelected(false) }
                 item(R.string.archive) { vm.archiveSelected() }
+                item(R.string.move_to) { moving = true }
             }
         },
     )
@@ -342,6 +351,30 @@ private fun RowBody(h: Header, count: Int, unread: Boolean, weight: FontWeight) 
             overflow = TextOverflow.Ellipsis,
         )
     }
+}
+
+/** "Move to": the folders, as on the drawer. */
+@Composable
+private fun MoveDialog(folders: List<Folder>, onDismiss: () -> Unit, onPick: (String) -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.move_to)) },
+        text = {
+            LazyColumn {
+                items(folders, key = { it.id }) { f ->
+                    Text(
+                        f.name,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .combinedClickable(onClick = { onPick(f.id) })
+                            .padding(start = (16 * (f.path.size - 1).coerceAtLeast(0)).dp, top = 12.dp, bottom = 12.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+    )
 }
 
 @Composable

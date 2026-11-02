@@ -129,6 +129,12 @@ class MailRepository @Inject constructor(
         changed(translate("bulk_archived").replace("{n}", uids.size.toString()))
     }
 
+    /** Moves several messages to another folder. */
+    suspend fun move(folderId: String, uids: List<UInt>, targetId: String) {
+        engine.moveMany(folderId, uids, targetId)
+        changed(translate("bulk_moved").replace("{n}", uids.size.toString()))
+    }
+
     /** Moves several messages to the Trash, or deletes them for good when already there. */
     suspend fun delete(folderId: String, uids: List<UInt>) {
         val n = uids.size.toString()
