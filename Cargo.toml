@@ -32,7 +32,7 @@ tokio = { version = "1.54.1", features = ["rt-multi-thread", "time"] }
 ureq = "3"
 
 [workspace]
-members = ["core", "server"]
+members = ["core", "ffi", "server"]
 
 [profile.release]
 strip = true

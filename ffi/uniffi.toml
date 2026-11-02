@@ -1,0 +1,4 @@
+# Options for the generated Kotlin/Swift sources.
+[bindings.kotlin]
+package_name = "com.ferrowl.core"
+cdylib_name = "ferrowl_ffi"

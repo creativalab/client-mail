@@ -139,10 +139,65 @@ parallelo.
 - **Dimensione dell'app**: il core Rust con SQLite e rPGP aggiunge circa
   8–15 MB per architettura; accettabile, da misurare nella fase 1.
 
-## Decisioni da prendere
+## Decisioni prese (2 novembre 2026)
 
-1. Interfacce native (consigliato) o un'unica interfaccia Rust (Slint/Dioxus)?
-2. Prima Android, prima iOS, o entrambe in parallelo?
-3. Server push: sì o no, e chi lo ospita?
-4. Stesso repository (workspace con `core/`, `desktop/`, `ios/`, `android/`) o
-   repository separati?
+1. **Interfacce native**: Kotlin + Jetpack Compose su Android, SwiftUI su iOS.
+2. **Prima Android**, poi iOS.
+3. **Server push sì** (opzione 1), insieme all'aggiornamento in background.
+4. **Stesso repository**: `core/` (motore), `ffi/` (collegamenti UniFFI),
+   `android/`, poi `ios/` e `server/`.
+
+## Android: scelte tecniche
+
+Seguono le raccomandazioni ufficiali di Google («Guide to app architecture»,
+«Now in Android» come progetto di riferimento), perché il codice Kotlin deve
+restare leggibile anche a chi non lo conosce.
+
+| Area | Scelta | Perché |
+|---|---|---|
+| Linguaggio e interfaccia | Kotlin, Jetpack Compose, Material 3 | standard attuale; niente XML per le schermate |
+| Struttura | una sola Activity, Navigation Compose | standard; la navigazione sta nel codice |
+| Architettura | livelli UI → ViewModel → Repository → motore Rust | consigliata da Google; ogni livello si prova da solo |
+| Stato | `StateFlow` immutabile esposto dal ViewModel, eventi verso il ViewModel | flusso dei dati in una sola direzione |
+| Asincronia | coroutine; le funzioni async del motore diventano `suspend` (UniFFI) | niente callback annidate |
+| Dipendenze tra classi | Hilt | standard Google, meno codice scritto a mano |
+| Lavoro in background | WorkManager (sincronizzazione periodica) | sopravvive a riavvii e risparmio energetico |
+| Password e chiavi | Android Keystore (chiave hardware) che cifra i segreti salvati con DataStore | `EncryptedSharedPreferences` è deprecato |
+| Mail HTML | `WebView` con JavaScript spento, nessun accesso a file, CSP restrittiva | come il desktop: immagini remote bloccabili |
+| Build | Gradle Kotlin DSL, catalogo versioni (`libs.versions.toml`), `cargo-ndk` per il motore | configurazione tipizzata, versioni in un posto solo |
+| Versioni | minSdk 26 (Android 8), targetSdk ultimo | copre oltre il 95% dei telefoni |
+| Qualità | ktlint + detekt, Android Lint, test con JUnit e Compose UI test, CI GitHub | stessi controlli obbligatori del desktop |
+| Traduzioni | `strings.xml` generati da `core/locales/*.toml` | una sola fonte per desktop e mobile |
+
+## Server push: progetto
+
+Servizio Rust (`server/`, stesso workspace) che riusa `ferrowl-core`.
+
+- **Cosa fa**: per ogni account registrato tiene una connessione IMAP IDLE
+  sulla posta in arrivo; quando arriva un messaggio manda un messaggio FCM
+  *data-only* al telefono con solo «nuova posta per l'account N». Il telefono
+  poi scarica la posta direttamente dal server di posta. Il server **non
+  legge né conserva** il contenuto dei messaggi.
+- **Credenziali**: servono per IDLE. Salvate cifrate (AES-256-GCM) con una
+  chiave per dispositivo che resta **sul telefono**: il server la riceve
+  quando il telefono si collega e la tiene solo in memoria, mai su disco.
+  Un furto del database non basta a leggere le credenziali; dopo un riavvio
+  del server il telefono rimanda la chiave alla prima sincronizzazione. Con gli
+  account OAuth (Microsoft, Google) si salva il token di aggiornamento, mai la
+  password.
+- **API**: HTTPS (axum + rustls); registrazione dispositivo con token FCM,
+  aggiunta/rimozione account, cancellazione di tutto con una chiamata.
+- **Hosting**: una piccola VPS (2–5 €/mese) con il servizio systemd e Caddy
+  per HTTPS. L'hosting cPanel attuale non va bene: non tiene processi sempre
+  attivi.
+- **Privacy**: informativa aggiornata sul sito; il servizio è facoltativo e
+  disattivabile; senza server l'app usa WorkManager.
+- **Firebase**: serve un progetto Firebase gratuito (solo Cloud Messaging) e il
+  suo `google-services.json` nell'app.
+
+## Prossimi passi
+
+1. Fase 1: crate `ffi/` con UniFFI, build Android con `cargo-ndk`, collegamenti
+   Kotlin generati, AAR in CI.
+2. Fase 2: app Android (`android/`).
+3. Server push, in parallelo dalla fase 2.
