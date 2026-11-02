@@ -1256,9 +1256,8 @@ pub fn toast_layer<'a>(app: &'a App, p: Palette) -> Option<Element<'a, Message>>
     let accent = if toast.error { p.danger } else { p.accent };
     let boxed = container(
         row![
-            // Accent bar as tall as the text block, everything centered vertically.
-            container(space().width(4).height(if toast.error { 46 } else { 20 }))
-                .style(chip_box(accent, accent, 2.0)),
+            // Accent bar as tall as the toast; text and close button centered.
+            container(space().width(4).height(Fill)).style(chip_box(accent, accent, 2.0)),
             col.width(Fill),
             close
         ]
@@ -1349,6 +1348,37 @@ fn context_menu<'a>(app: &'a App, m: &'a crate::app::ContextMenu, p: Palette) ->
         .on_press(Message::MenuAction(uid, action))
         .into()
     };
+    // Item with the keyboard shortcut shown as a hint at the end of the row.
+    let item_kbd = |svg: &'static str,
+                    label: String,
+                    key: &'static str,
+                    action: CtxAction,
+                    danger: bool|
+     -> Element<'a, Message> {
+        let fg = if danger { p.danger } else { p.text };
+        button(
+            row![
+                icon(svg, 15.0, fg),
+                text(label)
+                    .size(13)
+                    .color(fg)
+                    .width(Fill)
+                    .wrapping(Wrapping::None),
+                text(key)
+                    .size(11)
+                    .font(MONO)
+                    .color(p.muted)
+                    .wrapping(Wrapping::None),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center),
+        )
+        .width(Fill)
+        .padding([7, 12])
+        .style(ghost(p, fg))
+        .on_press(Message::MenuAction(uid, action))
+        .into()
+    };
     let sep = || {
         container(space().height(1))
             .width(Fill)
@@ -1428,9 +1458,10 @@ fn context_menu<'a>(app: &'a App, m: &'a crate::app::ContextMenu, p: Palette) ->
             ));
         } else {
             v.push(item(icons::TRASH, t("delete").into(), CtxAction::Delete, true));
-            v.push(item(
+            v.push(item_kbd(
                 icons::TRASH,
-                format!("{} (Shift+Del)", t("delete_forever")),
+                t("delete_forever").into(),
+                "Shift+Del",
                 CtxAction::DeleteForever,
                 true,
             ));
@@ -1439,7 +1470,7 @@ fn context_menu<'a>(app: &'a App, m: &'a crate::app::ContextMenu, p: Palette) ->
     };
 
     let menu = container(Column::with_children(items).spacing(2))
-        .width(240)
+        .width(290)
         .max_height(420)
         .padding(6)
         .style(move |_| container::Style {
@@ -1457,7 +1488,7 @@ fn context_menu<'a>(app: &'a App, m: &'a crate::app::ContextMenu, p: Palette) ->
             ..Default::default()
         });
     // Keep the menu inside the window.
-    let x = m.at.x.min(app.window_width - 250.0).max(0.0);
+    let x = m.at.x.min(app.window_width - 300.0).max(0.0);
     let y = m.at.y.min(app.window_height - 400.0).max(0.0);
     let placed = container(opaque(menu)).padding(Padding {
         top: y,
@@ -1666,6 +1697,12 @@ fn delete_dialog<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         .style(outline_btn(p, p.text))
         .on_press(Message::ConfirmDelete(false));
 
+    // Texts start on the right in right-to-left languages.
+    let text_start = if i18n::is_rtl() {
+        Alignment::End
+    } else {
+        Alignment::Start
+    };
     let dialog = container(
         column![
             dir_row(vec![
@@ -1683,6 +1720,7 @@ fn delete_dialog<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                 ]
                 .spacing(4)
                 .width(Fill)
+                .align_x(text_start)
                 .into(),
             ])
             .spacing(14)
@@ -1690,7 +1728,8 @@ fn delete_dialog<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             text(t("cannot_undo")).size(14).color(p.muted),
             dir_row(vec![space::horizontal().into(), cancel.into(), danger_btn.into()]).spacing(10),
         ]
-        .spacing(20),
+        .spacing(20)
+        .align_x(text_start),
     )
     .padding(24)
     .max_width(480)

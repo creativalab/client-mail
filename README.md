@@ -96,6 +96,10 @@ Environment variables useful during development:
 | `FERROWL_DEV_VIEW=settings\|appearance\|general\|security\|compose\|popover` | Open a view directly |
 | `FERROWL_SCREENSHOT=out.png` | Capture the window after `FERROWL_SCREENSHOT_DELAY` seconds (default 8) and quit |
 | `FERROWL_SCREENSHOT_OPEN=1` | Open the first message before capturing (`FERROWL_DEV_OPEN_NTH=n` for another row, `FERROWL_DEV_PREVIEW_ATT=1` to preview its first attachment) |
+| `FERROWL_SCREENSHOT_COUNT=n` | Take n captures (`out.png`, `out.2.png`, …) before quitting |
+| `FERROWL_DEV_MENU=1` | Open the context menu on the second message |
+| `FERROWL_DEV_CONFIRM=1` | Show the "delete forever?" dialog for the open message |
+| `FERROWL_DEV_PREVIEW=1` | With `FERROWL_DEV_VIEW=compose`, show the formatted preview |
 
 The design handoff (mockups, tokens, icon) is in [`design/`](design/).
 

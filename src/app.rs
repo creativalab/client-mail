@@ -814,21 +814,13 @@ impl App {
                     },
                 )
             }
-            // In Trash (or no Trash folder): open it and ask for confirmation.
-            _ => {
-                let open = if self.selected != Some(uid) {
-                    self.open(uid)
-                } else {
-                    Task::none()
-                };
-                self.confirm_delete = true;
-                open
-            }
+            // In Trash (or no Trash folder): ask before deleting for good.
+            _ => self.ask_delete_forever(uid),
         }
     }
 
-    /// Shows the "delete forever?" confirmation for a message (opening it if
-    /// needed: the confirmation bar belongs to the reader).
+    /// Shows the "delete forever?" dialog for a message (selecting/opening it
+    /// first, since the dialog acts on the selected message).
     fn ask_delete_forever(&mut self, uid: u32) -> Task<Message> {
         let open = if self.selected != Some(uid) {
             self.open(uid)
@@ -2341,8 +2333,6 @@ impl App {
                 self.drag = None;
             } else if self.appearance_open {
                 self.appearance_open = false;
-            } else if self.confirm_delete {
-                self.confirm_delete = false;
             }
             return Task::none();
         }
