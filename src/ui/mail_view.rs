@@ -1461,12 +1461,22 @@ fn context_menu<'a>(app: &'a App, m: &'a crate::app::ContextMenu, p: Palette) ->
             false,
         ));
         v.push(sep());
-        let delete = if kind == FolderKind::Trash {
-            t("delete_forever")
+        if kind == FolderKind::Trash {
+            v.push(item(
+                icons::TRASH,
+                t("delete_forever").into(),
+                CtxAction::Delete,
+                true,
+            ));
         } else {
-            t("delete")
-        };
-        v.push(item(icons::TRASH, delete.into(), CtxAction::Delete, true));
+            v.push(item(icons::TRASH, t("delete").into(), CtxAction::Delete, true));
+            v.push(item(
+                icons::TRASH,
+                format!("{} (Shift+Del)", t("delete_forever")),
+                CtxAction::DeleteForever,
+                true,
+            ));
+        }
         v
     };
 

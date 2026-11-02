@@ -88,6 +88,7 @@ pub enum CtxAction {
     ToggleRead,
     Archive,
     Delete,
+    DeleteForever,
     /// Show the folder list inside the menu.
     MoveMenu,
     Move(String),
@@ -775,6 +776,7 @@ impl App {
             CtxAction::ToggleRead => self.toggle_read(uid),
             CtxAction::Archive => self.archive(uid),
             CtxAction::Delete => self.delete(uid),
+            CtxAction::DeleteForever => self.ask_delete_forever(uid),
             CtxAction::Move(target) => self.move_message(uid, target),
             CtxAction::MoveMenu => Task::none(),
         }
@@ -823,6 +825,18 @@ impl App {
                 open
             }
         }
+    }
+
+    /// Shows the "delete forever?" confirmation for a message (opening it if
+    /// needed: the confirmation bar belongs to the reader).
+    fn ask_delete_forever(&mut self, uid: u32) -> Task<Message> {
+        let open = if self.selected != Some(uid) {
+            self.open(uid)
+        } else {
+            Task::none()
+        };
+        self.confirm_delete = true;
+        open
     }
 
     fn move_message(&mut self, uid: u32, target: String) -> Task<Message> {
@@ -2345,6 +2359,11 @@ impl App {
             Key::Character("/") => operation::focus(SEARCH_ID),
             Key::Named(Named::ArrowDown) => self.step(1),
             Key::Named(Named::ArrowUp) => self.step(-1),
+            // Shift+Del: delete for good, skipping Trash (asks first).
+            Key::Named(Named::Delete) if modifiers.shift() => match self.selected {
+                Some(uid) => self.ask_delete_forever(uid),
+                None => Task::none(),
+            },
             Key::Named(Named::Delete) => self.update(Message::Delete),
             _ => Task::none(),
         }
