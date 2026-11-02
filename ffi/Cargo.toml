@@ -1,0 +1,28 @@
+[package]
+name = "ferrowl-ffi"
+version = "0.3.0"
+edition = "2024"
+description = "Bindings of ferrowl-core for the mobile apps (UniFFI: Kotlin, Swift)"
+license = "MIT"
+publish = false
+
+[lib]
+name = "ferrowl_ffi"
+# cdylib: Android (.so); staticlib: iOS; lib: the bindgen binary and tests.
+crate-type = ["cdylib", "staticlib", "lib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[features]
+# Only for generating the Kotlin/Swift sources on the developer machine/CI.
+bindgen = ["uniffi/cli"]
+
+[dependencies]
+# Mobile apps keep secrets through the platform (Android Keystore, iOS Keychain).
+ferrowl-core = { path = "../core", default-features = false }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "logging", "tls12"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "time"] }
+uniffi = { version = "0.32", features = ["tokio"] }
