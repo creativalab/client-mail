@@ -32,7 +32,12 @@ data class MailboxState(
     val results: List<Header> = emptyList(),
     /** Conversations (true) or one row per message. */
     val threaded: Boolean = true,
+    /** Checked messages (uids); not empty = selection mode. */
+    val selected: Set<UInt> = emptySet(),
+    /** Asking before deleting the selection for good (in the Trash). */
+    val confirmDelete: Boolean = false,
 ) {
+    val selecting: Boolean get() = selected.isNotEmpty()
     val folder: Folder? get() = folders.firstOrNull { it.id == folderId }
     val shown: List<Header> get() = if (query.isBlank()) messages else results
 
@@ -81,7 +86,7 @@ class MailboxViewModel @Inject constructor(
 
     fun openFolder(id: String) {
         if (id == _state.value.folderId) return
-        _state.update { it.copy(folderId = id, messages = emptyList(), query = "", results = emptyList()) }
+        _state.update { it.copy(folderId = id, messages = emptyList(), query = "", results = emptyList(), selected = emptySet()) }
         refresh()
     }
 
@@ -114,6 +119,64 @@ class MailboxViewModel @Inject constructor(
             _state.update { it.copy(searching = true) }
             val found = repo.search(_state.value.folderId, text)
             _state.update { it.copy(results = found, searching = false) }
+        }
+    }
+
+    /** Checks or unchecks a row (all messages of a conversation). */
+    fun toggle(uids: List<UInt>) = _state.update { s ->
+        val all = s.selected.containsAll(uids)
+        s.copy(selected = if (all) s.selected - uids.toSet() else s.selected + uids)
+    }
+
+    enum class Pick { ALL, NONE, READ, UNREAD }
+
+    fun select(pick: Pick) = _state.update { s ->
+        s.copy(
+            selected = s.shown.filter {
+                when (pick) {
+                    Pick.ALL -> true
+                    Pick.NONE -> false
+                    Pick.READ -> it.seen
+                    Pick.UNREAD -> !it.seen
+                }
+            }.map { it.uid }.toSet(),
+        )
+    }
+
+    fun clearSelection() = _state.update { it.copy(selected = emptySet(), confirmDelete = false) }
+
+    fun markSelected(seen: Boolean) = bulk { folder, uids ->
+        _state.update { s ->
+            s.copy(messages = s.messages.map { if (it.uid in uids) it.copy(seen = seen) else it })
+        }
+        repo.setSeen(folder, uids, seen)
+    }
+
+    fun archiveSelected() = bulk { folder, uids -> repo.archive(folder, uids) }
+
+    fun moveSelected(targetId: String) = bulk { folder, uids -> repo.move(folder, uids, targetId) }
+
+    /** Trash, or (in the Trash) ask first and then delete for good. */
+    fun deleteSelected(confirmed: Boolean = false) {
+        val s = _state.value
+        if (!confirmed && repo.deletesForever(s.folderId)) {
+            _state.update { it.copy(confirmDelete = true) }
+            return
+        }
+        bulk { folder, uids -> repo.delete(folder, uids) }
+    }
+
+    private fun bulk(action: suspend (folder: String, uids: List<UInt>) -> Unit) {
+        val s = _state.value
+        val uids = s.selected.toList()
+        if (uids.isEmpty()) return
+        _state.update { it.copy(selected = emptySet(), confirmDelete = false) }
+        viewModelScope.launch {
+            try {
+                action(s.folderId, uids)
+            } catch (e: FerrowlException) {
+                _state.update { it.copy(error = e.message) }
+            }
         }
     }
 

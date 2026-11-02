@@ -1,7 +1,7 @@
 //! Main window: top bar · folders · list · reader (Main.dc.html).
 
 use super::*;
-use crate::app::{App, Conn, ListFilter, READER_ID, SEARCH_ID, Section};
+use crate::app::{App, Bulk, Conn, ListFilter, MoveTarget, READER_ID, SEARCH_ID, Section, Select};
 use crate::i18n::{self, SUPPORT_EMAIL, t, tf};
 use crate::mail::{Folder, FolderKind};
 use crate::theme;
@@ -525,12 +525,68 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             .style(segment(p, on))
             .on_press(Message::SetThreaded(threaded))
     };
-    let view_mode = container(
-        container(row![mode(t("view_threads"), true), mode(t("view_messages"), false)].spacing(4))
-            .padding(3)
-            .style(chip_box(p.chip, p.text2, 9.0)),
-    )
-    .padding(Padding {
+    let picker = iced::widget::pick_list(Select::ALL, None::<Select>, Message::SelectBy)
+        .placeholder(t("select"))
+        .text_size(12)
+        .padding([4, 8]);
+    let bar: Element<'a, Message> = if app.checked.is_empty() {
+        dir_row(vec![
+            container(row![mode(t("view_threads"), true), mode(t("view_messages"), false)].spacing(4))
+                .padding(3)
+                .style(chip_box(p.chip, p.text2, 9.0))
+                .into(),
+            space::horizontal().into(),
+            picker.into(),
+        ])
+        .align_y(Alignment::Center)
+        .into()
+    } else {
+        // Actions on the checked messages.
+        let act = |ic: &'static str, tip: &'static str, msg: Message| {
+            tooltip(
+                button(icon(ic, 16.0, p.text2))
+                    .padding([6, 8])
+                    .style(ghost(p, p.text2))
+                    .on_press(msg),
+                tip,
+                p,
+            )
+        };
+        dir_row(vec![
+            text(tf("selected_count", &[("n", &app.checked.len().to_string())]))
+                .size(13)
+                .font(semibold())
+                .color(p.text)
+                .into(),
+            space::horizontal().into(),
+            act(icons::EYE, t("mark_read"), Message::Bulk(Bulk::Read)),
+            act(icons::MAIL, t("mark_unread"), Message::Bulk(Bulk::Unread)),
+            act(icons::ARCHIVE, t("archive"), Message::Bulk(Bulk::Archive)),
+            {
+                // "Move to": every other selectable folder.
+                let targets: Vec<MoveTarget> = app
+                    .folders
+                    .iter()
+                    .filter(|f| f.selectable && app.current_folder.as_deref() != Some(f.name.as_str()))
+                    .map(|f| MoveTarget {
+                        name: f.name.clone(),
+                        label: app.folder_label(&f.name),
+                    })
+                    .collect();
+                iced::widget::pick_list(targets, None::<MoveTarget>, Message::BulkMove)
+                    .placeholder(t("move_to"))
+                    .text_size(12)
+                    .padding([4, 8])
+                    .into()
+            },
+            act(icons::TRASH, t("delete"), Message::Bulk(Bulk::Delete)),
+            act(icons::CLOSE, t("select_none"), Message::SelectBy(Select::None)),
+        ])
+        .spacing(2)
+        .align_y(Alignment::Center)
+        .into()
+    };
+    let view_mode = container(bar).padding(Padding {
         top: 0.0,
         right: 20.0,
         bottom: 10.0,
@@ -552,20 +608,49 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         let pad = app.density_padding();
         let preview = app.config.ui.show_preview;
         // One row per conversation (its newest message) or per message.
-        let rows: Vec<(&crate::mail::Header, usize, bool)> = if app.config.ui.threaded {
+        let rows: Vec<(&crate::mail::Header, Vec<u32>, bool)> = if app.config.ui.threaded {
             ferrowl_core::threads::group(&visible)
                 .into_iter()
-                .map(|t| (visible[t.latest()], t.members.len(), t.unread > 0))
+                .map(|t| {
+                    let uids = t.members.iter().map(|&i| visible[i].uid).collect();
+                    (visible[t.latest()], uids, t.unread > 0)
+                })
                 .collect()
         } else {
-            visible.iter().map(|h| (*h, 1, !h.seen)).collect()
+            visible.iter().map(|h| (*h, vec![h.uid], !h.seen)).collect()
         };
         let open_thread = app.selected.map(|uid| app.conversation(uid)).unwrap_or_default();
         let mut col = Column::new();
-        for (h, count, unread) in rows {
+        for (h, uids, unread) in rows {
+            let count = uids.len();
+            let checked = uids.iter().all(|u| app.checked.contains(u));
             let selected =
                 app.selected == Some(h.uid) || (count > 1 && open_thread.iter().any(|m| m.uid == h.uid));
+            let check = button(
+                container(if checked {
+                    text("✓").size(11).color(p.on_accent)
+                } else {
+                    text("").size(11)
+                })
+                .center(14),
+            )
+            .padding(0)
+            .style(move |_, _| button::Style {
+                background: Some(Background::Color(if checked {
+                    p.accent
+                } else {
+                    Color::TRANSPARENT
+                })),
+                border: Border {
+                    color: if checked { p.accent } else { p.field },
+                    width: 1.5,
+                    radius: radius(4.0),
+                },
+                ..Default::default()
+            })
+            .on_press(Message::Check(uids.clone(), !checked));
             let mut top = vec![
+                check.into(),
                 container(space().width(8).height(8))
                     .style(chip_box(
                         if unread { p.accent } else { Color::TRANSPARENT },
@@ -609,7 +694,7 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                         .color(p.text)
                         .wrapping(Wrapping::None)
                 )
-                .padding(indent(16.0))
+                .padding(indent(38.0))
                 .width(Fill)
                 .clip(true),
             ]
@@ -622,7 +707,7 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                             .color(p.muted)
                             .wrapping(Wrapping::None),
                     )
-                    .padding(indent(16.0))
+                    .padding(indent(38.0))
                     .width(Fill)
                     .clip(true),
                 );

@@ -796,35 +796,51 @@ fn raw_header_values(raw: &[u8], name: &str) -> Vec<String> {
 // ---------------------------------------------------------------- changes
 
 /// Moves a message to another folder (MOVE if available, otherwise COPY + delete).
-pub fn move_message(session: &mut ImapSession, from: &str, uid: u32, to: &str) -> Result<()> {
+/// IMAP UID set for one command: "12,15,40".
+fn uid_set(uids: &[u32]) -> String {
+    uids.iter().map(u32::to_string).collect::<Vec<_>>().join(",")
+}
+
+/// Moves messages to another folder (MOVE, or COPY + delete + EXPUNGE).
+pub fn move_message(session: &mut ImapSession, from: &str, uids: &[u32], to: &str) -> Result<()> {
+    if uids.is_empty() {
+        return Ok(());
+    }
     session.select(from)?;
+    let set = uid_set(uids);
     let has_move = session.capabilities().map(|c| c.has_str("MOVE")).unwrap_or(false);
     if has_move {
-        session.uid_mv(uid.to_string(), to)?;
+        session.uid_mv(&set, to)?;
     } else {
-        session.uid_copy(uid.to_string(), to)?;
-        session.uid_store(uid.to_string(), "+FLAGS (\\Deleted)")?;
+        session.uid_copy(&set, to)?;
+        session.uid_store(&set, "+FLAGS (\\Deleted)")?;
         session.expunge()?;
     }
     Ok(())
 }
 
 /// Deletes permanently (used only inside Trash).
-pub fn delete_permanently(session: &mut ImapSession, folder: &str, uid: u32) -> Result<()> {
+pub fn delete_permanently(session: &mut ImapSession, folder: &str, uids: &[u32]) -> Result<()> {
+    if uids.is_empty() {
+        return Ok(());
+    }
     session.select(folder)?;
-    session.uid_store(uid.to_string(), "+FLAGS (\\Deleted)")?;
+    session.uid_store(uid_set(uids), "+FLAGS (\\Deleted)")?;
     session.expunge()?;
     Ok(())
 }
 
-pub fn set_seen(session: &mut ImapSession, folder: &str, uid: u32, seen: bool) -> Result<()> {
+pub fn set_seen(session: &mut ImapSession, folder: &str, uids: &[u32], seen: bool) -> Result<()> {
+    if uids.is_empty() {
+        return Ok(());
+    }
     session.select(folder)?;
     let op = if seen {
         "+FLAGS (\\Seen)"
     } else {
         "-FLAGS (\\Seen)"
     };
-    session.uid_store(uid.to_string(), op)?;
+    session.uid_store(uid_set(uids), op)?;
     Ok(())
 }
 
@@ -1189,6 +1205,72 @@ mod tests {
         let head = String::from_utf8_lossy(&raw);
         assert!(head.contains("Message-ID: <"), "no Message-ID");
         assert!(head.contains("In-Reply-To: <parent@example.org>"));
+    }
+
+    /// Bulk commands on messages whose subject starts with "Ferrowl bulk test":
+    /// unread, read, archive, then permanent delete from the archive.
+    /// `FERROWL_TEST_CONFIG=<config.toml with [account]> cargo test -p ferrowl-core live_bulk_ops -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn live_bulk_ops() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let path = std::env::var("FERROWL_TEST_CONFIG").expect("FERROWL_TEST_CONFIG");
+        let table: toml::Table = toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let account: Account = table["account"].clone().try_into().unwrap();
+        let mut s = connect(&account).unwrap();
+        let folders = list_folders(&mut s).unwrap();
+        let page = fetch_headers(&mut s, "INBOX").unwrap();
+        let uids: Vec<u32> = page
+            .headers
+            .iter()
+            .filter(|h| h.subject.starts_with("Ferrowl bulk test"))
+            .map(|h| h.uid)
+            .collect();
+        assert_eq!(uids.len(), 2, "send two test messages first");
+        let seen = |s: &mut ImapSession| {
+            fetch_headers(s, "INBOX")
+                .unwrap()
+                .headers
+                .iter()
+                .filter(|h| uids.contains(&h.uid))
+                .map(|h| h.seen)
+                .collect::<Vec<_>>()
+        };
+        set_seen(&mut s, "INBOX", &uids, false).unwrap();
+        assert_eq!(seen(&mut s), vec![false, false]);
+        set_seen(&mut s, "INBOX", &uids, true).unwrap();
+        assert_eq!(seen(&mut s), vec![true, true]);
+
+        let archive = folders
+            .iter()
+            .find(|f| f.kind == FolderKind::Archive)
+            .map(|f| f.name.clone())
+            .expect("archive folder");
+        move_message(&mut s, "INBOX", &uids, &archive).unwrap();
+        let left = fetch_headers(&mut s, "INBOX").unwrap();
+        assert!(
+            !left
+                .headers
+                .iter()
+                .any(|h| h.subject.starts_with("Ferrowl bulk test"))
+        );
+        let moved: Vec<u32> = fetch_headers(&mut s, &archive)
+            .unwrap()
+            .headers
+            .iter()
+            .filter(|h| h.subject.starts_with("Ferrowl bulk test"))
+            .map(|h| h.uid)
+            .collect();
+        assert_eq!(moved.len(), 2);
+        delete_permanently(&mut s, &archive, &moved).unwrap();
+        let gone = fetch_headers(&mut s, &archive).unwrap();
+        assert!(
+            !gone
+                .headers
+                .iter()
+                .any(|h| h.subject.starts_with("Ferrowl bulk test"))
+        );
+        println!("bulk unread/read/archive/delete ok on {} messages", uids.len());
     }
 
     #[test]
