@@ -30,10 +30,12 @@ pub enum Provider {
 }
 
 /// Application (client) IDs from the providers' developer consoles. Public
-/// values for a desktop app; set at build time or replace the defaults.
+/// values for a desktop app; an environment variable at build time overrides
+/// the default.
 const MICROSOFT_CLIENT_ID: &str = match option_env!("FERROWL_MICROSOFT_CLIENT_ID") {
     Some(id) => id,
-    None => "",
+    // "Ferrowl" app registration on Microsoft Entra (public client).
+    None => "a127fa58-611f-4cc9-8ef7-cbbc1f849e5d",
 };
 const GOOGLE_CLIENT_ID: &str = match option_env!("FERROWL_GOOGLE_CLIENT_ID") {
     Some(id) => id,
