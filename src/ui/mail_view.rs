@@ -518,28 +518,15 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         left: 20.0,
     });
 
-    let mode = |label: &'static str, threaded: bool| {
-        let on = app.config.ui.threaded == threaded;
-        button(text(label).size(12).font(if on { semibold() } else { INTER }))
-            .padding([4, 8])
-            .style(segment(p, on))
-            .on_press(Message::SetThreaded(threaded))
-    };
     let picker = iced::widget::pick_list(Select::ALL, None::<Select>, Message::SelectBy)
         .placeholder(t("select"))
         .text_size(12)
         .padding([4, 8]);
     let bar: Element<'a, Message> = if app.checked.is_empty() {
-        dir_row(vec![
-            container(row![mode(t("view_threads"), true), mode(t("view_messages"), false)].spacing(4))
-                .padding(3)
-                .style(chip_box(p.chip, p.text2, 9.0))
-                .into(),
-            space::horizontal().into(),
-            picker.into(),
-        ])
-        .align_y(Alignment::Center)
-        .into()
+        // Conversations or messages is chosen in Settings › Appearance.
+        dir_row(vec![space::horizontal().into(), picker.into()])
+            .align_y(Alignment::Center)
+            .into()
     } else {
         // Actions on the checked messages.
         let act = |ic: &'static str, tip: &'static str, msg: Message| {

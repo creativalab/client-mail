@@ -44,9 +44,6 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -87,6 +84,7 @@ fun MailboxScreen(
     onOpen: (folderId: String, uid: UInt) -> Unit,
     onOpenConversation: (folderId: String, uids: List<UInt>) -> Unit,
     onCompose: () -> Unit,
+    onSettings: () -> Unit,
     vm: MailboxViewModel = hiltViewModel(),
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
@@ -126,6 +124,16 @@ fun MailboxScreen(
                             modifier = Modifier.padding(horizontal = 12.dp),
                         )
                     }
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                    NavigationDrawerItem(
+                        label = { Text(stringResource(R.string.settings)) },
+                        selected = false,
+                        onClick = {
+                            scope.launch { drawer.close() }
+                            onSettings()
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
                     // Keeps the last folder clear of the gesture/navigation bar.
                     Spacer(Modifier.navigationBarsPadding().height(12.dp))
                 }
@@ -183,7 +191,6 @@ fun MailboxScreen(
             snackbarHost = { SnackbarHost(snackbar) },
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
-                ViewModeSwitch(threaded = s.threaded, onChange = vm::setThreaded)
                 PullToRefreshBox(
                     isRefreshing = s.refreshing,
                     onRefresh = vm::refresh,
@@ -221,24 +228,6 @@ fun MailboxScreen(
                 }
             }
         }
-    }
-}
-
-/** "Conversations | Messages" above the list. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ViewModeSwitch(threaded: Boolean, onChange: (Boolean) -> Unit) {
-    SingleChoiceSegmentedButtonRow(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        SegmentedButton(
-            selected = threaded,
-            onClick = { onChange(true) },
-            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-        ) { Text(stringResource(R.string.view_threads)) }
-        SegmentedButton(
-            selected = !threaded,
-            onClick = { onChange(false) },
-            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-        ) { Text(stringResource(R.string.view_messages)) }
     }
 }
 

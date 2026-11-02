@@ -180,10 +180,6 @@ class MailboxViewModel @Inject constructor(
         }
     }
 
-    fun setThreaded(on: Boolean) {
-        viewModelScope.launch { settings.setThreaded(on) }
-    }
-
     /** Marks a message read in the list as soon as it is opened. */
     fun opened(uid: UInt) = _state.update { s ->
         s.copy(
