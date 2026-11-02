@@ -439,6 +439,8 @@ pub enum Message {
     CursorMoved(iced::Point),
     /// Window closed: exit right away.
     Quit,
+    /// Another launch asked this window to come forward.
+    Raise,
     MouseDown,
     MouseUp,
     RowEnter(u32),
@@ -641,6 +643,7 @@ impl App {
             iced::time::every(AUTO_REFRESH).map(|_| Message::Tick),
             iced::window::resize_events().map(|(_, size)| Message::WindowResized(size)),
             iced::window::close_requests().map(|_| Message::Quit),
+            Subscription::run(raise_requests),
             iced::event::listen_with(|event, _status, _window| match event {
                 iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
                     Some(Message::CursorMoved(position))
@@ -1714,6 +1717,9 @@ impl App {
                 Task::none()
             }
             Message::Quit => quit(),
+            Message::Raise => iced::window::latest().and_then(|id| {
+                Task::batch([iced::window::minimize(id, false), iced::window::gain_focus(id)])
+            }),
             Message::CursorMoved(at) => {
                 self.cursor = at;
                 if let Some(d) = self.drag.as_mut()
@@ -2070,7 +2076,7 @@ impl App {
                 self.editing = None;
                 self.test_result = None;
                 self.confirm_remove = false;
-                Task::none()
+                iced::widget::operation::focus(crate::ui::settings::EMAIL_FIELD)
             }
             Message::RemoveAccount(confirmed) => {
                 let Some(i) = self.editing else {
@@ -2467,6 +2473,30 @@ fn percent_decode(s: &str) -> String {
 /// minutes, the HTML renderer, blocking IMAP calls) would otherwise keep the
 /// async runtime alive after the window is gone. Settings are saved on every
 /// change and the SQLite cache is crash-safe, so nothing is lost.
+/// Raise requests from later launches (see `single_instance`).
+fn raise_requests() -> impl iced::futures::Stream<Item = Message> {
+    iced::stream::channel(
+        1,
+        async move |mut out: iced::futures::channel::mpsc::Sender<Message>| {
+            use iced::futures::SinkExt;
+            let Some(rx) = crate::single_instance::take_raise_requests() else {
+                return;
+            };
+            let rx = std::sync::Arc::new(std::sync::Mutex::new(rx));
+            loop {
+                let rx = rx.clone();
+                let got =
+                    tokio::task::spawn_blocking(move || rx.lock().map(|r| r.recv().is_ok()).unwrap_or(false))
+                        .await
+                        .unwrap_or(false);
+                if !got || out.send(Message::Raise).await.is_err() {
+                    return;
+                }
+            }
+        },
+    )
+}
+
 fn quit<T>() -> Task<T> {
     std::process::exit(0)
 }
