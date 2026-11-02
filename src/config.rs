@@ -26,6 +26,9 @@ pub struct Account {
     /// (`None` = never deleted, `Some(0)` = deleted right after download).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pop3_keep_days: Option<u32>,
+    /// Password and passphrase are in the system keychain, not in this file.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keyring: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,6 +53,7 @@ impl Default for Account {
             pgp_passphrase: String::new(),
             protocol: Protocol::Imap,
             pop3_keep_days: None,
+            keyring: false,
         }
     }
 }
@@ -156,7 +160,17 @@ impl Config {
             .ok()
             .or_else(|| legacy.and_then(|l| std::fs::read_to_string(l).ok()));
         let config: Config = text.and_then(|s| toml::from_str(&s).ok()).unwrap_or_default();
-        config.migrated()
+        let mut config = config.migrated();
+        crate::secrets::load(&crate::secrets::SystemKeychain, &mut config.accounts);
+        // Passwords still in the file (older versions): move them to the keychain.
+        if config
+            .accounts
+            .iter()
+            .any(|a| !a.keyring && !a.password.is_empty())
+        {
+            let _ = config.save();
+        }
+        config
     }
 
     fn migrated(mut self) -> Self {
@@ -179,8 +193,12 @@ impl Config {
     pub fn save(&self) -> Result<()> {
         let path = config_path()?;
         std::fs::create_dir_all(config_dir()?)?;
-        std::fs::write(&path, toml::to_string_pretty(self)?)?;
-        // The file contains the password: readable by the owner only.
+        let file = Config {
+            accounts: crate::secrets::store(&crate::secrets::SystemKeychain, &self.accounts),
+            ..self.clone()
+        };
+        std::fs::write(&path, toml::to_string_pretty(&file)?)?;
+        // Without a keychain the file holds passwords: owner only.
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

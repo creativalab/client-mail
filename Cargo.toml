@@ -21,6 +21,7 @@ dirs = "7.0.0"
 hayro = "0.8"
 iced = { version = "0.14", features = ["tokio", "svg", "image", "advanced", "markdown"] }
 imap = { version = "2.4.1", default-features = false }
+keyring = { version = "3", features = ["apple-native", "windows-native", "async-secret-service", "tokio", "crypto-rust"] }
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "rustls-tls", "hostname"] }
 mail-parser = "1.0.0"
 notify-rust = "4"

@@ -18,6 +18,7 @@ mod pop3;
 mod preview;
 mod providers;
 mod push;
+mod secrets;
 mod single_instance;
 mod theme;
 mod ui;
