@@ -1,6 +1,6 @@
 [package]
 name = "ferrowl"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "Fast desktop email client written in Rust"
 license = "MIT"
@@ -46,3 +46,24 @@ lto = "thin"
 
 [target."cfg(windows)".build-dependencies]
 winresource = "0.1.34"
+
+[package.metadata.deb]
+maintainer = "Fabio Carli <support@ferrowl.com>"
+copyright = "2026, Fabio Carli"
+section = "mail"
+priority = "optional"
+extended-description = "Fast desktop email client written in Rust: IMAP and SMTP accounts, HTML mail, local full-text search, push notifications and OpenPGP."
+depends = "$auto"
+assets = [
+  ["target/release/ferrowl", "usr/bin/", "755"],
+  ["packaging/linux/ferrowl.desktop", "usr/share/applications/", "644"],
+  ["assets/icons/png/ferrowl-16.png", "usr/share/icons/hicolor/16x16/apps/ferrowl.png", "644"],
+  ["assets/icons/png/ferrowl-32.png", "usr/share/icons/hicolor/32x32/apps/ferrowl.png", "644"],
+  ["assets/icons/png/ferrowl-48.png", "usr/share/icons/hicolor/48x48/apps/ferrowl.png", "644"],
+  ["assets/icons/png/ferrowl-64.png", "usr/share/icons/hicolor/64x64/apps/ferrowl.png", "644"],
+  ["assets/icons/png/ferrowl-128.png", "usr/share/icons/hicolor/128x128/apps/ferrowl.png", "644"],
+  ["assets/icons/png/ferrowl-256.png", "usr/share/icons/hicolor/256x256/apps/ferrowl.png", "644"],
+  ["assets/icons/png/ferrowl-512.png", "usr/share/icons/hicolor/512x512/apps/ferrowl.png", "644"],
+  ["assets/icons/ferrowl.svg", "usr/share/icons/hicolor/scalable/apps/ferrowl.svg", "644"],
+  ["README.md", "usr/share/doc/ferrowl/README.md", "644"],
+]

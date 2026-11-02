@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Ferrowl
+GenericName=Email client
+GenericName[it]=Client di posta
+Comment=Fast, private email client
+Comment[it]=Client di posta veloce e riservato
+Exec=ferrowl
+Icon=ferrowl
+Terminal=false
+Categories=Network;Email;
+Keywords=mail;email;imap;smtp;openpgp;
+StartupWMClass=ferrowl

@@ -36,6 +36,15 @@ fn main() -> iced::Result {
             size: iced::Size::new(1440.0, 900.0),
             min_size: Some(iced::Size::new(1000.0, 640.0)),
             icon,
+            // Closing is handled in App (Message::Quit) so the process exits
+            // at once instead of waiting for background IMAP work.
+            exit_on_close_request: false,
+            #[cfg(target_os = "linux")]
+            platform_specific: iced::window::settings::PlatformSpecific {
+                // Matches ferrowl.desktop, so desktops show the right icon.
+                application_id: "ferrowl".into(),
+                ..Default::default()
+            },
             ..Default::default()
         });
     for font in ui::FONTS {

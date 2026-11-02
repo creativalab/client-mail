@@ -434,6 +434,8 @@ pub enum Message {
     PreviewReady(u32, usize, crate::preview::Content),
     ClosePreview,
     CursorMoved(iced::Point),
+    /// Window closed: exit right away.
+    Quit,
     MouseDown,
     MouseUp,
     RowEnter(u32),
@@ -635,6 +637,7 @@ impl App {
             keyboard::listen().map(Message::Key),
             iced::time::every(AUTO_REFRESH).map(|_| Message::Tick),
             iced::window::resize_events().map(|(_, size)| Message::WindowResized(size)),
+            iced::window::close_requests().map(|_| Message::Quit),
             iced::event::listen_with(|event, _status, _window| match event {
                 iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
                     Some(Message::CursorMoved(position))
@@ -1701,6 +1704,7 @@ impl App {
                 self.preview = None;
                 Task::none()
             }
+            Message::Quit => quit(),
             Message::CursorMoved(at) => {
                 self.cursor = at;
                 if let Some(d) = self.drag.as_mut()
@@ -2302,7 +2306,7 @@ impl App {
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(1);
                 if self.dev_shots >= wanted {
-                    iced::exit()
+                    quit()
                 } else {
                     Task::none()
                 }
@@ -2448,4 +2452,12 @@ fn percent_decode(s: &str) -> String {
         i += 1;
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Ends the process immediately. Background threads (IMAP IDLE waits up to
+/// minutes, the HTML renderer, blocking IMAP calls) would otherwise keep the
+/// async runtime alive after the window is gone. Settings are saved on every
+/// change and the SQLite cache is crash-safe, so nothing is lost.
+fn quit<T>() -> Task<T> {
+    std::process::exit(0)
 }

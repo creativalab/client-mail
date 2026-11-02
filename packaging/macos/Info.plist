@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>Ferrowl</string>
+  <key>CFBundleDisplayName</key><string>Ferrowl</string>
+  <key>CFBundleIdentifier</key><string>com.ferrowl.app</string>
+  <key>CFBundleExecutable</key><string>ferrowl</string>
+  <key>CFBundleIconFile</key><string>ferrowl</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleVersion</key><string>@VERSION@</string>
+  <key>CFBundleShortVersionString</key><string>@VERSION@</string>
+  <key>LSMinimumSystemVersion</key><string>11.0</string>
+  <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSHumanReadableCopyright</key><string>© 2026 Fabio Carli. MIT license.</string>
+</dict>
+</plist>
