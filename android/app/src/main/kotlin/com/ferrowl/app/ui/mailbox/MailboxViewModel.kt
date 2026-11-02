@@ -3,6 +3,9 @@ package com.ferrowl.app.ui.mailbox
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ferrowl.app.data.MailRepository
+import com.ferrowl.app.data.SettingsStore
+import com.ferrowl.core.Conversation
+import com.ferrowl.core.groupConversations
 import com.ferrowl.core.FerrowlException
 import com.ferrowl.core.Folder
 import com.ferrowl.core.Header
@@ -27,13 +30,26 @@ data class MailboxState(
     val query: String = "",
     val searching: Boolean = false,
     val results: List<Header> = emptyList(),
+    /** Conversations (true) or one row per message. */
+    val threaded: Boolean = true,
 ) {
     val folder: Folder? get() = folders.firstOrNull { it.id == folderId }
     val shown: List<Header> get() = if (query.isBlank()) messages else results
+
+    /** The list rows: whole conversations, or single messages as one-member ones. */
+    val rows: List<Conversation>
+        get() = if (threaded) {
+            groupConversations(shown)
+        } else {
+            shown.map { Conversation(it, listOf(it.uid), if (it.seen) 0u else 1u) }
+        }
 }
 
 @HiltViewModel
-class MailboxViewModel @Inject constructor(private val repo: MailRepository) : ViewModel() {
+class MailboxViewModel @Inject constructor(
+    private val repo: MailRepository,
+    private val settings: SettingsStore,
+) : ViewModel() {
     private val _state = MutableStateFlow(MailboxState())
     val state: StateFlow<MailboxState> = _state.asStateFlow()
 
@@ -43,6 +59,7 @@ class MailboxViewModel @Inject constructor(private val repo: MailRepository) : V
     private var searchJob: Job? = null
 
     init {
+        viewModelScope.launch { settings.threaded.collect { on -> _state.update { it.copy(threaded = on) } } }
         viewModelScope.launch {
             try {
                 repo.ensureConnected()
@@ -98,6 +115,10 @@ class MailboxViewModel @Inject constructor(private val repo: MailRepository) : V
             val found = repo.search(_state.value.folderId, text)
             _state.update { it.copy(results = found, searching = false) }
         }
+    }
+
+    fun setThreaded(on: Boolean) {
+        viewModelScope.launch { settings.setThreaded(on) }
     }
 
     /** Marks a message read in the list as soon as it is opened. */

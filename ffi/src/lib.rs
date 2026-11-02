@@ -153,6 +153,10 @@ pub struct Header {
     pub timestamp: i64,
     pub seen: bool,
     pub has_attachment: bool,
+    /// Message-ID without brackets (empty if none); used for conversations.
+    pub message_id: String,
+    /// Ids this message replies to.
+    pub parents: Vec<String>,
 }
 
 impl From<mail::Header> for Header {
@@ -165,8 +169,51 @@ impl From<mail::Header> for Header {
             timestamp: h.timestamp,
             seen: h.seen,
             has_attachment: h.has_attachment,
+            message_id: h.message_id,
+            parents: h.parents,
         }
     }
+}
+
+impl From<&Header> for mail::Header {
+    fn from(h: &Header) -> Self {
+        mail::Header {
+            uid: h.uid,
+            from: h.from.clone(),
+            subject: h.subject.clone(),
+            preview: h.preview.clone(),
+            timestamp: h.timestamp,
+            seen: h.seen,
+            has_attachment: h.has_attachment,
+            message_id: h.message_id.clone(),
+            parents: h.parents.clone(),
+            ..Default::default()
+        }
+    }
+}
+
+/// A conversation in a message list: its newest message plus its members.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct Conversation {
+    /// Newest message, shown as the list row.
+    pub latest: Header,
+    /// Members' uids, oldest first (reading order).
+    pub uids: Vec<u32>,
+    pub unread: u32,
+}
+
+/// Groups a message list into conversations (see `ferrowl_core::threads`).
+#[uniffi::export]
+pub fn group_conversations(headers: Vec<Header>) -> Vec<Conversation> {
+    let core: Vec<mail::Header> = headers.iter().map(mail::Header::from).collect();
+    ferrowl_core::threads::group(&core)
+        .into_iter()
+        .map(|t| Conversation {
+            latest: headers[t.latest()].clone(),
+            uids: t.members.iter().rev().map(|&i| headers[i].uid).collect(),
+            unread: t.unread as u32,
+        })
+        .collect()
 }
 
 /// The newest messages of a folder. `more` is set when older messages are
@@ -619,6 +666,26 @@ mod tests {
             dkim_pass: false,
             pgp: None,
         }
+    }
+
+    #[test]
+    fn conversations_group_replies() {
+        let h = |uid: u32, id: &str, parent: &[&str]| Header {
+            uid,
+            from: String::new(),
+            subject: String::new(),
+            preview: String::new(),
+            timestamp: uid as i64,
+            seen: uid != 2,
+            has_attachment: false,
+            message_id: id.into(),
+            parents: parent.iter().map(|p| p.to_string()).collect(),
+        };
+        let c = group_conversations(vec![h(1, "a", &[]), h(2, "b", &["a"]), h(3, "x", &[])]);
+        assert_eq!(c.len(), 2);
+        assert_eq!(c[1].uids, vec![1, 2]);
+        assert_eq!(c[1].latest.uid, 2);
+        assert_eq!(c[1].unread, 1);
     }
 
     #[test]
