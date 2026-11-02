@@ -85,7 +85,7 @@ pub fn view<'a>(app: &'a App, c: &'a Compose, p: Palette) -> Element<'a, Message
     let input = |value: &'a str, field: ComposeField, bold: bool| -> Element<'a, Message> {
         text_input("", value)
             .on_input(move |v| Message::ComposeField(field, v))
-            .on_submit(Message::Noop)
+            .on_submit(Message::ComposePickFirst(field))
             .size(14)
             .padding([8, 0])
             .font(if bold { semibold() } else { INTER })
@@ -99,6 +99,34 @@ pub fn view<'a>(app: &'a App, c: &'a Compose, p: Palette) -> Element<'a, Message
         .style(ghost(p, p.muted))
         .on_press(Message::ComposeToggleCc);
 
+    // Address suggestions under the field being typed in.
+    let suggestions = |field: ComposeField| -> Option<Element<'a, Message>> {
+        let (f, list) = c.suggest.as_ref()?;
+        if *f != field {
+            return None;
+        }
+        let mut col = Column::new().spacing(2);
+        for (name, address) in list {
+            let label = if name.is_empty() {
+                address.clone()
+            } else {
+                format!("{name}  <{address}>")
+            };
+            col = col.push(
+                button(text(label).size(13).color(p.text))
+                    .width(Fill)
+                    .padding([6, 10])
+                    .style(ghost(p, p.text))
+                    .on_press(Message::ComposePick(field, name.clone(), address.clone())),
+            );
+        }
+        Some(
+            container(container(col).padding(4).width(Fill).style(card(p, p.line, 8.0)))
+                .padding([4, 20])
+                .into(),
+        )
+    };
+
     let mut fields = Column::new()
         .push(field_row(
             t("from"),
@@ -110,10 +138,18 @@ pub fn view<'a>(app: &'a App, c: &'a Compose, p: Palette) -> Element<'a, Message
                 .align_y(Alignment::Center)
                 .into(),
         ));
+    if let Some(s) = suggestions(ComposeField::To) {
+        fields = fields.push(s);
+    }
     if c.show_cc {
-        fields = fields
-            .push(field_row(t("cc"), input(&c.cc, ComposeField::Cc, false)))
-            .push(field_row(t("bcc"), input(&c.bcc, ComposeField::Bcc, false)));
+        fields = fields.push(field_row(t("cc"), input(&c.cc, ComposeField::Cc, false)));
+        if let Some(s) = suggestions(ComposeField::Cc) {
+            fields = fields.push(s);
+        }
+        fields = fields.push(field_row(t("bcc"), input(&c.bcc, ComposeField::Bcc, false)));
+        if let Some(s) = suggestions(ComposeField::Bcc) {
+            fields = fields.push(s);
+        }
     }
     fields = fields.push(field_row(
         t("subject"),

@@ -1,6 +1,7 @@
 package com.ferrowl.app.data
 
 import com.ferrowl.core.Account
+import com.ferrowl.core.AddressSuggestion
 import com.ferrowl.core.Engine
 import com.ferrowl.core.Folder
 import com.ferrowl.core.FolderKind
@@ -61,15 +62,33 @@ class MailRepository @Inject constructor(
             _folders.value = engine.connect(account)
             accounts.save(account)
         }
+        learnFromSent()
     }
 
     /** Connects the saved account once per process. */
-    suspend fun ensureConnected(): Boolean = connectLock.withLock {
-        if (_folders.value.isNotEmpty()) return true
-        val account = accounts.account.first() ?: return false
-        _folders.value = engine.connect(account)
-        true
+    suspend fun ensureConnected(): Boolean {
+        val connected = connectLock.withLock {
+            if (_folders.value.isNotEmpty()) return true
+            val account = accounts.account.first() ?: return false
+            _folders.value = engine.connect(account)
+            true
+        }
+        if (connected) learnFromSent()
+        return connected
     }
+
+    /**
+     * The address book learns who we write to from the Sent folder: its
+     * newest page is read once per connection. Failures don't matter here.
+     */
+    private suspend fun learnFromSent() {
+        val sent = folderOf(FolderKind.SENT) ?: return
+        runCatching { engine.headers(sent.id) }
+    }
+
+    /** Recipients matching what is being typed. */
+    suspend fun suggest(query: String): List<AddressSuggestion> =
+        withContext(Dispatchers.IO) { engine.suggestAddresses(query) }
 
     fun folder(id: String): Folder? = _folders.value.firstOrNull { it.id == id }
 

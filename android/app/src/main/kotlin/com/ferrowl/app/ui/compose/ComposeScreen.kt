@@ -1,6 +1,8 @@
 package com.ferrowl.app.ui.compose
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -41,6 +43,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrowl.app.R
 import com.ferrowl.app.ui.message.ReplyKind
+import com.ferrowl.core.AddressSuggestion
 
 /**
  * Writing a message: new, reply, reply all or forward. Markdown typed in the
@@ -95,7 +98,9 @@ fun ComposeScreen(
         ) {
             s.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp)) }
             Line(stringResource(R.string.to), s.to, vm::setTo, KeyboardType.Email)
+            if (s.suggestFor == true) Suggestions(s.suggestions, vm::pick)
             Line(stringResource(R.string.cc), s.cc, vm::setCc, KeyboardType.Email)
+            if (s.suggestFor == false) Suggestions(s.suggestions, vm::pick)
             Line(stringResource(R.string.subject), s.subject, vm::setSubject)
             TextField(
                 value = s.body,
@@ -129,6 +134,24 @@ private fun Line(label: String, value: String, onChange: (String) -> Unit, keybo
         modifier = Modifier.fillMaxWidth(),
     )
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+}
+
+/** Addresses matching the word being typed; tap one to insert it. */
+@Composable
+private fun Suggestions(list: List<AddressSuggestion>, onPick: (AddressSuggestion) -> Unit) {
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainer)) {
+        list.forEach { s ->
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { onPick(s) }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                if (s.name.isNotBlank()) Text(s.name, style = MaterialTheme.typography.bodyMedium)
+                Text(s.address, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
 }
 
 /** Fields without the filled background, like a mail form. */

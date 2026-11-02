@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ferrowl.app.data.MailRepository
 import com.ferrowl.app.ui.message.ReplyKind
+import com.ferrowl.core.AddressSuggestion
 import com.ferrowl.core.FerrowlException
 import com.ferrowl.core.Outgoing
 import com.ferrowl.core.forwardDraft
@@ -30,6 +31,9 @@ data class ComposeState(
     val sent: Boolean = false,
     /** The user typed something: leaving asks before discarding. */
     val edited: Boolean = false,
+    /** Suggestions for the word being typed in To (true) or Cc (false). */
+    val suggestFor: Boolean? = null,
+    val suggestions: List<AddressSuggestion> = emptyList(),
 )
 
 @HiltViewModel
@@ -62,8 +66,43 @@ class ComposeViewModel @Inject constructor(private val repo: MailRepository) : V
         }
     }
 
-    fun setTo(v: String) = _state.update { it.copy(to = v, edited = true, error = null) }
-    fun setCc(v: String) = _state.update { it.copy(cc = v, edited = true) }
+    fun setTo(v: String) {
+        _state.update { it.copy(to = v, edited = true, error = null) }
+        suggest(v, forTo = true)
+    }
+
+    fun setCc(v: String) {
+        _state.update { it.copy(cc = v, edited = true) }
+        suggest(v, forTo = false)
+    }
+
+    /** Looks up the word after the last comma (2+ letters). */
+    private fun suggest(field: String, forTo: Boolean) {
+        val word = field.substringAfterLast(',').substringAfterLast(';').trim()
+        if (word.length < 2 || '<' in word) {
+            _state.update { it.copy(suggestFor = null, suggestions = emptyList()) }
+            return
+        }
+        viewModelScope.launch {
+            val found = repo.suggest(word)
+            _state.update { it.copy(suggestFor = forTo.takeIf { found.isNotEmpty() }, suggestions = found) }
+        }
+    }
+
+    /** Replaces the word being typed with the chosen address. */
+    fun pick(s: AddressSuggestion) = _state.update { st ->
+        val entry = if (s.name.isBlank()) s.address else "${s.name} <${s.address}>"
+        fun replace(field: String): String {
+            val cut = maxOf(field.lastIndexOf(','), field.lastIndexOf(';'))
+            val keep = if (cut >= 0) field.substring(0, cut + 1) + " " else ""
+            return "$keep$entry, "
+        }
+        when (st.suggestFor) {
+            true -> st.copy(to = replace(st.to), suggestFor = null, suggestions = emptyList())
+            false -> st.copy(cc = replace(st.cc), suggestFor = null, suggestions = emptyList())
+            null -> st
+        }
+    }
     fun setSubject(v: String) = _state.update { it.copy(subject = v, edited = true) }
     fun setBody(v: String) = _state.update { it.copy(body = v, edited = true) }
 

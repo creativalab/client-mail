@@ -193,6 +193,10 @@ pub struct Header {
     /// Ids this message replies to (References, then In-Reply-To), for
     /// grouping into conversations (see `threads`).
     pub parents: Vec<String>,
+    /// Sender's bare address (for the address book).
+    pub from_address: String,
+    /// To and Cc as (name, address), for the address book.
+    pub recipients: Vec<(String, String)>,
 }
 
 /// A slice of a folder's message list, by sequence number.
@@ -606,7 +610,18 @@ fn fetch_range(
 pub fn header_from_raw(uid: u32, raw: &[u8], seen: bool) -> Header {
     let parsed = MessageParser::default().parse(raw);
     let msg = parsed.as_ref();
-    let (from, _) = first_addr(msg.and_then(|m| m.from()));
+    let (from, from_address) = first_addr(msg.and_then(|m| m.from()));
+    let mut recipients = Vec::new();
+    for list in [msg.and_then(|m| m.to()), msg.and_then(|m| m.cc())]
+        .into_iter()
+        .flatten()
+    {
+        for a in list.mailboxes() {
+            if let Some(addr) = a.address() {
+                recipients.push((a.name().unwrap_or_default().to_string(), addr.to_string()));
+            }
+        }
+    }
     let content_type = msg
         .and_then(|m| m.content_type())
         .map(|ct| format!("{}/{}", ct.ctype(), ct.subtype().unwrap_or_default()))
@@ -632,7 +647,26 @@ pub fn header_from_raw(uid: u32, raw: &[u8], seen: bool) -> Header {
         text: text.chars().take(4000).collect(),
         message_id: msg.and_then(|m| m.message_id()).map(bare_id).unwrap_or_default(),
         parents: thread_parents(raw),
+        from_address,
+        recipients,
     }
+}
+
+/// Addresses typed in a To/Cc field ("Ada <ada@x.org>, bob@y.org") as
+/// (name, address) pairs.
+pub fn parse_recipients(field: &str) -> Vec<(String, String)> {
+    field
+        .split([',', ';'])
+        .map(str::trim)
+        .filter(|s| s.contains('@'))
+        .map(|s| match (s.rfind('<'), s.rfind('>')) {
+            (Some(a), Some(b)) if a < b => (
+                s[..a].trim().trim_matches('"').to_string(),
+                s[a + 1..b].trim().to_string(),
+            ),
+            _ => (String::new(), s.to_string()),
+        })
+        .collect()
 }
 
 /// A message id without spaces and angle brackets.
@@ -1271,6 +1305,18 @@ mod tests {
                 .any(|h| h.subject.starts_with("Ferrowl bulk test"))
         );
         println!("bulk unread/read/archive/delete ok on {} messages", uids.len());
+    }
+
+    #[test]
+    fn recipients_are_parsed() {
+        assert_eq!(
+            parse_recipients("Ada <ada@x.org>, bob@y.org; \"Carl C\" <carl@z.org>, nobody"),
+            vec![
+                ("Ada".to_string(), "ada@x.org".to_string()),
+                (String::new(), "bob@y.org".to_string()),
+                ("Carl C".to_string(), "carl@z.org".to_string()),
+            ]
+        );
     }
 
     #[test]
