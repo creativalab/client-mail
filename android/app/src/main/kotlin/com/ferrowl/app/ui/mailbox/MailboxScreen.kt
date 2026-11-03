@@ -88,6 +88,7 @@ import com.ferrowl.app.R
 import com.ferrowl.app.ui.fill
 import com.ferrowl.app.ui.notice.ReportError
 import com.ferrowl.core.Folder
+import com.ferrowl.core.FolderKind
 import com.ferrowl.core.Header
 import com.ferrowl.core.SortOrder
 import kotlinx.coroutines.launch
@@ -177,10 +178,13 @@ fun MailboxScreen(
                         style = MaterialTheme.typography.titleSmall,
                         modifier = Modifier.padding(start = 28.dp, top = 24.dp, bottom = 12.dp),
                     )
-                    s.folders.filter { it.selectable }.forEach { f ->
+                    // As on the desktop: Inbox and the special folders first,
+                    // then the others (sorted by the server's names).
+                    s.folders.filter { it.selectable }.sortedBy { kindRank(it.kind) }.forEach { f ->
                         val count = s.unread[f.id]?.toInt() ?: 0
-                        // Subfolders are indented under their parent.
-                        val depth = (f.path.size - 1).coerceAtLeast(0)
+                        // Subfolders are indented under their parent (special
+                        // folders are not, even under Gmail's "[Gmail]").
+                        val depth = if (f.kind == FolderKind.OTHER) (f.path.size - 1).coerceAtLeast(0) else 0
                         NavigationDrawerItem(
                             label = { Text(f.name, modifier = Modifier.padding(start = (16 * depth).dp)) },
                             badge = { if (count > 0) Text(count.toString()) },
@@ -674,4 +678,15 @@ private fun SwipeBackground(direction: SwipeToDismissBoxValue) {
             contentDescription = stringResource(if (reply) R.string.reply else R.string.archive),
         )
     }
+}
+
+/** Drawer order of a folder kind (stable sort keeps the rest alphabetical). */
+private fun kindRank(kind: FolderKind): Int = when (kind) {
+    FolderKind.INBOX -> 0
+    FolderKind.SENT -> 1
+    FolderKind.DRAFTS -> 2
+    FolderKind.ARCHIVE -> 3
+    FolderKind.SPAM -> 4
+    FolderKind.TRASH -> 5
+    FolderKind.OTHER -> 6
 }
