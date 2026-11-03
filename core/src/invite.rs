@@ -260,7 +260,7 @@ fn address_of(value: &str) -> String {
 
 /// Folds a content line at 75 octets (RFC 5545 3.1), on character
 /// boundaries.
-fn fold(line: &str) -> String {
+pub(crate) fn fold(line: &str) -> String {
     let mut out = String::with_capacity(line.len() + line.len() / 70 * 3);
     let mut width = 0;
     for ch in line.chars() {
@@ -312,7 +312,7 @@ pub fn remove_from_calendar(account: &Account, url: &str, etag: &str) -> Result<
 }
 
 /// URL for a new event in a calendar: the UID, reduced to safe characters.
-fn item_url(calendar: &str, uid: &str) -> String {
+pub(crate) fn item_url(calendar: &str, uid: &str) -> String {
     let mut name: String = uid
         .chars()
         .map(|c| {

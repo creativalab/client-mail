@@ -6,7 +6,10 @@ import com.ferrowl.app.data.MailRepository
 import com.ferrowl.core.CalendarEvent
 import com.ferrowl.core.FerrowlException
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -34,6 +37,10 @@ data class CalendarState(
 class CalendarViewModel @Inject constructor(private val repo: MailRepository) : ViewModel() {
     private val _state = MutableStateFlow(CalendarState())
     val state: StateFlow<CalendarState> = _state.asStateFlow()
+    private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 4)
+
+    /** Results to show in a snackbar ("Event deleted."). */
+    val notices: SharedFlow<String> = _notices.asSharedFlow()
 
     init {
         // The saved copy right away; the app already synced after connecting.
@@ -47,6 +54,23 @@ class CalendarViewModel @Inject constructor(private val repo: MailRepository) : 
     }
 
     fun open(event: CalendarEvent?) = _state.update { it.copy(open = event) }
+
+    /** Reads the month again (after an event was saved or deleted). */
+    fun refresh() = reload()
+
+    /** Deletes the open event (a repeating one with all its occurrences). */
+    fun delete(event: CalendarEvent) {
+        _state.update { it.copy(open = null) }
+        viewModelScope.launch {
+            val notice = try {
+                repo.deleteEvent(event.url)
+            } catch (e: FerrowlException) {
+                e.message.orEmpty()
+            }
+            _notices.emit(notice)
+            reload()
+        }
+    }
 
     /** Asks the server for changes (the sync button). */
     fun sync() {

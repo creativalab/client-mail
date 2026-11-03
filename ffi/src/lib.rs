@@ -10,7 +10,7 @@
 //! engine never reads a config file on mobile.
 
 use ferrowl_core::backend::Backend;
-use ferrowl_core::{config, i18n, invite, mail, paths, providers};
+use ferrowl_core::{config, events, i18n, invite, mail, paths, providers};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -494,6 +494,94 @@ pub struct CalendarEvent {
     /// Name and color ("#RRGGBB[AA]", may be empty) of its calendar.
     pub calendar: String,
     pub color: String,
+    /// The stored event (to edit or delete it) and its calendar's URL.
+    pub url: String,
+    pub calendar_url: String,
+}
+
+/// How often an event repeats (the choices of the event form).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum Repeat {
+    Never,
+    Daily,
+    Weekly,
+    Monthly,
+    Yearly,
+    /// A rule the form cannot show: kept as it is.
+    Custom,
+}
+
+/// The event form. Times are wall-clock times on the phone,
+/// "YYYY-MM-DDTHH:MM"; for all-day events only the dates count and `end`
+/// is the last day.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct EventDraft {
+    pub summary: String,
+    pub location: String,
+    pub description: String,
+    pub all_day: bool,
+    pub start: String,
+    pub end: String,
+    pub repeat: Repeat,
+}
+
+/// A calendar of the account.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct CalendarInfo {
+    pub url: String,
+    pub name: String,
+    pub color: String,
+}
+
+impl From<events::Draft> for EventDraft {
+    fn from(d: events::Draft) -> Self {
+        EventDraft {
+            summary: d.summary,
+            location: d.location,
+            description: d.description,
+            all_day: d.all_day,
+            start: d.start.format("%Y-%m-%dT%H:%M").to_string(),
+            end: d.end.format("%Y-%m-%dT%H:%M").to_string(),
+            repeat: match d.repeat {
+                events::Repeat::Never => Repeat::Never,
+                events::Repeat::Daily => Repeat::Daily,
+                events::Repeat::Weekly => Repeat::Weekly,
+                events::Repeat::Monthly => Repeat::Monthly,
+                events::Repeat::Yearly => Repeat::Yearly,
+                events::Repeat::Custom => Repeat::Custom,
+            },
+        }
+    }
+}
+
+impl EventDraft {
+    fn into_core(self) -> Option<events::Draft> {
+        let at = |s: &str| chrono::NaiveDateTime::parse_from_str(s.trim(), "%Y-%m-%dT%H:%M").ok();
+        Some(events::Draft {
+            summary: self.summary,
+            location: self.location,
+            description: self.description,
+            all_day: self.all_day,
+            start: at(&self.start)?,
+            end: at(&self.end)?,
+            repeat: match self.repeat {
+                Repeat::Never => events::Repeat::Never,
+                Repeat::Daily => events::Repeat::Daily,
+                Repeat::Weekly => events::Repeat::Weekly,
+                Repeat::Monthly => events::Repeat::Monthly,
+                Repeat::Yearly => events::Repeat::Yearly,
+                Repeat::Custom => events::Repeat::Custom,
+            },
+        })
+    }
+}
+
+/// A one-hour event on `day` ("YYYY-MM-DD"), the form's starting point.
+#[uniffi::export]
+pub fn new_event_draft(day: String) -> EventDraft {
+    let day =
+        chrono::NaiveDate::parse_from_str(&day, "%Y-%m-%d").unwrap_or_else(|_| ferrowl_core::ical::today());
+    events::Draft::new_on(day).into()
 }
 
 /// A known mail provider, for the "add account" screen.
@@ -801,9 +889,58 @@ impl Engine {
                     organizer: o.organizer,
                     calendar: e.calendar,
                     color: e.color,
+                    url: e.url,
+                    calendar_url: e.calendar_url,
                 }
             })
             .collect()
+    }
+
+    /// The account's calendars.
+    pub fn calendars(&self) -> Vec<CalendarInfo> {
+        let Some(a) = lock(&self.account).clone() else {
+            return Vec::new();
+        };
+        Backend::calendars(&a)
+            .into_iter()
+            .map(|c| CalendarInfo {
+                url: c.url,
+                name: c.name,
+                color: c.color,
+            })
+            .collect()
+    }
+
+    /// The form for a stored event (by its `url`).
+    pub fn event_draft(&self, url: String) -> Option<EventDraft> {
+        let a = lock(&self.account).clone()?;
+        Backend::event_draft(&a, &url).map(EventDraft::from)
+    }
+
+    /// Saves an event: changes the stored one at `url`, or creates a new
+    /// one in `calendar_url` (empty = the first calendar). Returns the text
+    /// to show.
+    pub async fn save_event(
+        &self,
+        calendar_url: String,
+        url: Option<String>,
+        draft: EventDraft,
+    ) -> Result<String> {
+        let Some(account) = lock(&self.account).clone() else {
+            return Err(i18n::t("err_no_account").to_string().into());
+        };
+        let draft = draft
+            .into_core()
+            .ok_or_else(|| FerrowlError::from(i18n::t("event_bad_time").to_string()))?;
+        Ok(Backend::save_event(account, calendar_url, url, draft).await?)
+    }
+
+    /// Deletes a stored event (a repeating one with all its occurrences).
+    pub async fn delete_event(&self, url: String) -> Result<String> {
+        let Some(account) = lock(&self.account).clone() else {
+            return Err(i18n::t("err_no_account").to_string().into());
+        };
+        Ok(Backend::delete_event(account, url).await?)
     }
 
     /// Brings the local copy of the calendars up to date with the
