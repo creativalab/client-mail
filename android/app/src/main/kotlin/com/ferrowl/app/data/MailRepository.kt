@@ -345,10 +345,11 @@ class MailRepository @Inject constructor(
         _changes.emit(Unit)
     }
 
-    suspend fun archive(folderId: String, uids: List<UInt>) {
+    /** Archives messages; `quiet` when the screen already confirmed it (swipe). */
+    suspend fun archive(folderId: String, uids: List<UInt>, quiet: Boolean = false) {
         ready()
         engine.archiveMany(folderId, uids)
-        changed(translate("bulk_archived").replace("{n}", uids.size.toString()))
+        changed(if (quiet) "" else translate("bulk_archived").replace("{n}", uids.size.toString()))
     }
 
     /** Moves several messages to another folder. */

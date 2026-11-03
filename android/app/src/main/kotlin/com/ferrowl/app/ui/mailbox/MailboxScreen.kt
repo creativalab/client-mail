@@ -5,6 +5,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -62,6 +64,8 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -70,6 +74,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -84,6 +91,7 @@ import com.ferrowl.core.Folder
 import com.ferrowl.core.Header
 import com.ferrowl.core.SortOrder
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 /**
  * The mail list of one folder, with the folder list in a side drawer,
@@ -278,14 +286,39 @@ fun MailboxScreen(
                             items(rows, key = { it.latest.uid.toLong() }) { c ->
                                 // Swipe a row: towards the start (left) archives it,
                                 // towards the end (right) replies to it.
-                                val swipe = rememberSwipeToDismissBoxState()
+                                // Half the row: a slanted touch while scrolling the list
+                                // must not archive or reply.
+                                val swipe = rememberSwipeToDismissBoxState(positionalThreshold = { width -> width * 0.5f })
                                 val swipeScope = rememberCoroutineScope()
+                                // How far the finger really moved: a quick flick
+                                // would otherwise count as a full swipe.
+                                var dragged by remember { mutableFloatStateOf(0f) }
+                                var rowWidth by remember { mutableIntStateOf(0) }
                                 SwipeToDismissBox(
                                     state = swipe,
+                                    modifier = Modifier
+                                        .onSizeChanged { rowWidth = it.width }
+                                        .pointerInput(Unit) {
+                                            awaitEachGesture {
+                                                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                                                dragged = 0f
+                                                while (true) {
+                                                    val change = awaitPointerEvent(PointerEventPass.Initial).changes
+                                                        .firstOrNull { it.id == down.id } ?: break
+                                                    dragged = change.position.x - down.position.x
+                                                    if (!change.pressed) break
+                                                }
+                                            }
+                                        },
                                     enableDismissFromStartToEnd = !s.selecting,
                                     enableDismissFromEndToStart = !s.selecting,
                                     backgroundContent = { SwipeBackground(swipe.dismissDirection) },
                                     onDismiss = { value ->
+                                        // Less than half the row: put it back, do nothing.
+                                        if (abs(dragged) < rowWidth * 0.5f) {
+                                            swipeScope.launch { swipe.reset() }
+                                            return@SwipeToDismissBox
+                                        }
                                         when (value) {
                                             SwipeToDismissBoxValue.EndToStart -> vm.archiveRow(c.uids)
                                             SwipeToDismissBoxValue.StartToEnd -> {

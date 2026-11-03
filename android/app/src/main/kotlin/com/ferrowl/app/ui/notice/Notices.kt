@@ -7,6 +7,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -14,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -28,14 +30,23 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** A short message at the top of the screen: a confirmation or a problem. */
-data class Notice(val text: String, val error: Boolean)
+/**
+ * A short message at the top of the screen: a confirmation or a problem,
+ * optionally with one action (e.g. "Undo").
+ */
+data class Notice(
+    val text: String,
+    val error: Boolean,
+    val action: String? = null,
+    val onAction: (() -> Unit)? = null,
+)
 
 /**
  * The app's notices, shown at the top of every screen by [TopNoticeHost]:
@@ -49,6 +60,11 @@ class Notices @Inject constructor() {
 
     fun info(text: String) {
         if (text.isNotBlank()) _flow.tryEmit(Notice(text, error = false))
+    }
+
+    /** A confirmation with an action button (shown a little longer). */
+    fun withAction(text: String, action: String, onAction: () -> Unit) {
+        _flow.tryEmit(Notice(text, error = false, action = action, onAction = onAction))
     }
 
     fun error(text: String) {
@@ -68,10 +84,12 @@ fun TopNoticeHost(notices: Notices, modifier: Modifier = Modifier) {
     var current by remember { mutableStateOf<Notice?>(null) }
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(notices) {
-        notices.flow.collect { n ->
+        // A new notice replaces the one on screen at once (its action
+        // belongs to the newest thing that happened).
+        notices.flow.collectLatest { n ->
             current = n
             visible = true
-            delay(if (n.error) 6_000 else 3_500)
+            delay(if (n.error || n.action != null) 6_000 else 3_500)
             visible = false
             delay(300)
         }
@@ -94,7 +112,19 @@ fun TopNoticeHost(notices: Notices, modifier: Modifier = Modifier) {
                     .clickable { visible = false }
                     .semantics { liveRegion = LiveRegionMode.Polite },
             ) {
-                Text(n.text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        n.text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f).padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 8.dp),
+                    )
+                    if (n.action != null) {
+                        TextButton(onClick = {
+                            n.onAction?.invoke()
+                            visible = false
+                        }) { Text(n.action, color = if (n.error) colors.onErrorContainer else colors.inversePrimary) }
+                    }
+                }
             }
         }
     }

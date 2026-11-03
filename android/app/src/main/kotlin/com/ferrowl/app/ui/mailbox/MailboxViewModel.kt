@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ferrowl.app.data.MailRepository
 import com.ferrowl.app.data.SettingsStore
+import com.ferrowl.app.ui.notice.Notices
 import com.ferrowl.core.Conversation
 import com.ferrowl.core.FerrowlException
 import com.ferrowl.core.Folder
@@ -11,8 +12,10 @@ import com.ferrowl.core.Header
 import com.ferrowl.core.SortOrder
 import com.ferrowl.core.groupConversations
 import com.ferrowl.core.sortConversations
+import com.ferrowl.core.translate
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -74,6 +77,7 @@ data class MailboxState(
 class MailboxViewModel @Inject constructor(
     private val repo: MailRepository,
     private val settings: SettingsStore,
+    private val notices: Notices,
 ) : ViewModel() {
     private val _state = MutableStateFlow(MailboxState())
     val state: StateFlow<MailboxState> = _state.asStateFlow()
@@ -307,16 +311,28 @@ class MailboxViewModel @Inject constructor(
 
     fun archiveSelected() = bulk { folder, uids -> repo.archive(folder, uids) }
 
-    /** Swipe: archives a row; it leaves the list at once, before the server answers. */
+    /**
+     * Swipe: the row leaves the list at once and "Archived · Undo" shows at
+     * the top; the server is asked only when the notice is gone, so Undo
+     * really undoes it.
+     */
     fun archiveRow(uids: List<UInt>) {
         val folder = _state.value.folderId
+        val rows = _state.value.messages.filter { it.uid in uids }
         _state.update { s -> s.copy(messages = s.messages.filterNot { it.uid in uids }) }
-        viewModelScope.launch {
+        val job = viewModelScope.launch {
+            delay(UNDO_MS)
             try {
-                repo.archive(folder, uids)
+                repo.archive(folder, uids, quiet = true)
             } catch (e: FerrowlException) {
                 _state.update { it.copy(error = e.message) }
                 refresh()
+            }
+        }
+        notices.withAction(translate("archived"), translate("undo")) {
+            job.cancel()
+            _state.update { s ->
+                if (s.folderId != folder) s else s.copy(messages = (s.messages + rows).sortedByDescending { it.timestamp })
             }
         }
     }
@@ -353,5 +369,10 @@ class MailboxViewModel @Inject constructor(
             messages = s.messages.map { if (it.uid == uid) it.copy(seen = true) else it },
             results = s.results.map { if (it.uid == uid) it.copy(seen = true) else it },
         )
+    }
+
+    private companion object {
+        /** How long "Undo" is offered after a swipe (the notice shows this long). */
+        const val UNDO_MS = 6_000L
     }
 }

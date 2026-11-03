@@ -1,5 +1,8 @@
 package com.ferrowl.app.ui.compose
 
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ferrowl.app.data.MailRepository
@@ -11,11 +14,16 @@ import com.ferrowl.core.forwardDraft
 import com.ferrowl.core.replyDraft
 import com.ferrowl.core.translate
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.UUID
 import javax.inject.Inject
 
 data class ComposeState(
@@ -34,10 +42,18 @@ data class ComposeState(
     /** Suggestions for the word being typed in To (true) or Cc (false). */
     val suggestFor: Boolean? = null,
     val suggestions: List<AddressSuggestion> = emptyList(),
+    /** Files to send, copied into the app's private storage. */
+    val attachments: List<Attachment> = emptyList(),
 )
 
+/** A file to send: its name, size in bytes and the private copy that is sent. */
+data class Attachment(val name: String, val size: Long, val path: String)
+
 @HiltViewModel
-class ComposeViewModel @Inject constructor(private val repo: MailRepository) : ViewModel() {
+class ComposeViewModel @Inject constructor(
+    private val repo: MailRepository,
+    @ApplicationContext private val context: Context,
+) : ViewModel() {
     private val _state = MutableStateFlow(ComposeState())
     val state: StateFlow<ComposeState> = _state.asStateFlow()
 
@@ -115,6 +131,50 @@ class ComposeViewModel @Inject constructor(private val repo: MailRepository) : V
     fun setSubject(v: String) = _state.update { it.copy(subject = v, edited = true) }
     fun setBody(v: String) = _state.update { it.copy(body = v, edited = true) }
 
+    /**
+     * Adds files picked by the user. Each is copied into the app's private
+     * storage (the engine reads files by path; picked documents are only
+     * readable through their content address).
+     */
+    fun addFiles(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            val added = withContext(Dispatchers.IO) { uris.mapNotNull(::copyIn) }
+            _state.update { it.copy(attachments = it.attachments + added, edited = true) }
+        }
+    }
+
+    fun removeAttachment(path: String) {
+        File(path).parentFile?.deleteRecursively()
+        _state.update { s -> s.copy(attachments = s.attachments.filterNot { it.path == path }) }
+    }
+
+    private fun copyIn(uri: Uri): Attachment? = runCatching {
+        val resolver = context.contentResolver
+        var name = "file"
+        var size = -1L
+        resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { c ->
+            if (c.moveToFirst()) {
+                c.getString(0)?.let { name = it }
+                if (!c.isNull(1)) size = c.getLong(1)
+            }
+        }
+        // One folder per file keeps the original name (two files may share it).
+        val dir = File(context.cacheDir, "outgoing/${UUID.randomUUID()}").apply { mkdirs() }
+        val file = File(dir, name.replace('/', '_'))
+        resolver.openInputStream(uri)?.use { input -> file.outputStream().use { input.copyTo(it) } } ?: return@runCatching null
+        Attachment(name, if (size >= 0) size else file.length(), file.path)
+    }.getOrNull()
+
+    /** The private copies are not needed once sent or discarded. */
+    private fun dropCopies() {
+        _state.value.attachments.forEach { File(it.path).parentFile?.deleteRecursively() }
+    }
+
+    override fun onCleared() {
+        if (!_state.value.sending) dropCopies()
+    }
+
     fun send() {
         val s = _state.value
         if (s.to.isBlank()) {
@@ -122,11 +182,12 @@ class ComposeViewModel @Inject constructor(private val repo: MailRepository) : V
             return
         }
         val draft = (s.base ?: Outgoing("", "", "", "", "", null, null, emptyList(), emptyList(), false, false))
-            .copy(to = s.to.trim(), cc = s.cc.trim(), subject = s.subject.trim(), body = s.body)
+            .copy(to = s.to.trim(), cc = s.cc.trim(), subject = s.subject.trim(), body = s.body, attachments = s.attachments.map { it.path })
         _state.update { it.copy(sending = true, error = null) }
         viewModelScope.launch {
             try {
                 repo.send(draft)
+                dropCopies()
                 _state.update { it.copy(sending = false, sent = true) }
             } catch (e: FerrowlException) {
                 _state.update { it.copy(sending = false, error = e.message) }

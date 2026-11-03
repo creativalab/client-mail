@@ -1,9 +1,14 @@
 package com.ferrowl.app.ui.compose
 
+import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -34,10 +39,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -62,6 +71,7 @@ fun ComposeScreen(
 ) {
     LaunchedEffect(Unit) { vm.start(kind, folderId, uid, to) }
     val s by vm.state.collectAsStateWithLifecycle()
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> vm.addFiles(uris) }
     ReportError(s.error, vm::errorShown)
     LaunchedEffect(s.sent) { if (s.sent) onClose() }
     var askDiscard by remember { mutableStateOf(false) }
@@ -81,6 +91,9 @@ fun ComposeScreen(
                     IconButton(onClick = leave) { Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.discard)) }
                 },
                 actions = {
+                    IconButton(onClick = { pick.launch(arrayOf("*/*")) }, enabled = !s.sending) {
+                        Icon(painterResource(R.drawable.ic_attach), contentDescription = stringResource(R.string.attach))
+                    }
                     if (s.sending) {
                         CircularProgressIndicator(Modifier.padding(12.dp).size(24.dp), strokeWidth = 2.dp)
                     } else {
@@ -104,6 +117,7 @@ fun ComposeScreen(
             Line(stringResource(R.string.cc), s.cc, vm::setCc, KeyboardType.Email)
             if (s.suggestFor == false) Suggestions(s.suggestions, vm::pick)
             Line(stringResource(R.string.subject), s.subject, vm::setSubject)
+            s.attachments.forEach { a -> AttachmentRow(a) { vm.removeAttachment(a.path) } }
             TextField(
                 value = s.body,
                 onValueChange = vm::setBody,
@@ -163,3 +177,26 @@ private fun plain() = TextFieldDefaults.colors(
     unfocusedContainerColor = Color.Transparent,
     disabledContainerColor = Color.Transparent,
 )
+
+/** An attached file: name, size and a button to remove it. */
+@Composable
+private fun AttachmentRow(a: Attachment, onRemove: () -> Unit) {
+    val context = LocalContext.current
+    Row(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(painterResource(R.drawable.ic_attach), contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(a.name, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        Text(
+            Formatter.formatShortFileSize(context, a.size),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        IconButton(onClick = onRemove) {
+            Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.remove_attachment))
+        }
+    }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+}
