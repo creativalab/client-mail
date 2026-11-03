@@ -382,6 +382,27 @@ pub fn input(p: Palette, r: f32) -> impl Fn(&Theme, text_input::Status) -> text_
 }
 
 /// Borderless field (used inside containers that already have a border).
+/// A small button that opens a menu, drawn like a drop-down field.
+pub fn pick_btn(p: Palette) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let active = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        button::Style {
+            background: Some(Background::Color(if active {
+                mix(p.chip, p.soft, 0.6)
+            } else {
+                p.chip
+            })),
+            text_color: p.text,
+            border: Border {
+                color: if active { p.accent } else { p.line },
+                width: 1.0,
+                radius: radius(7.0),
+            },
+            ..Default::default()
+        }
+    }
+}
+
 /// Drop-down lists in the theme's colors (the default iced look is grey
 /// and square): a field like the filter chips, and a menu like a card.
 pub fn pick_style(

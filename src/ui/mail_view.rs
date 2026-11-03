@@ -700,37 +700,35 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     let size = app.config.ui.page_size.max(1) as usize;
     let total = rows_now.len();
     let from = (app.page * size).min(total);
-    let to = (from + size).min(total);
     let (back, forward) = if i18n::is_rtl() {
         (icons::CHEVRON_RIGHT, icons::CHEVRON_LEFT)
     } else {
         (icons::CHEVRON_LEFT, icons::CHEVRON_RIGHT)
     };
+    let pages = total.div_ceil(size).max(1);
     let pager = dir_row(vec![
-        // Opens the list of pages, to jump to one.
+        text(t("page_label")).size(12).color(p.text2).into(),
+        // The page number opens the list of pages, to jump to one.
         button(
             row![
-                text(tf(
-                    "page_range",
-                    &[
-                        ("from", &(from + 1).min(to).to_string()),
-                        ("to", &to.to_string()),
-                        ("n", &total.to_string())
-                    ],
-                ))
-                .size(12)
-                .font(MONO)
-                .color(p.text2)
-                .wrapping(Wrapping::None),
+                text((app.page + 1).to_string())
+                    .size(12)
+                    .font(semibold())
+                    .color(p.text),
                 icon(icons::CHEVRON_DOWN, 12.0, p.text2),
             ]
             .spacing(4)
             .align_y(Alignment::Center),
         )
-        .padding([4, 6])
-        .style(ghost(p, p.text2))
+        .padding([3, 8])
+        .style(pick_btn(p))
         .on_press(Message::OpenPopup(Popup::Page))
         .into(),
+        text(tf("page_of", &[("n", &pages.to_string())]))
+            .size(12)
+            .color(p.text2)
+            .wrapping(Wrapping::None)
+            .into(),
         button(icon(back, 16.0, if app.page > 0 { p.text2 } else { p.field }))
             .padding(5)
             .style(ghost(p, p.text2))
@@ -744,7 +742,7 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             .on_press(Message::Page(1))
             .into(),
     ])
-    .spacing(2)
+    .spacing(6)
     .align_y(Alignment::Center);
     let view_mode = container(
         dir_row(vec![filters.into(), space::horizontal().into(), pager.into()]).align_y(Alignment::Center),
@@ -2011,17 +2009,8 @@ fn popup_menu<'a>(app: &'a App, kind: Popup, at: iced::Point, p: Palette) -> Ele
             let total = app.list_rows().len();
             let pages = total.div_ceil(size).max(1);
             for n in 0..pages {
-                let from = n * size + 1;
-                let to = ((n + 1) * size).min(total);
                 items.push(item(
-                    tf(
-                        "page_range",
-                        &[
-                            ("from", &from.to_string()),
-                            ("to", &to.to_string()),
-                            ("n", &total.to_string()),
-                        ],
-                    ),
+                    (n + 1).to_string(),
                     Message::GoPage(n),
                     app.page == n,
                     false,
