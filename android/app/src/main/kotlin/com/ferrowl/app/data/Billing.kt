@@ -55,7 +55,7 @@ class Billing @Inject constructor(
 
     private val _price = MutableStateFlow<String?>(null)
 
-    /** The yearly price as Google Play shows it to this user ("19,00 €"), once known. */
+    /** The yearly price as Google Play shows it to this user ("9,99 €"), once known. */
     val price: StateFlow<String?> = _price.asStateFlow()
 
     private var details: ProductDetails? = null
