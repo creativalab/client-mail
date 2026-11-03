@@ -3,17 +3,16 @@ package com.ferrowl.app.ui.setup
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ferrowl.app.data.MailRepository
+import com.ferrowl.app.data.MicrosoftSignIn
+import com.ferrowl.app.data.SignInState
 import com.ferrowl.core.Account
-import com.ferrowl.core.BrowserOpener
 import com.ferrowl.core.FerrowlException
 import com.ferrowl.core.Login
 import com.ferrowl.core.OAuthProvider
 import com.ferrowl.core.Protocol
 import com.ferrowl.core.Provider
 import com.ferrowl.core.knownProviders
-import com.ferrowl.core.oauthAccount
 import com.ferrowl.core.oauthAvailable
-import com.ferrowl.core.oauthSignIn
 import com.ferrowl.core.providerForEmail
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -75,9 +74,33 @@ data class SetupState(
 }
 
 @HiltViewModel
-class SetupViewModel @Inject constructor(private val repo: MailRepository) : ViewModel() {
+class SetupViewModel @Inject constructor(
+    private val repo: MailRepository,
+    private val microsoft: MicrosoftSignIn,
+) : ViewModel() {
     private val _state = MutableStateFlow(SetupState(providers = knownProviders()))
     val state: StateFlow<SetupState> = _state.asStateFlow()
+
+    init {
+        // The Microsoft sign-in may finish while this screen is in the
+        // background, or after Android restarted the app.
+        viewModelScope.launch {
+            microsoft.state.collect { st ->
+                when (st) {
+                    SignInState.Idle -> _state.update { it.copy(busy = false) }
+                    SignInState.Waiting, SignInState.Working -> _state.update { it.copy(busy = true, error = null) }
+                    SignInState.Done -> {
+                        microsoft.acknowledge()
+                        _state.update { it.copy(busy = false, done = true) }
+                    }
+                    is SignInState.Failed -> {
+                        microsoft.acknowledge()
+                        _state.update { it.copy(busy = false, error = st.message) }
+                    }
+                }
+            }
+        }
+    }
 
     fun pickProvider(index: Int?) = _state.update { it.copy(provider = index, error = null) }
 
@@ -109,23 +132,20 @@ class SetupViewModel @Inject constructor(private val repo: MailRepository) : Vie
     fun setSmtpPort(v: String) = _state.update { it.copy(smtpPort = v.filter(Char::isDigit)) }
 
     /**
-     * Microsoft: opens the sign-in page with [browser]; when the user has
-     * signed in, the account is connected and saved like any other.
+     * Microsoft: prepares the sign-in and returns the page to open in the
+     * browser. Microsoft's answer reopens the app, which finishes it
+     * ([MicrosoftSignIn]); progress arrives through [state].
      */
-    fun signIn(browser: BrowserOpener) {
-        val s = _state.value
-        _state.update { it.copy(busy = true, error = null) }
-        viewModelScope.launch {
-            try {
-                val email = oauthSignIn(OAuthProvider.MICROSOFT, s.email.trim(), browser)
-                val account = oauthAccount(OAuthProvider.MICROSOFT, email, s.name.trim().ifEmpty { email })
-                repo.setUp(account)
-                _state.update { it.copy(busy = false, done = true) }
-            } catch (e: FerrowlException) {
-                _state.update { it.copy(busy = false, error = e.message) }
-            }
+    fun signIn(): String? =
+        try {
+            microsoft.start(_state.value.name.trim(), _state.value.email.trim())
+        } catch (e: FerrowlException) {
+            _state.update { it.copy(error = e.message) }
+            null
         }
-    }
+
+    /** Back on the form with the sign-in page closed and no answer: allow a new try. */
+    fun resumed() = microsoft.cancelIfWaiting()
 
     /** Connects; on success the account is saved and the screen moves on. */
     fun connect() {

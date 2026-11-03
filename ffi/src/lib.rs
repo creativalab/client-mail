@@ -757,12 +757,6 @@ pub fn set_token_vault(vault: Arc<dyn TokenVault>) {
     oauth::set_vault(Box::new(Vault(vault)));
 }
 
-/// Opens the provider's sign-in page (in a Custom Tab / the browser).
-#[uniffi::export(with_foreign)]
-pub trait BrowserOpener: Send + Sync {
-    fn open(&self, url: String);
-}
-
 /// Whether this build can sign in with `provider` (client registered).
 #[uniffi::export]
 pub fn oauth_available(provider: OAuthProvider) -> bool {
@@ -775,21 +769,56 @@ pub fn oauth_provider_for_email(email: String) -> Option<OAuthProvider> {
     oauth::Provider::for_email(&email).map(Into::into)
 }
 
-/// Signs in on the provider's page (opened with `browser`) and returns the
-/// signed-in address. The page sends the browser back to a port on this
-/// device that the engine listens on; tokens go to the [`TokenVault`].
+/// A sign-in in progress. The app opens `url`, keeps the rest (it can be
+/// stopped by the system meanwhile) and passes it back to [`oauth_finish`].
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct OAuthRequest {
+    pub url: String,
+    pub state: String,
+    pub verifier: String,
+    pub redirect: String,
+}
+
+impl From<OAuthRequest> for oauth::Pending {
+    fn from(r: OAuthRequest) -> Self {
+        oauth::Pending {
+            url: r.url,
+            state: r.state,
+            verifier: r.verifier,
+            redirect: r.redirect,
+        }
+    }
+}
+
+/// Starts a sign-in whose answer comes back to `redirect` (on Android the
+/// app's `msauth://` address, which reopens the app).
+#[uniffi::export]
+pub fn oauth_begin(provider: OAuthProvider, login_hint: String, redirect: String) -> Result<OAuthRequest> {
+    let p = oauth::begin(provider.into(), &login_hint, &redirect)
+        .map_err(|e| FerrowlError::Failed(format!("{e:#}")))?;
+    Ok(OAuthRequest {
+        url: p.url,
+        state: p.state,
+        verifier: p.verifier,
+        redirect: p.redirect,
+    })
+}
+
+/// Finishes a sign-in from the address the provider sent the browser back
+/// to: checks it, exchanges the code, stores the tokens in the
+/// [`TokenVault`] and returns the signed-in address.
 #[uniffi::export(async_runtime = "tokio")]
-pub async fn oauth_sign_in(
+pub async fn oauth_finish(
     provider: OAuthProvider,
+    request: OAuthRequest,
+    answer: String,
     login_hint: String,
-    browser: Arc<dyn BrowserOpener>,
 ) -> Result<String> {
     let provider: oauth::Provider = provider.into();
+    let pending: oauth::Pending = request.into();
     tokio::task::spawn_blocking(move || {
-        oauth::sign_in(provider, &login_hint, &|url: &str| {
-            browser.open(url.to_string());
-            Ok(())
-        })
+        let code = oauth::code_from_redirect(&pending, &answer)?;
+        oauth::finish(provider, &pending, &code, &login_hint)
     })
     .await
     .map_err(|e| FerrowlError::Failed(e.to_string()))?

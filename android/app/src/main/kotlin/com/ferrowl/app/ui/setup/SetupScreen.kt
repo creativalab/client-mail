@@ -1,5 +1,7 @@
 package com.ferrowl.app.ui.setup
 
+import android.content.Context
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -32,7 +34,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrowl.app.R
 import com.ferrowl.app.ui.fill
@@ -44,6 +48,11 @@ import com.ferrowl.core.Login
 fun SetupScreen(onDone: () -> Unit, vm: SetupViewModel = hiltViewModel()) {
     val s by vm.state.collectAsStateWithLifecycle()
     LaunchedEffect(s.done) { if (s.done) onDone() }
+    // Coming back without an answer (sign-in page closed): the button works again.
+    LifecycleResumeEffect(Unit) {
+        vm.resumed()
+        onPauseOrDispose {}
+    }
     val uri = LocalUriHandler.current
 
     Column(
@@ -94,10 +103,12 @@ fun SetupScreen(onDone: () -> Unit, vm: SetupViewModel = hiltViewModel()) {
         s.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
         if (s.signsIn) {
-            // The Custom Tab opens over this activity; it is created here so
-            // it uses the activity's context, not the application's.
             val context = LocalContext.current
-            Button(onClick = { vm.signIn(CustomTabOpener(context)) }, enabled = s.canSignIn, modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = { vm.signIn()?.let { url -> openSignInPage(context, url) } },
+                enabled = s.canSignIn,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 if (s.busy) {
                     CircularProgressIndicator(Modifier.width(20.dp), strokeWidth = 2.dp)
                 } else {
@@ -168,4 +179,9 @@ private fun Field(
         visualTransformation = if (secret) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         modifier = modifier,
     )
+}
+
+/** The sign-in page in a Custom Tab: the user's browser, shown over the app. */
+private fun openSignInPage(context: Context, url: String) {
+    CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(context, url.toUri())
 }
