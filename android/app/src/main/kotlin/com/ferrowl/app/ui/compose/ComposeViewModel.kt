@@ -27,8 +27,11 @@ import java.util.UUID
 import javax.inject.Inject
 
 data class ComposeState(
+    /** The sending account ("Name <address>"). */
+    val from: String = "",
     val to: String = "",
     val cc: String = "",
+    val bcc: String = "",
     val subject: String = "",
     val body: String = "",
     /** Threading headers and flags kept from the draft (replies). */
@@ -68,6 +71,12 @@ class ComposeViewModel @Inject constructor(
     fun start(kind: ReplyKind?, folderId: String, uid: UInt, to: String = "") {
         if (started) return
         started = true
+        viewModelScope.launch {
+            repo.savedAccount()?.let { a ->
+                val from = if (a.displayName.isBlank()) a.email else "${a.displayName} <${a.email}>"
+                _state.update { it.copy(from = from) }
+            }
+        }
         if (kind == null) {
             _state.update { it.copy(to = to) }
             return
@@ -95,6 +104,8 @@ class ComposeViewModel @Inject constructor(
         _state.update { it.copy(to = v, edited = true, error = null) }
         suggest(v, forTo = true)
     }
+
+    fun setBcc(v: String) = _state.update { it.copy(bcc = v, edited = true) }
 
     fun setCc(v: String) {
         _state.update { it.copy(cc = v, edited = true) }
@@ -182,7 +193,14 @@ class ComposeViewModel @Inject constructor(
             return
         }
         val draft = (s.base ?: Outgoing("", "", "", "", "", null, null, emptyList(), emptyList(), false, false))
-            .copy(to = s.to.trim(), cc = s.cc.trim(), subject = s.subject.trim(), body = s.body, attachments = s.attachments.map { it.path })
+            .copy(
+                to = s.to.trim(),
+                cc = s.cc.trim(),
+                bcc = s.bcc.trim(),
+                subject = s.subject.trim(),
+                body = s.body,
+                attachments = s.attachments.map { it.path },
+            )
         _state.update { it.copy(sending = true, error = null) }
         viewModelScope.launch {
             try {
