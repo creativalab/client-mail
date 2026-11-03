@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher icon, foreground layer: the Ferrowl owl-envelope (same drawing
+     as the desktop logo), placed in the adaptive icon's safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- A little smaller than the safe zone, so the ears keep clear of round masks. -->
+    <group android:pivotX="54" android:pivotY="54" android:scaleX="0.93" android:scaleY="0.93">
+        <path android:fillColor="#FBF3EA" android:pathData="M26.45,29.35 L39.69,38.41 L68.31,38.41 L81.55,29.35 L81.55,72.85 A5.80,5.80 0 0 1 75.75,78.65 L32.25,78.65 A5.80,5.80 0 0 1 26.45,72.85 Z" />
+        <path
+            android:pathData="M29.35,42.04 L54.0,60.89 L78.65,42.04"
+            android:strokeColor="#A63A0C"
+            android:strokeWidth="3.77"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path android:fillColor="#2A1A12" android:pathData="M42.04,55.45 L48.32,59.08 L48.32,66.33 L42.04,69.95 L35.76,66.33 L35.76,59.08 Z" />
+        <path android:fillColor="#2A1A12" android:pathData="M65.96,55.45 L72.24,59.08 L72.24,66.33 L65.96,69.95 L59.68,66.33 L59.68,59.08 Z" />
+        <path android:fillColor="#A63A0C" android:pathData="M51.1,62.7 L56.9,62.7 L54.0,67.78 Z" />
+    </group>
+</vector>
