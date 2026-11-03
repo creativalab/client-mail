@@ -131,30 +131,6 @@ class MailboxViewModel @Inject constructor(
                 refresh()
             }
         }
-        viewModelScope.launch {
-            repo.accountList.collect { list -> _state.update { it.copy(accounts = list.map { a -> a.email }) } }
-        }
-        viewModelScope.launch { repo.activeEmail.collect { e -> _state.update { it.copy(active = e.orEmpty()) } } }
-        // Another account became active: start over with its inbox.
-        viewModelScope.launch {
-            repo.switched.collect {
-                _state.update {
-                    it.copy(
-                        folders = repo.folders.value,
-                        folderId = repo.inboxId(),
-                        tabs = repo.isGmail(),
-                        unread = emptyMap(),
-                        messages = emptyList(),
-                        query = "",
-                        results = emptyList(),
-                        selected = emptySet(),
-                        category = 0,
-                        error = null,
-                    )
-                }
-                refresh()
-            }
-        }
         // Something was moved, deleted or sent: reload from the local copy.
         viewModelScope.launch {
             repo.changes.collect {
