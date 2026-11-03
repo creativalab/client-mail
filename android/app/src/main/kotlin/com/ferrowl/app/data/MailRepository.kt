@@ -209,6 +209,34 @@ class MailRepository @Inject constructor(
         }
     }
 
+    /** Moves messages to Spam, or back to the inbox ([toSpam] false). */
+    suspend fun spam(folderId: String, uids: List<UInt>, toSpam: Boolean) {
+        if (toSpam) engine.reportSpam(folderId, uids) else engine.notSpam(folderId, uids)
+        val key = if (toSpam) "spam_moved" else "inbox_moved"
+        changed(translate(key).replace("{n}", uids.size.toString()))
+    }
+
+    /** Whether a folder is the Spam folder. */
+    fun isSpam(folderId: String): Boolean = folder(folderId)?.kind == FolderKind.SPAM
+
+    /** Blocks (false) or allows (true) a sender: an address or "@domain". */
+    suspend fun setSenderRule(address: String, allow: Boolean) =
+        withContext(Dispatchers.IO) { engine.setSenderRule(address, allow) }
+
+    suspend fun removeSenderRule(address: String) = withContext(Dispatchers.IO) { engine.removeSenderRule(address) }
+
+    suspend fun senderRules(allow: Boolean): List<String> = withContext(Dispatchers.IO) { engine.senderRules(allow) }
+
+    /**
+     * Applies the sender lists to a freshly loaded folder; returns the
+     * messages moved (to drop from the list).
+     */
+    suspend fun applySenderRules(folderId: String, headers: List<Header>): List<UInt> {
+        val moved = engine.applySenderRules(folderId, headers)
+        if (moved.isNotEmpty()) _notices.emit(translate("rules_moved").replace("{n}", moved.size.toString()))
+        return moved
+    }
+
     /** Stars or unstars messages (IMAP \\Flagged, shown by every client). */
     suspend fun setFlagged(folderId: String, uids: List<UInt>, flagged: Boolean) =
         engine.setFlaggedMany(folderId, uids, flagged)

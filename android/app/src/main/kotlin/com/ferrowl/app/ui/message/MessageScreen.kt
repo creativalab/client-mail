@@ -95,6 +95,13 @@ fun MessageScreen(
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             DropdownMenuItem(text = { Text(stringResource(R.string.archive)) }, onClick = { menu = false; vm.archive() })
                             DropdownMenuItem(text = { Text(stringResource(R.string.mark_unread)) }, onClick = { menu = false; vm.markUnread() })
+                            DropdownMenuItem(
+                                text = { Text(stringResource(if (vm.inSpam) R.string.spam_not else R.string.spam_report)) },
+                                onClick = { menu = false; vm.spam() },
+                            )
+                            if (!vm.inSpam) {
+                                DropdownMenuItem(text = { Text(stringResource(R.string.block_sender)) }, onClick = { menu = false; vm.blockSender() })
+                            }
                             DropdownMenuItem(text = { Text(stringResource(R.string.reply_all)) }, onClick = { menu = false; onReply(ReplyKind.REPLY_ALL) })
                             DropdownMenuItem(text = { Text(stringResource(R.string.forward)) }, onClick = { menu = false; onReply(ReplyKind.FORWARD) })
                         }

@@ -33,6 +33,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.DrawerValue
@@ -71,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrowl.app.R
+import com.ferrowl.core.SortOrder
 import com.ferrowl.core.Folder
 import com.ferrowl.core.Header
 import kotlinx.coroutines.launch
@@ -202,6 +205,7 @@ fun MailboxScreen(
                                 contentDescription = stringResource(if (searchOpen) R.string.close else R.string.search_placeholder),
                             )
                         }
+                        if (!searchOpen) SortMenu(s.sort, vm::setSort)
                     },
                 )
             },
@@ -296,6 +300,7 @@ private fun SelectionBar(count: Int, vm: MailboxViewModel, folders: List<Folder>
                 item(R.string.star_add) { vm.starSelected(true) }
                 item(R.string.star_remove) { vm.starSelected(false) }
                 item(R.string.archive) { vm.archiveSelected() }
+                item(if (vm.inSpam) R.string.spam_not else R.string.spam_report) { vm.spamSelected() }
                 item(R.string.move_to) { moving = true }
             }
         },
@@ -343,6 +348,39 @@ fun StarButton(starred: Boolean, onClick: () -> Unit) {
             tint = if (starred) Color(0xFFE2A400) else MaterialTheme.colorScheme.outlineVariant,
         )
     }
+}
+
+/** "Sort by…": the orders, the current one checked. */
+@Composable
+private fun SortMenu(current: SortOrder, onPick: (SortOrder) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    IconButton(onClick = { open = true }) {
+        Icon(Icons.AutoMirrored.Filled.List, contentDescription = stringResource(R.string.sort_by))
+    }
+    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        DropdownMenuItem(text = { Text(stringResource(R.string.sort_by)) }, onClick = {}, enabled = false)
+        SortOrder.entries.forEach { order ->
+            DropdownMenuItem(
+                text = { Text(stringResource(sortLabel(order))) },
+                trailingIcon = { if (order == current) Icon(Icons.Filled.Check, contentDescription = null) },
+                onClick = {
+                    open = false
+                    onPick(order)
+                },
+            )
+        }
+    }
+}
+
+/** The phone-language label of a sort order. */
+private fun sortLabel(order: SortOrder): Int = when (order) {
+    SortOrder.NEWEST -> R.string.sort_newest
+    SortOrder.OLDEST -> R.string.sort_oldest
+    SortOrder.LARGEST -> R.string.sort_largest
+    SortOrder.SMALLEST -> R.string.sort_smallest
+    SortOrder.SENDER_AZ -> R.string.sort_sender_az
+    SortOrder.SENDER_ZA -> R.string.sort_sender_za
+    SortOrder.SUBJECT_AZ -> R.string.sort_subject_az
 }
 
 /** Whether any message of a row is starred. */

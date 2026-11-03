@@ -5,6 +5,19 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.HorizontalDivider
@@ -104,6 +117,53 @@ fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel()) 
             pushError?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
             }
+            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            val blocked by vm.blocked.collectAsStateWithLifecycle()
+            val allowed by vm.allowed.collectAsStateWithLifecycle()
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.senders_title)) },
+                supportingContent = { Text(stringResource(R.string.senders_desc)) },
+            )
+            SenderList(stringResource(R.string.senders_blocked), blocked, onAdd = { vm.addSender(it, false) }, onRemove = vm::removeSender)
+            SenderList(stringResource(R.string.senders_allowed), allowed, onAdd = { vm.addSender(it, true) }, onRemove = vm::removeSender)
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+/** One sender list: its addresses (each removable) and a box to add one. */
+@Composable
+private fun SenderList(title: String, entries: List<String>, onAdd: (String) -> Unit, onRemove: (String) -> Unit) {
+    var typed by rememberSaveable { mutableStateOf("") }
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, style = MaterialTheme.typography.titleSmall)
+        if (entries.isEmpty()) {
+            Text(stringResource(R.string.senders_none), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        entries.forEach { address ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(address, modifier = Modifier.weight(1f))
+                IconButton(onClick = { onRemove(address) }) {
+                    Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.senders_remove))
+                }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = typed,
+                onValueChange = { typed = it },
+                placeholder = { Text(stringResource(R.string.senders_placeholder)) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(
+                onClick = {
+                    onAdd(typed)
+                    typed = ""
+                },
+                enabled = typed.contains('@'),
+            ) { Text(stringResource(R.string.senders_add)) }
         }
     }
 }

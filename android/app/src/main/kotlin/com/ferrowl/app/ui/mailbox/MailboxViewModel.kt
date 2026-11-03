@@ -5,7 +5,9 @@ import androidx.lifecycle.viewModelScope
 import com.ferrowl.app.data.MailRepository
 import com.ferrowl.app.data.SettingsStore
 import com.ferrowl.core.Conversation
+import com.ferrowl.core.SortOrder
 import com.ferrowl.core.groupConversations
+import com.ferrowl.core.sortConversations
 import com.ferrowl.core.FerrowlException
 import com.ferrowl.core.Folder
 import com.ferrowl.core.Header
@@ -32,6 +34,7 @@ data class MailboxState(
     val results: List<Header> = emptyList(),
     /** Conversations (true) or one row per message. */
     val threaded: Boolean = true,
+    val sort: SortOrder = SortOrder.NEWEST,
     /** Checked messages (uids); not empty = selection mode. */
     val selected: Set<UInt> = emptySet(),
     /** Asking before deleting the selection for good (in the Trash). */
@@ -43,11 +46,14 @@ data class MailboxState(
 
     /** The list rows: whole conversations, or single messages as one-member ones. */
     val rows: List<Conversation>
-        get() = if (threaded) {
-            groupConversations(shown)
-        } else {
-            shown.map { Conversation(it, listOf(it.uid), if (it.seen) 0u else 1u) }
-        }
+        get() = sortConversations(
+            if (threaded) {
+                groupConversations(shown)
+            } else {
+                shown.map { Conversation(it, listOf(it.uid), if (it.seen) 0u else 1u) }
+            },
+            sort,
+        )
 }
 
 @HiltViewModel
@@ -65,6 +71,7 @@ class MailboxViewModel @Inject constructor(
 
     init {
         viewModelScope.launch { settings.threaded.collect { on -> _state.update { it.copy(threaded = on) } } }
+        viewModelScope.launch { settings.sort.collect { o -> _state.update { it.copy(sort = o) } } }
         viewModelScope.launch {
             try {
                 repo.ensureConnected()
@@ -98,7 +105,10 @@ class MailboxViewModel @Inject constructor(
             try {
                 val cached = repo.cachedHeaders(id)
                 if (cached.isNotEmpty()) _state.update { if (it.folderId == id) it.copy(messages = cached) else it }
-                val fresh = repo.headers(id)
+                var fresh = repo.headers(id)
+                // Sender lists: blocked mail leaves the inbox, allowed mail leaves Spam.
+                val moved = runCatching { repo.applySenderRules(id, fresh) }.getOrDefault(emptyList())
+                if (moved.isNotEmpty()) fresh = fresh.filter { it.uid !in moved }
                 _state.update { if (it.folderId == id) it.copy(messages = fresh, refreshing = false) else it }
                 loadUnread()
             } catch (e: FerrowlException) {
@@ -176,6 +186,24 @@ class MailboxViewModel @Inject constructor(
             )
         }
         if (!local) repo.setFlagged(folder, uids, on)
+    }
+
+    fun setSort(order: SortOrder) {
+        viewModelScope.launch { settings.setSort(order) }
+    }
+
+    /** Whether the open folder is Spam (the action becomes "Not spam"). */
+    val inSpam: Boolean get() = repo.isSpam(_state.value.folderId)
+
+    /** Report spam, or in Spam "not spam" (which also allows the senders). */
+    fun spamSelected() {
+        val toSpam = !inSpam
+        val s = _state.value
+        if (!toSpam) {
+            val senders = s.shown.filter { it.uid in s.selected && it.fromAddress.isNotBlank() }.map { it.fromAddress }.toSet()
+            viewModelScope.launch { senders.forEach { runCatching { repo.setSenderRule(it, true) } } }
+        }
+        bulk { folder, uids -> repo.spam(folder, uids, toSpam) }
     }
 
     fun archiveSelected() = bulk { folder, uids -> repo.archive(folder, uids) }

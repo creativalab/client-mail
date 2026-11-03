@@ -168,6 +168,12 @@ pub struct Header {
     /// Starred (IMAP \\Flagged).
     #[uniffi(default = false)]
     pub flagged: bool,
+    /// Size of the whole message in bytes (0 = unknown).
+    #[uniffi(default = 0)]
+    pub size: u32,
+    /// Sender's bare address (for the sender lists).
+    #[uniffi(default = "")]
+    pub from_address: String,
 }
 
 impl From<mail::Header> for Header {
@@ -183,6 +189,8 @@ impl From<mail::Header> for Header {
             message_id: h.message_id,
             parents: h.parents,
             flagged: h.flagged,
+            size: h.size,
+            from_address: h.from_address,
         }
     }
 }
@@ -200,6 +208,8 @@ impl From<&Header> for mail::Header {
             message_id: h.message_id.clone(),
             parents: h.parents.clone(),
             flagged: h.flagged,
+            size: h.size,
+            from_address: h.from_address.clone(),
             ..Default::default()
         }
     }
@@ -227,6 +237,49 @@ pub fn group_conversations(headers: Vec<Header>) -> Vec<Conversation> {
             unread: t.unread as u32,
         })
         .collect()
+}
+
+/// Orders of message lists ("Sort by…").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum SortOrder {
+    Newest,
+    Oldest,
+    Largest,
+    Smallest,
+    SenderAz,
+    SenderZa,
+    SubjectAz,
+}
+
+impl SortOrder {
+    fn core(self) -> ferrowl_core::sort::SortOrder {
+        use ferrowl_core::sort::SortOrder as S;
+        match self {
+            SortOrder::Newest => S::Newest,
+            SortOrder::Oldest => S::Oldest,
+            SortOrder::Largest => S::Largest,
+            SortOrder::Smallest => S::Smallest,
+            SortOrder::SenderAz => S::SenderAz,
+            SortOrder::SenderZa => S::SenderZa,
+            SortOrder::SubjectAz => S::SubjectAz,
+        }
+    }
+}
+
+/// Sorts list rows (conversations, or one-message ones) by their newest
+/// message.
+#[uniffi::export]
+pub fn sort_conversations(rows: Vec<Conversation>, order: SortOrder) -> Vec<Conversation> {
+    let order = order.core();
+    let mut rows = rows;
+    rows.sort_by(|a, b| order.compare(&mail::Header::from(&a.latest), &mail::Header::from(&b.latest)));
+    rows
+}
+
+/// The label's translation key of a sort order.
+#[uniffi::export]
+pub fn sort_label(order: SortOrder) -> String {
+    order.core().key().to_string()
 }
 
 /// The newest messages of a folder. `more` is set when older messages are
@@ -1015,6 +1068,48 @@ impl Engine {
         Ok(self.backend.archive_many(folder_id, uids, folders).await?)
     }
 
+    /// Moves messages to Spam (marked $Junk for the server's filter).
+    pub async fn report_spam(&self, folder_id: String, uids: Vec<u32>) -> Result<String> {
+        let folders = lock(&self.folders).clone();
+        Ok(self.backend.report_spam(folder_id, uids, folders).await?)
+    }
+
+    /// Moves messages from Spam back to the inbox (marked $NotJunk).
+    pub async fn not_spam(&self, folder_id: String, uids: Vec<u32>) -> Result<String> {
+        let folders = lock(&self.folders).clone();
+        Ok(self.backend.not_spam(folder_id, uids, folders).await?)
+    }
+
+    /// Blocks (`allow` false) or allows a sender: an address or "@domain".
+    pub fn set_sender_rule(&self, address: String, allow: bool) -> Result<()> {
+        let Some(a) = lock(&self.account).clone() else {
+            return Ok(());
+        };
+        Ok(Backend::set_sender_rule(&a, &address, allow)?)
+    }
+
+    pub fn remove_sender_rule(&self, address: String) {
+        if let Some(a) = lock(&self.account).clone() {
+            Backend::remove_sender_rule(&a, &address);
+        }
+    }
+
+    /// The blocked (`allow` false) or allowed senders.
+    pub fn sender_rules(&self, allow: bool) -> Vec<String> {
+        lock(&self.account)
+            .clone()
+            .map(|a| Backend::sender_rules(&a, allow))
+            .unwrap_or_default()
+    }
+
+    /// Applies the sender lists to a loaded folder (inbox: blocked senders
+    /// to Spam; Spam: allowed senders back). Returns the moved uids.
+    pub async fn apply_sender_rules(&self, folder_id: String, headers: Vec<Header>) -> Result<Vec<u32>> {
+        let folders = lock(&self.folders).clone();
+        let core: Vec<mail::Header> = headers.iter().map(mail::Header::from).collect();
+        Ok(self.backend.apply_sender_rules(folder_id, core, folders).await?)
+    }
+
     pub async fn delete_forever_many(&self, folder_id: String, uids: Vec<u32>) -> Result<()> {
         Ok(self.backend.delete_forever_many(folder_id, uids).await?)
     }
@@ -1120,6 +1215,8 @@ mod tests {
             message_id: id.into(),
             parents: parent.iter().map(|p| p.to_string()).collect(),
             flagged: false,
+            size: 0,
+            from_address: String::new(),
         };
         let c = group_conversations(vec![h(1, "a", &[]), h(2, "b", &["a"]), h(3, "x", &[])]);
         assert_eq!(c.len(), 2);
