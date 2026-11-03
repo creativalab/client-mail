@@ -132,6 +132,24 @@ pub fn is_rtl() -> bool {
     current().rtl
 }
 
+/// Whether `raw` is one of Ferrowl's own error sentences (already written
+/// for the user), as opposed to a technical message from a server or the
+/// system. Wrappers around technical text (`err_connect`, `err_login`,
+/// `err_auth`, `err_smtp`) do not count.
+pub fn is_own_error(raw: &str) -> bool {
+    const WRAPPERS: [&str; 4] = ["err_connect", "err_login", "err_auth", "err_smtp"];
+    let tables = tables();
+    let idx = CURRENT.load(Ordering::Relaxed);
+    let raw = raw.trim();
+    tables[idx].iter().any(|(k, v)| {
+        if !k.starts_with("err_") || WRAPPERS.contains(&k.as_str()) {
+            return false;
+        }
+        let prefix = v.split('{').next().unwrap_or("").trim();
+        prefix.chars().count() >= 12 && raw.starts_with(prefix)
+    })
+}
+
 /// Translated text for `key`.
 pub fn t(key: &str) -> &'static str {
     let tables = tables();

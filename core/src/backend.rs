@@ -52,8 +52,9 @@ pub struct AgendaEntry {
 /// Error as text: iced messages must be `Clone`.
 pub type Res<T> = Result<T, String>;
 
+/// The error in words for the user (see [`crate::errors::humanize`]).
 fn text(e: anyhow::Error) -> String {
-    format!("{e:#}")
+    crate::errors::humanize(&format!("{e:#}"))
 }
 
 const MAX_THROTTLE_RETRIES: u32 = 3;
@@ -143,7 +144,7 @@ impl Backend {
             Ok(cache.contacts(&key, "").map_err(text)?.len())
         })
         .await
-        .map_err(|e| format!("{}\n({e})", generic_error()))?
+        .map_err(|e| crate::errors::humanize(&format!("{e:#}")))?
     }
 
     /// Brings the cached calendars up to date with the account's CalDAV
@@ -160,7 +161,7 @@ impl Backend {
             Ok(changes.collections.len())
         })
         .await
-        .map_err(|e| format!("{}\n({e})", generic_error()))?
+        .map_err(|e| crate::errors::humanize(&format!("{e:#}")))?
     }
 
     /// Event occurrences overlapping `[from, to)` (timestamps), sorted, from
@@ -244,7 +245,7 @@ impl Backend {
             Ok(t("event_saved").to_string())
         })
         .await
-        .map_err(|e| format!("{}\n({e})", generic_error()))?
+        .map_err(|e| crate::errors::humanize(&format!("{e:#}")))?
     }
 
     /// Deletes a stored event (a series with all its occurrences).
@@ -265,7 +266,7 @@ impl Backend {
             Ok(t("event_deleted").to_string())
         })
         .await
-        .map_err(|e| format!("{}\n({e})", generic_error()))?
+        .map_err(|e| crate::errors::humanize(&format!("{e:#}")))?
     }
 
     /// Our earlier answer to an invitation (by event UID), if any.
@@ -314,7 +315,7 @@ impl Backend {
             cache.apply_events(&key, &changes)
         })
         .await
-        .map_err(|e| format!("{}\n({e})", generic_error()))?;
+        .map_err(|e| crate::errors::humanize(&format!("{e:#}")))?;
         let mut notice = match saved {
             Ok(()) if reply != crate::invite::Reply::Declined => t("invite_saved").to_string(),
             Ok(()) => t("invite_sent").to_string(),
@@ -345,7 +346,7 @@ impl Backend {
             Ok(t("invite_removed").to_string())
         })
         .await
-        .map_err(|e| format!("{}\n({e})", generic_error()))?
+        .map_err(|e| crate::errors::humanize(&format!("{e:#}")))?
     }
 
     /// The connected account, if it reads mail with POP3.
@@ -362,7 +363,7 @@ impl Backend {
         // An error here means the thread panicked: internal error.
         tokio::task::spawn_blocking(move || f(&me))
             .await
-            .map_err(|e| format!("{}\n({e})", generic_error()))?
+            .map_err(|e| crate::errors::humanize(&format!("{e:#}")))?
     }
 
     fn with_session_sync<T>(&self, op: impl Fn(&mut ImapSession) -> anyhow::Result<T>) -> Res<T> {
@@ -457,7 +458,7 @@ impl Backend {
             Ok(crate::i18n::tf("test_ok", &[("n", &n.to_string())]))
         })
         .await
-        .map_err(|e| format!("{}\n({e})", generic_error()))?
+        .map_err(|e| crate::errors::humanize(&format!("{e:#}")))?
     }
 
     /// Cache key of the connected account.

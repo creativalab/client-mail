@@ -43,6 +43,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrowl.app.R
 import com.ferrowl.app.ui.message.ReplyKind
+import com.ferrowl.app.ui.notice.ReportError
 import com.ferrowl.core.AddressSuggestion
 
 /**
@@ -61,6 +62,7 @@ fun ComposeScreen(
 ) {
     LaunchedEffect(Unit) { vm.start(kind, folderId, uid, to) }
     val s by vm.state.collectAsStateWithLifecycle()
+    ReportError(s.error, vm::errorShown)
     LaunchedEffect(s.sent) { if (s.sent) onClose() }
     var askDiscard by remember { mutableStateOf(false) }
     val leave = { if (s.edited) askDiscard = true else onClose() }
@@ -97,7 +99,6 @@ fun ComposeScreen(
                 .imePadding()
                 .verticalScroll(rememberScrollState()),
         ) {
-            s.error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp)) }
             Line(stringResource(R.string.to), s.to, vm::setTo, KeyboardType.Email)
             if (s.suggestFor == true) Suggestions(s.suggestions, vm::pick)
             Line(stringResource(R.string.cc), s.cc, vm::setCc, KeyboardType.Email)

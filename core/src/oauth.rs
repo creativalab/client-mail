@@ -254,8 +254,25 @@ fn cache() -> &'static Mutex<HashMap<String, (String, Instant)>> {
 
 // ------------------------------------------------------------ flows
 
+/// Access tokens the app gets itself (Android: Google Identity Services
+/// for Google accounts). `None` = not handled there or not available.
+type TokenSource = dyn Fn(Provider, &str) -> Option<String> + Send + Sync;
+static SOURCE: OnceLock<Box<TokenSource>> = OnceLock::new();
+
+/// Lets the app provide access tokens (once, at start-up). Asked first;
+/// when it answers `None` for a provider it does not handle, the engine's
+/// own refresh is used.
+pub fn set_token_source(source: Box<TokenSource>) {
+    let _ = SOURCE.set(source);
+}
+
 /// A valid access token for the account, refreshed when it is about to expire.
 pub fn access_token(provider: Provider, email: &str) -> Result<String> {
+    if let Some(source) = SOURCE.get()
+        && let Some(token) = source(provider, email)
+    {
+        return Ok(token);
+    }
     let k = key(provider, email);
     if let Some((token, until)) = cache().lock().unwrap_or_else(|p| p.into_inner()).get(&k)
         && *until > Instant::now() + Duration::from_secs(60)

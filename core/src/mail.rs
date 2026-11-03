@@ -433,6 +433,11 @@ pub fn connect(account: &Account) -> Result<ImapSession> {
         let msg = e.to_string();
         if mailbox_refuses_apps(&msg) {
             anyhow!(t("err_outlook_imap_off"))
+        } else if account.oauth.is_none()
+            && is_gmail_host(&account.imap_host)
+            && crate::errors::kind(&msg) == crate::errors::Kind::WrongPassword
+        {
+            anyhow!(t("err_h_gmail_password"))
         } else if msg.to_uppercase().contains("AUTHENTICATIONFAILED") {
             anyhow!(tf("err_auth", &[("msg", &msg)]))
         } else {
@@ -1224,9 +1229,21 @@ pub fn send(account: &Account, mail: &Outgoing) -> Result<Vec<u8>> {
         if mailbox_refuses_apps(&e.to_string()) {
             bail!(t("err_outlook_imap_off"));
         }
+        if account.oauth.is_none()
+            && is_gmail_host(&account.smtp_host)
+            && crate::errors::kind(&e.to_string()) == crate::errors::Kind::WrongPassword
+        {
+            bail!(t("err_h_gmail_password"));
+        }
         return Err(anyhow::Error::new(e).context(t("err_smtp")));
     }
     Ok(email.formatted())
+}
+
+/// Gmail's servers (also for Google Workspace domains, which use them too).
+fn is_gmail_host(host: &str) -> bool {
+    let h = host.trim().to_ascii_lowercase();
+    h.ends_with("gmail.com") || h.ends_with("googlemail.com")
 }
 
 /// Outlook.com / Microsoft 365 answers like this when the sign-in worked

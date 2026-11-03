@@ -17,8 +17,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -47,6 +45,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrowl.app.R
+import com.ferrowl.app.ui.notice.LocalNotices
 import com.ferrowl.app.ui.mailbox.StarButton
 import com.ferrowl.core.Message
 
@@ -68,13 +67,10 @@ fun MessageScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     LaunchedEffect(state) { if (state == MessageState.Gone) onBack() }
     val invite by vm.invite.collectAsStateWithLifecycle()
-    val snackbar = remember { SnackbarHostState() }
-    LaunchedEffect(Unit) { vm.notices.collect { snackbar.showSnackbar(it) } }
     var menu by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = {},
@@ -122,7 +118,11 @@ fun MessageScreen(
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (val s = state) {
                 MessageState.Loading, MessageState.Gone -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                is MessageState.Failed -> Text(s.error, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
+                // The reason is shown as a notice at the top; the page stays empty.
+                is MessageState.Failed -> {
+                    val notices = LocalNotices.current
+                    LaunchedEffect(s.error) { notices.error(s.error) }
+                }
                 is MessageState.Shown -> Body(s.message) {
                     s.message.invitation?.let { inv ->
                         InvitationCard(inv, invite, onRespond = vm::respond, onRemove = vm::removeCancelled)

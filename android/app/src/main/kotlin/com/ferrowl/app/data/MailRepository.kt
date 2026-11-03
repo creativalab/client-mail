@@ -1,6 +1,7 @@
 package com.ferrowl.app.data
 
 import com.ferrowl.app.push.PushRegistrar
+import com.ferrowl.app.ui.notice.Notices
 import com.ferrowl.core.Account
 import com.ferrowl.core.AddressSuggestion
 import com.ferrowl.core.CalendarEvent
@@ -47,11 +48,11 @@ class MailRepository @Inject constructor(
     private val engine: Engine,
     private val accounts: AccountStore,
     private val push: PushRegistrar,
+    private val noticeBoard: Notices,
 ) {
     private val connectLock = Mutex()
     private val _folders = MutableStateFlow<List<Folder>>(emptyList())
     private val _changes = MutableSharedFlow<Unit>(extraBufferCapacity = 8)
-    private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 8)
 
     /** Folders of the connected account (empty until [ensureConnected]). */
     val folders: StateFlow<List<Folder>> = _folders.asStateFlow()
@@ -59,8 +60,6 @@ class MailRepository @Inject constructor(
     /** Emits after messages were moved, deleted or sent: lists reload. */
     val changes: SharedFlow<Unit> = _changes.asSharedFlow()
 
-    /** Short confirmations to show in a snackbar ("Archived", "Sent"). */
-    val notices: SharedFlow<String> = _notices.asSharedFlow()
 
     suspend fun savedAccount(): Account? = accounts.account.first()
 
@@ -293,7 +292,7 @@ class MailRepository @Inject constructor(
      */
     suspend fun applySenderRules(folderId: String, headers: List<Header>): List<UInt> {
         val moved = engine.applySenderRules(folderId, headers)
-        if (moved.isNotEmpty()) _notices.emit(translate("rules_moved").replace("{n}", moved.size.toString()))
+        if (moved.isNotEmpty()) noticeBoard.info(translate("rules_moved").replace("{n}", moved.size.toString()))
         return moved
     }
 
@@ -341,6 +340,6 @@ class MailRepository @Inject constructor(
 
     private suspend fun changed(notice: String) {
         _changes.emit(Unit)
-        _notices.emit(notice)
+        noticeBoard.info(notice)
     }
 }

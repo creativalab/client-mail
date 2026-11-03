@@ -2,20 +2,9 @@ package com.ferrowl.app.ui.mailbox
 
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.PrimaryScrollableTabRow
-import androidx.compose.material3.Tab
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.TextButton
-import com.ferrowl.app.ui.fill
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,21 +17,28 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,17 +46,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -77,9 +73,11 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrowl.app.R
-import com.ferrowl.core.SortOrder
+import com.ferrowl.app.ui.fill
+import com.ferrowl.app.ui.notice.ReportError
 import com.ferrowl.core.Folder
 import com.ferrowl.core.Header
+import com.ferrowl.core.SortOrder
 import kotlinx.coroutines.launch
 
 /**
@@ -102,12 +100,9 @@ fun MailboxScreen(
     val s by vm.state.collectAsStateWithLifecycle()
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    val snackbar = remember { SnackbarHostState() }
     var searchOpen by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { vm.notices.collect { snackbar.showSnackbar(it) } }
-    // With messages on screen, a failed refresh is reported in a snackbar
-    // (an empty list shows the error in its place instead).
-    LaunchedEffect(s.error) { s.error?.let { if (s.shown.isNotEmpty()) snackbar.showSnackbar(it) } }
+    // A failed refresh is reported at the top, like every notice.
+    ReportError(s.error, vm::errorShown)
     if (s.confirmDelete) ConfirmBulkDelete(vm)
 
     ModalNavigationDrawer(
@@ -248,7 +243,6 @@ fun MailboxScreen(
                     }
                 }
             },
-            snackbarHost = { SnackbarHost(snackbar) },
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
                 PullToRefreshBox(
@@ -258,7 +252,6 @@ fun MailboxScreen(
                 ) {
                     val rows = s.rows
                     when {
-                        s.error != null && rows.isEmpty() -> Centered(s.error!!, MaterialTheme.colorScheme.error)
                         // (With Gmail tabs the list stays, so another tab can be picked.)
                         rows.isEmpty() && !s.refreshing && !s.searching && !s.tabs -> Centered(stringResource(R.string.list_empty))
                         else -> LazyColumn(Modifier.fillMaxSize()) {

@@ -3,13 +3,11 @@ package com.ferrowl.app.ui.calendar
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ferrowl.app.data.MailRepository
+import com.ferrowl.app.ui.notice.Notices
 import com.ferrowl.core.CalendarEvent
 import com.ferrowl.core.FerrowlException
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -34,13 +32,15 @@ data class CalendarState(
 )
 
 @HiltViewModel
-class CalendarViewModel @Inject constructor(private val repo: MailRepository) : ViewModel() {
+class CalendarViewModel @Inject constructor(
+    private val repo: MailRepository,
+    private val notices: Notices,
+) : ViewModel() {
     private val _state = MutableStateFlow(CalendarState())
     val state: StateFlow<CalendarState> = _state.asStateFlow()
-    private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 4)
 
-    /** Results to show in a snackbar ("Event deleted."). */
-    val notices: SharedFlow<String> = _notices.asSharedFlow()
+    /** The error was shown to the user (as a notice at the top). */
+    fun errorShown() = _state.update { it.copy(error = null) }
 
     init {
         // The saved copy right away; the app already synced after connecting.
@@ -67,7 +67,7 @@ class CalendarViewModel @Inject constructor(private val repo: MailRepository) : 
             } catch (e: FerrowlException) {
                 e.message.orEmpty()
             }
-            _notices.emit(notice)
+            notices.info(notice)
             reload()
         }
     }

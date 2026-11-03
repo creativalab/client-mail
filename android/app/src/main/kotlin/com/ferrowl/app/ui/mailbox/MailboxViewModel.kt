@@ -5,16 +5,15 @@ import androidx.lifecycle.viewModelScope
 import com.ferrowl.app.data.MailRepository
 import com.ferrowl.app.data.SettingsStore
 import com.ferrowl.core.Conversation
-import com.ferrowl.core.SortOrder
-import com.ferrowl.core.groupConversations
-import com.ferrowl.core.sortConversations
 import com.ferrowl.core.FerrowlException
 import com.ferrowl.core.Folder
 import com.ferrowl.core.Header
+import com.ferrowl.core.SortOrder
+import com.ferrowl.core.groupConversations
+import com.ferrowl.core.sortConversations
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -75,8 +74,8 @@ class MailboxViewModel @Inject constructor(
     private val _state = MutableStateFlow(MailboxState())
     val state: StateFlow<MailboxState> = _state.asStateFlow()
 
-    /** Confirmations from actions done anywhere ("Archived", "Sent"). */
-    val notices: SharedFlow<String> = repo.notices
+    /** The error was shown to the user (as a notice at the top). */
+    fun errorShown() = _state.update { it.copy(error = null) }
 
     private var searchJob: Job? = null
 

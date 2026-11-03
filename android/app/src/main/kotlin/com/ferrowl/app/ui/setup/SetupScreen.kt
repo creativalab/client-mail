@@ -1,6 +1,9 @@
 package com.ferrowl.app.ui.setup
 
 import android.content.Context
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -29,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -47,7 +51,9 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrowl.app.R
 import com.ferrowl.app.ui.fill
+import com.ferrowl.app.ui.notice.ReportError
 import com.ferrowl.core.Login
+import kotlinx.coroutines.launch
 
 /** First screen: pick the provider, type address and password, connect. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -55,6 +61,7 @@ import com.ferrowl.core.Login
 fun SetupScreen(onDone: () -> Unit, vm: SetupViewModel = hiltViewModel()) {
     val s by vm.state.collectAsStateWithLifecycle()
     LaunchedEffect(s.done) { if (s.done) onDone() }
+    ReportError(s.error, vm::errorShown)
     // Coming back without an answer (sign-in page closed): the button works again.
     LifecycleResumeEffect(Unit) {
         vm.resumed()
@@ -90,6 +97,22 @@ fun SetupScreen(onDone: () -> Unit, vm: SetupViewModel = hiltViewModel()) {
         Field(stringResource(R.string.email), s.email, vm::setEmail, modifier = Modifier.fillMaxWidth(), keyboard = KeyboardType.Email)
 
         val p = s.chosen
+        if (s.isGoogle) {
+            val scope = rememberCoroutineScope()
+            val picker = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
+                vm.googleResult(r.data)
+            }
+            Button(
+                onClick = {
+                    scope.launch {
+                        vm.googleStart()?.let { picker.launch(IntentSenderRequest.Builder(it.intentSender).build()) }
+                    }
+                },
+                enabled = !s.busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(stringResource(R.string.oauth_google)) }
+            Text(stringResource(R.string.oauth_or_app_password), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         if (s.signsIn) {
             Text(stringResource(R.string.ms_signin_hint), color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
@@ -107,7 +130,6 @@ fun SetupScreen(onDone: () -> Unit, vm: SetupViewModel = hiltViewModel()) {
 
         if (p == null) ManualServers(s, vm)
 
-        s.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
         if (s.signsIn) {
             val context = LocalContext.current
