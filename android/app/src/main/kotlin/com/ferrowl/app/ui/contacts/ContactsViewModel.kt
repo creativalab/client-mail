@@ -29,6 +29,9 @@ data class ContactsState(
 class ContactsViewModel @Inject constructor(private val repo: MailRepository) : ViewModel() {
     private val _state = MutableStateFlow(ContactsState())
     val state: StateFlow<ContactsState> = _state.asStateFlow()
+
+    /** The error was shown to the user (as a notice at the top). */
+    fun errorShown() = _state.update { it.copy(error = null) }
     private var search: Job? = null
 
     init {

@@ -110,6 +110,10 @@ class SettingsViewModel @Inject constructor(
     private val _pushError = MutableStateFlow<String?>(null)
     val pushError: StateFlow<String?> = _pushError.asStateFlow()
 
+    fun pushErrorShown() {
+        _pushError.value = null
+    }
+
     fun setThreaded(on: Boolean) {
         viewModelScope.launch { settings.setThreaded(on) }
     }

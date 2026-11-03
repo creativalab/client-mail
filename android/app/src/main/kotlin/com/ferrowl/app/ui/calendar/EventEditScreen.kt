@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrowl.app.R
+import com.ferrowl.app.ui.notice.ReportError
 import com.ferrowl.core.Repeat
 import java.time.Instant
 import java.time.LocalDate
@@ -67,6 +68,7 @@ private enum class Picking { START_DATE, START_TIME, END_DATE, END_TIME }
 fun EventEditScreen(onClose: () -> Unit, vm: EventEditViewModel = hiltViewModel()) {
     val s by vm.state.collectAsStateWithLifecycle()
     LaunchedEffect(s.done) { if (s.done) onClose() }
+    ReportError(s.error, vm::errorShown)
     var picking by remember { mutableStateOf<Picking?>(null) }
     val locale = LocalConfiguration.current.locales[0]
     val dateFmt = remember(locale) { DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale) }
@@ -141,7 +143,6 @@ fun EventEditScreen(onClose: () -> Unit, vm: EventEditViewModel = hiltViewModel(
                 minLines = 3,
                 modifier = Modifier.fillMaxWidth(),
             )
-            s.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
     }
 

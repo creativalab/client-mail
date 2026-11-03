@@ -2,20 +2,11 @@ package com.ferrowl.app.ui.mailbox
 
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.PrimaryScrollableTabRow
-import androidx.compose.material3.Tab
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.TextButton
-import com.ferrowl.app.ui.fill
-import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,21 +19,29 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,18 +49,23 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberDrawerState
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -70,6 +74,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -77,10 +85,14 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrowl.app.R
-import com.ferrowl.core.SortOrder
+import com.ferrowl.app.ui.fill
+import com.ferrowl.app.ui.notice.ReportError
 import com.ferrowl.core.Folder
+import com.ferrowl.core.FolderKind
 import com.ferrowl.core.Header
+import com.ferrowl.core.SortOrder
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 /**
  * The mail list of one folder, with the folder list in a side drawer,
@@ -97,17 +109,15 @@ fun MailboxScreen(
     onContacts: () -> Unit,
     onCalendar: () -> Unit,
     onAddAccount: () -> Unit,
+    onReply: (folderId: String, uid: UInt) -> Unit,
     vm: MailboxViewModel = hiltViewModel(),
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    val snackbar = remember { SnackbarHostState() }
     var searchOpen by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { vm.notices.collect { snackbar.showSnackbar(it) } }
-    // With messages on screen, a failed refresh is reported in a snackbar
-    // (an empty list shows the error in its place instead).
-    LaunchedEffect(s.error) { s.error?.let { if (s.shown.isNotEmpty()) snackbar.showSnackbar(it) } }
+    // A failed refresh is reported at the top, like every notice.
+    ReportError(s.error, vm::errorShown)
     if (s.confirmDelete) ConfirmBulkDelete(vm)
 
     ModalNavigationDrawer(
@@ -168,10 +178,13 @@ fun MailboxScreen(
                         style = MaterialTheme.typography.titleSmall,
                         modifier = Modifier.padding(start = 28.dp, top = 24.dp, bottom = 12.dp),
                     )
-                    s.folders.filter { it.selectable }.forEach { f ->
+                    // As on the desktop: Inbox and the special folders first,
+                    // then the others (sorted by the server's names).
+                    s.folders.filter { it.selectable }.sortedBy { kindRank(it.kind) }.forEach { f ->
                         val count = s.unread[f.id]?.toInt() ?: 0
-                        // Subfolders are indented under their parent.
-                        val depth = (f.path.size - 1).coerceAtLeast(0)
+                        // Subfolders are indented under their parent (special
+                        // folders are not, even under Gmail's "[Gmail]").
+                        val depth = if (f.kind == FolderKind.OTHER) (f.path.size - 1).coerceAtLeast(0) else 0
                         NavigationDrawerItem(
                             label = { Text(f.name, modifier = Modifier.padding(start = (16 * depth).dp)) },
                             badge = { if (count > 0) Text(count.toString()) },
@@ -248,7 +261,6 @@ fun MailboxScreen(
                     }
                 }
             },
-            snackbarHost = { SnackbarHost(snackbar) },
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
                 PullToRefreshBox(
@@ -258,13 +270,13 @@ fun MailboxScreen(
                 ) {
                     val rows = s.rows
                     when {
-                        s.error != null && rows.isEmpty() -> Centered(s.error!!, MaterialTheme.colorScheme.error)
                         // (With Gmail tabs the list stays, so another tab can be picked.)
+                        rows.isEmpty() && s.refreshing && !s.searching -> Centered(stringResource(R.string.list_loading))
                         rows.isEmpty() && !s.refreshing && !s.searching && !s.tabs -> Centered(stringResource(R.string.list_empty))
                         else -> LazyColumn(Modifier.fillMaxSize()) {
                             // Gmail inbox tabs.
                             if (s.tabs && s.query.isBlank()) {
-                                item(key = "tabs") { CategoryTabs(s.category, vm::setCategory) }
+                                item(key = "tabs") { CategoryTabs(s.category, s.unreadByCategory, vm::setCategory) }
                             }
                             if (rows.isEmpty() && !s.refreshing) {
                                 item(key = "empty") {
@@ -276,6 +288,53 @@ fun MailboxScreen(
                                 }
                             }
                             items(rows, key = { it.latest.uid.toLong() }) { c ->
+                                // Swipe a row: towards the start (left) archives it,
+                                // towards the end (right) replies to it.
+                                // Half the row: a slanted touch while scrolling the list
+                                // must not archive or reply.
+                                val swipe = rememberSwipeToDismissBoxState(positionalThreshold = { width -> width * 0.5f })
+                                val swipeScope = rememberCoroutineScope()
+                                // How far the finger really moved: a quick flick
+                                // would otherwise count as a full swipe.
+                                var dragged by remember { mutableFloatStateOf(0f) }
+                                var rowWidth by remember { mutableIntStateOf(0) }
+                                SwipeToDismissBox(
+                                    state = swipe,
+                                    modifier = Modifier
+                                        .onSizeChanged { rowWidth = it.width }
+                                        .pointerInput(Unit) {
+                                            awaitEachGesture {
+                                                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                                                dragged = 0f
+                                                while (true) {
+                                                    val change = awaitPointerEvent(PointerEventPass.Initial).changes
+                                                        .firstOrNull { it.id == down.id } ?: break
+                                                    dragged = change.position.x - down.position.x
+                                                    if (!change.pressed) break
+                                                }
+                                            }
+                                        },
+                                    enableDismissFromStartToEnd = !s.selecting,
+                                    enableDismissFromEndToStart = !s.selecting,
+                                    backgroundContent = { SwipeBackground(swipe.dismissDirection) },
+                                    onDismiss = { value ->
+                                        // Less than half the row: put it back, do nothing.
+                                        if (abs(dragged) < rowWidth * 0.5f) {
+                                            swipeScope.launch { swipe.reset() }
+                                            return@SwipeToDismissBox
+                                        }
+                                        when (value) {
+                                            SwipeToDismissBoxValue.EndToStart -> vm.archiveRow(c.uids)
+                                            SwipeToDismissBoxValue.StartToEnd -> {
+                                                swipeScope.launch { swipe.reset() }
+                                                onReply(s.folderId, c.latest.uid)
+                                            }
+                                            SwipeToDismissBoxValue.Settled -> {}
+                                        }
+                                    },
+                                ) {
+                                // Opaque, so the swipe background shows only beside the row.
+                                Box(Modifier.background(MaterialTheme.colorScheme.background)) {
                                 MessageRow(
                                     c.latest,
                                     count = c.uids.size,
@@ -296,6 +355,8 @@ fun MailboxScreen(
                                         vm.opened(c.latest.uid)
                                         onOpen(s.folderId, c.latest.uid, rowStarred(s, c.uids))
                                     }
+                                }
+                                }
                                 }
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             }
@@ -437,7 +498,7 @@ private fun LabelDialog(choices: List<Folder>, s: MailboxState, onToggle: (Strin
 
 /** Gmail inbox tabs: Primary, Promotions, Social, Updates, Forums. */
 @Composable
-private fun CategoryTabs(current: Int, onPick: (Int) -> Unit) {
+private fun CategoryTabs(current: Int, unread: Map<Int, Int>, onPick: (Int) -> Unit) {
     val labels = listOf(
         R.string.gmail_primary,
         R.string.gmail_promotions,
@@ -447,7 +508,20 @@ private fun CategoryTabs(current: Int, onPick: (Int) -> Unit) {
     )
     PrimaryScrollableTabRow(selectedTabIndex = current, edgePadding = 8.dp) {
         labels.forEachIndexed { i, label ->
-            Tab(selected = i == current, onClick = { onPick(i) }, text = { Text(stringResource(label)) })
+            // Unread messages in each tab, as on the desktop: new mail in
+            // another tab is visible without opening it.
+            val count = unread[i] ?: 0
+            Tab(
+                selected = i == current,
+                onClick = { onPick(i) },
+                text = {
+                    // The count sits next to the name (as on the desktop), not over it.
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(stringResource(label))
+                        if (count > 0) Badge { Text(count.toString()) }
+                    }
+                },
+            )
         }
     }
 }
@@ -584,4 +658,35 @@ private fun ConfirmBulkDelete(vm: MailboxViewModel) {
 @Composable
 private fun Centered(text: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
     Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) { Text(text, color = color) }
+}
+
+/** What a swipe does, under the row: reply at the start, archive at the end. */
+@Composable
+private fun SwipeBackground(direction: SwipeToDismissBoxValue) {
+    if (direction == SwipeToDismissBoxValue.Settled) return
+    val reply = direction == SwipeToDismissBoxValue.StartToEnd
+    val colors = MaterialTheme.colorScheme
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(if (reply) colors.primaryContainer else colors.tertiaryContainer)
+            .padding(horizontal = 24.dp),
+        contentAlignment = if (reply) Alignment.CenterStart else Alignment.CenterEnd,
+    ) {
+        Icon(
+            painterResource(if (reply) R.drawable.ic_reply else R.drawable.ic_archive),
+            contentDescription = stringResource(if (reply) R.string.reply else R.string.archive),
+        )
+    }
+}
+
+/** Drawer order of a folder kind (stable sort keeps the rest alphabetical). */
+private fun kindRank(kind: FolderKind): Int = when (kind) {
+    FolderKind.INBOX -> 0
+    FolderKind.SENT -> 1
+    FolderKind.DRAFTS -> 2
+    FolderKind.ARCHIVE -> 3
+    FolderKind.SPAM -> 4
+    FolderKind.TRASH -> 5
+    FolderKind.OTHER -> 6
 }

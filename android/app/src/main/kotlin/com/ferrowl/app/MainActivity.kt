@@ -5,8 +5,16 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import com.ferrowl.app.data.MicrosoftSignIn
 import com.ferrowl.app.ui.navigation.FerrowlNavHost
+import com.ferrowl.app.ui.notice.LocalNotices
+import com.ferrowl.app.ui.notice.Notices
+import com.ferrowl.app.ui.notice.TopNoticeHost
 import com.ferrowl.app.ui.theme.FerrowlTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -20,13 +28,21 @@ import javax.inject.Inject
 class MainActivity : ComponentActivity() {
     @Inject lateinit var microsoft: MicrosoftSignIn
 
+    @Inject lateinit var notices: Notices
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (savedInstanceState == null) handle(intent)
         setContent {
             FerrowlTheme {
-                FerrowlNavHost()
+                CompositionLocalProvider(LocalNotices provides notices) {
+                    // Notices (confirmations and errors) over every screen, at the top.
+                    Box(Modifier.fillMaxSize()) {
+                        FerrowlNavHost()
+                        TopNoticeHost(notices, Modifier.align(Alignment.TopCenter))
+                    }
+                }
             }
         }
     }

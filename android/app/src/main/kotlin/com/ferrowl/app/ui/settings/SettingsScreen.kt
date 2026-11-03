@@ -54,6 +54,7 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrowl.app.R
+import com.ferrowl.app.ui.notice.ReportError
 import com.ferrowl.core.translate
 
 /** App settings (for now: how the message list is grouped). */
@@ -70,6 +71,7 @@ fun SettingsScreen(onBack: () -> Unit, onNoAccount: () -> Unit, vm: SettingsView
     LaunchedEffect(noAccount) { if (noAccount) onNoAccount() }
     val pushBusy by vm.pushBusy.collectAsStateWithLifecycle()
     val pushError by vm.pushError.collectAsStateWithLifecycle()
+    ReportError(pushError, vm::pushErrorShown)
     // Android 13+ asks the user before an app may show notifications.
     val askPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) vm.setPush(true)
@@ -124,9 +126,6 @@ fun SettingsScreen(onBack: () -> Unit, onNoAccount: () -> Unit, vm: SettingsView
                 },
             )
             if (pushBusy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
-            pushError?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 16.dp))
-            }
             HorizontalDivider(Modifier.padding(vertical = 16.dp))
             val blocked by vm.blocked.collectAsStateWithLifecycle()
             val allowed by vm.allowed.collectAsStateWithLifecycle()

@@ -58,6 +58,9 @@ class EventEditViewModel @Inject constructor(
     private val _state = MutableStateFlow(EventFormState())
     val state: StateFlow<EventFormState> = _state.asStateFlow()
 
+    /** The error was shown to the user (as a notice at the top). */
+    fun errorShown() = _state.update { it.copy(error = null) }
+
     init {
         viewModelScope.launch {
             val draft = url?.let { repo.eventDraft(it) } ?: newEventDraft(route.day)

@@ -52,8 +52,9 @@ pub struct AgendaEntry {
 /// Error as text: iced messages must be `Clone`.
 pub type Res<T> = Result<T, String>;
 
+/// The error in words for the user (see [`crate::errors::humanize`]).
 fn text(e: anyhow::Error) -> String {
-    format!("{e:#}")
+    crate::errors::humanize(&format!("{e:#}"))
 }
 
 const MAX_THROTTLE_RETRIES: u32 = 3;
@@ -143,7 +144,7 @@ impl Backend {
             Ok(cache.contacts(&key, "").map_err(text)?.len())
         })
         .await
-        .map_err(|e| format!("{}\n({e})", generic_error()))?
+        .map_err(|e| crate::errors::humanize(&format!("{e:#}")))?
     }
 
     /// Brings the cached calendars up to date with the account's CalDAV
@@ -160,7 +161,7 @@ impl Backend {
             Ok(changes.collections.len())
         })
         .await
-        .map_err(|e| format!("{}\n({e})", generic_error()))?
+        .map_err(|e| crate::errors::humanize(&format!("{e:#}")))?
     }
 
     /// Event occurrences overlapping `[from, to)` (timestamps), sorted, from
@@ -244,7 +245,7 @@ impl Backend {
             Ok(t("event_saved").to_string())
         })
         .await
-        .map_err(|e| format!("{}\n({e})", generic_error()))?
+        .map_err(|e| crate::errors::humanize(&format!("{e:#}")))?
     }
 
     /// Deletes a stored event (a series with all its occurrences).
@@ -265,7 +266,7 @@ impl Backend {
             Ok(t("event_deleted").to_string())
         })
         .await
-        .map_err(|e| format!("{}\n({e})", generic_error()))?
+        .map_err(|e| crate::errors::humanize(&format!("{e:#}")))?
     }
 
     /// Our earlier answer to an invitation (by event UID), if any.
@@ -314,7 +315,7 @@ impl Backend {
             cache.apply_events(&key, &changes)
         })
         .await
-        .map_err(|e| format!("{}\n({e})", generic_error()))?;
+        .map_err(|e| crate::errors::humanize(&format!("{e:#}")))?;
         let mut notice = match saved {
             Ok(()) if reply != crate::invite::Reply::Declined => t("invite_saved").to_string(),
             Ok(()) => t("invite_sent").to_string(),
@@ -345,7 +346,7 @@ impl Backend {
             Ok(t("invite_removed").to_string())
         })
         .await
-        .map_err(|e| format!("{}\n({e})", generic_error()))?
+        .map_err(|e| crate::errors::humanize(&format!("{e:#}")))?
     }
 
     /// The connected account, if it reads mail with POP3.
@@ -362,7 +363,7 @@ impl Backend {
         // An error here means the thread panicked: internal error.
         tokio::task::spawn_blocking(move || f(&me))
             .await
-            .map_err(|e| format!("{}\n({e})", generic_error()))?
+            .map_err(|e| crate::errors::humanize(&format!("{e:#}")))?
     }
 
     fn with_session_sync<T>(&self, op: impl Fn(&mut ImapSession) -> anyhow::Result<T>) -> Res<T> {
@@ -457,7 +458,7 @@ impl Backend {
             Ok(crate::i18n::tf("test_ok", &[("n", &n.to_string())]))
         })
         .await
-        .map_err(|e| format!("{}\n({e})", generic_error()))?
+        .map_err(|e| crate::errors::humanize(&format!("{e:#}")))?
     }
 
     /// Cache key of the connected account.
@@ -483,6 +484,10 @@ impl Backend {
                 // Newest messages first; the rest continues in `index_older`.
                 let left = pop3_sync(&account, POP3_FIRST_BATCH).map_err(text)?;
                 return Ok((local_headers(&account, &folder), if left > 0 { 2 } else { 0 }));
+            }
+            // Already cached: only what changed (much faster than the page).
+            if let Some(out) = b.headers_delta(&folder)? {
+                return Ok(out);
             }
             let mut page = b.with_session_sync(|s| mail::fetch_headers(s, &folder))?;
             // Gmail: the labels of the listed messages and, in the inbox,
@@ -522,6 +527,62 @@ impl Backend {
             Ok((page.headers, page.first_seq))
         })
         .await
+    }
+
+    /// Refresh from the cache plus the server's changes: new messages are
+    /// downloaded (with their Gmail labels and tab), the rest only gets its
+    /// read/starred state and disappears if deleted. `None` = no usable
+    /// cache, or too much changed: the caller fetches the whole page.
+    fn headers_delta(&self, folder: &str) -> Res<Option<(Vec<Header>, u32)>> {
+        let (Some(c), Some(key)) = (cache::get(), self.key()) else {
+            return Ok(None);
+        };
+        let (validity, window) = match (
+            c.uidvalidity(&key, folder),
+            c.newest_uids(&key, folder, mail::PAGE_SIZE),
+        ) {
+            (Ok(Some(v)), Ok(w)) if !w.is_empty() => (v, w),
+            _ => return Ok(None),
+        };
+        let known_max = window.iter().copied().max().unwrap_or(0);
+        let window_min = window.iter().copied().min().unwrap_or(0);
+        let Some(mut delta) =
+            self.with_session_sync(|s| mail::fetch_delta(s, folder, known_max, window_min))?
+        else {
+            return Ok(None);
+        };
+        if delta.uidvalidity != Some(validity) {
+            return Ok(None);
+        }
+        let (gmail, names) = {
+            let g = self.lock();
+            (g.gmail, g.gmail_labels.clone())
+        };
+        if gmail && !delta.new.is_empty() {
+            let uids: Vec<u32> = delta.new.iter().map(|h| h.uid).collect();
+            if let Ok(mut labels) = self.with_session_sync(|s| mail::fetch_labels(s, folder, &uids, &names)) {
+                for h in delta.new.iter_mut() {
+                    h.labels = labels.remove(&h.uid).unwrap_or_default();
+                }
+            }
+            if folder.eq_ignore_ascii_case("INBOX")
+                && let Ok(cats) = self.with_session_sync(|s| mail::fetch_categories(s, folder, &uids))
+            {
+                for h in delta.new.iter_mut() {
+                    h.category = cats.get(&h.uid).copied().unwrap_or_default();
+                }
+            }
+        }
+        let own = self.own_address();
+        let mut present: Vec<u32> = delta.flags.iter().map(|(u, _, _)| *u).collect();
+        present.extend(delta.new.iter().map(|h| h.uid));
+        c.store_headers(&key, folder, &delta.new, &own).map_err(text)?;
+        c.set_flags_many(&key, folder, &delta.flags).map_err(text)?;
+        c.prune(&key, folder, window_min, &present).map_err(text)?;
+        let headers = c.headers(&key, folder, mail::PAGE_SIZE).map_err(text)?;
+        let shown = headers.len() as u32;
+        let first_seq = delta.exists.saturating_sub(shown.saturating_sub(1)).max(1);
+        Ok(Some((headers, first_seq)))
     }
 
     /// Indexes up to `count` messages older than sequence `before` into the

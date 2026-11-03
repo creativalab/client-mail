@@ -433,6 +433,11 @@ pub fn connect(account: &Account) -> Result<ImapSession> {
         let msg = e.to_string();
         if mailbox_refuses_apps(&msg) {
             anyhow!(t("err_outlook_imap_off"))
+        } else if account.oauth.is_none()
+            && is_gmail_host(&account.imap_host)
+            && crate::errors::kind(&msg) == crate::errors::Kind::WrongPassword
+        {
+            anyhow!(t("err_h_gmail_password"))
         } else if msg.to_uppercase().contains("AUTHENTICATIONFAILED") {
             anyhow!(tf("err_auth", &[("msg", &msg)]))
         } else {
@@ -587,6 +592,83 @@ pub fn fetch_headers(session: &mut ImapSession, folder: &str) -> Result<HeaderPa
     let mailbox = session.select(folder)?;
     let last = mailbox.exists;
     fetch_range(session, mailbox, last.saturating_sub(PAGE_SIZE - 1).max(1), last)
+}
+
+/// What changed in a folder since it was cached: messages newer than the
+/// highest cached UID, and the read/starred state of the cached ones.
+pub struct Delta {
+    pub uidvalidity: Option<u32>,
+    pub exists: u32,
+    /// Messages with a UID above `known_max`, newest first.
+    pub new: Vec<Header>,
+    /// (uid, seen, flagged) of the messages from `window_min` to `known_max`
+    /// still in the folder; the cached ones missing here were deleted.
+    pub flags: Vec<(u32, bool, bool)>,
+}
+
+/// A cheap refresh: only messages above `known_max` are downloaded; for the
+/// cached window (`window_min..=known_max`) just UIDs and flags. Gives up
+/// (`None`) when there are more new messages than a page, so the caller can
+/// fetch the page instead.
+pub fn fetch_delta(
+    session: &mut ImapSession,
+    folder: &str,
+    known_max: u32,
+    window_min: u32,
+) -> Result<Option<Delta>> {
+    let mailbox = session.select(folder)?;
+    let mut delta = Delta {
+        uidvalidity: mailbox.uid_validity,
+        exists: mailbox.exists,
+        new: Vec::new(),
+        flags: Vec::new(),
+    };
+    if mailbox.exists == 0 {
+        return Ok(Some(delta));
+    }
+    let has_new = mailbox.uid_next.is_none_or(|next| next > known_max + 1);
+    if has_new {
+        let query = format!("(UID FLAGS RFC822.SIZE BODY.PEEK[HEADER] BODY.PEEK[TEXT]<0.{PREVIEW_BYTES}>)");
+        // "n:*" always returns at least the last message, even when older.
+        let fetches = session.uid_fetch(format!("{}:*", known_max + 1), query)?;
+        let fresh: Vec<_> = fetches
+            .iter()
+            .filter(|f| f.uid.is_some_and(|u| u > known_max))
+            .collect();
+        if fresh.len() as u32 >= PAGE_SIZE {
+            return Ok(None);
+        }
+        for f in fresh {
+            let uid = f.uid.unwrap_or_default();
+            let mut raw = f.header().unwrap_or_default().to_vec();
+            raw.extend_from_slice(f.text().unwrap_or_default());
+            let mut h = header_from_raw(uid, &raw, f.flags().contains(&imap::types::Flag::Seen));
+            h.flagged = f.flags().contains(&imap::types::Flag::Flagged);
+            h.size = f.size.unwrap_or(0);
+            delta.new.push(h);
+        }
+        delta
+            .new
+            .sort_by(|a, b| b.timestamp.cmp(&a.timestamp).then(b.uid.cmp(&a.uid)));
+    }
+    if window_min > 0 && window_min <= known_max {
+        for f in session
+            .uid_fetch(format!("{window_min}:{known_max}"), "(UID FLAGS)")?
+            .iter()
+        {
+            if let Some(uid) = f.uid
+                && (window_min..=known_max).contains(&uid)
+            {
+                let flags = f.flags();
+                delta.flags.push((
+                    uid,
+                    flags.contains(&imap::types::Flag::Seen),
+                    flags.contains(&imap::types::Flag::Flagged),
+                ));
+            }
+        }
+    }
+    Ok(Some(delta))
 }
 
 /// Up to `count` messages older than sequence number `before` (for indexing).
@@ -1058,10 +1140,21 @@ pub fn fetch_categories(
         return Ok(out);
     }
     session.select(folder)?;
+    // Gmail can give a message more than one tab (often Updates and
+    // Primary); its web inbox then shows it in Primary, so Primary wins.
+    let primary: std::collections::HashSet<u32> = gmail_search(
+        session,
+        uids,
+        &format!("X-GM-RAW {}", imap_quote("category:primary")),
+    )?
+    .into_iter()
+    .collect();
     for cat in Category::ALL {
         let Some(raw) = cat.search() else { continue };
         for uid in gmail_search(session, uids, &format!("X-GM-RAW {}", imap_quote(raw)))? {
-            out.insert(uid, cat);
+            if !primary.contains(&uid) {
+                out.insert(uid, cat);
+            }
         }
     }
     Ok(out)
@@ -1224,9 +1317,21 @@ pub fn send(account: &Account, mail: &Outgoing) -> Result<Vec<u8>> {
         if mailbox_refuses_apps(&e.to_string()) {
             bail!(t("err_outlook_imap_off"));
         }
+        if account.oauth.is_none()
+            && is_gmail_host(&account.smtp_host)
+            && crate::errors::kind(&e.to_string()) == crate::errors::Kind::WrongPassword
+        {
+            bail!(t("err_h_gmail_password"));
+        }
         return Err(anyhow::Error::new(e).context(t("err_smtp")));
     }
     Ok(email.formatted())
+}
+
+/// Gmail's servers (also for Google Workspace domains, which use them too).
+fn is_gmail_host(host: &str) -> bool {
+    let h = host.trim().to_ascii_lowercase();
+    h.ends_with("gmail.com") || h.ends_with("googlemail.com")
 }
 
 /// Outlook.com / Microsoft 365 answers like this when the sign-in worked

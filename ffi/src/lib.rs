@@ -36,8 +36,10 @@ impl std::fmt::Display for FerrowlError {
 }
 
 impl From<String> for FerrowlError {
+    /// Messages reach the app in words for the user (already-explained
+    /// ones pass through unchanged).
     fn from(msg: String) -> Self {
-        FerrowlError::Failed(msg)
+        FerrowlError::Failed(ferrowl_core::errors::humanize(&msg))
     }
 }
 
@@ -757,6 +759,23 @@ pub fn set_token_vault(vault: Arc<dyn TokenVault>) {
     oauth::set_vault(Box::new(Vault(vault)));
 }
 
+/// Access tokens the app obtains itself (Android: Google accounts through
+/// Google Identity Services). Called from background threads; may block.
+#[uniffi::export(with_foreign)]
+pub trait AccessTokenSource: Send + Sync {
+    /// A valid token, or `None` when this source does not handle the
+    /// provider or cannot get one without the user.
+    fn access_token(&self, provider: OAuthProvider, email: String) -> Option<String>;
+}
+
+/// Hands token retrieval to the app. Call once at start-up.
+#[uniffi::export]
+pub fn set_access_token_source(source: Arc<dyn AccessTokenSource>) {
+    oauth::set_token_source(Box::new(move |provider, email| {
+        source.access_token(provider.into(), email.to_string())
+    }));
+}
+
 /// Whether this build can sign in with `provider` (client registered).
 #[uniffi::export]
 pub fn oauth_available(provider: OAuthProvider) -> bool {
@@ -795,7 +814,7 @@ impl From<OAuthRequest> for oauth::Pending {
 #[uniffi::export]
 pub fn oauth_begin(provider: OAuthProvider, login_hint: String, redirect: String) -> Result<OAuthRequest> {
     let p = oauth::begin(provider.into(), &login_hint, &redirect)
-        .map_err(|e| FerrowlError::Failed(format!("{e:#}")))?;
+        .map_err(|e| FerrowlError::Failed(ferrowl_core::errors::humanize(&format!("{e:#}"))))?;
     Ok(OAuthRequest {
         url: p.url,
         state: p.state,
@@ -822,7 +841,7 @@ pub async fn oauth_finish(
     })
     .await
     .map_err(|e| FerrowlError::Failed(e.to_string()))?
-    .map_err(|e| FerrowlError::Failed(format!("{e:#}")))
+    .map_err(|e| FerrowlError::Failed(ferrowl_core::errors::humanize(&format!("{e:#}"))))
 }
 
 /// A complete account for an address signed in with `provider` (servers
@@ -1025,6 +1044,16 @@ impl Engine {
     }
 
     /// Messages already stored on the device, instantly (before `headers`).
+    /// The inbox as saved on the device for `account`, before connecting:
+    /// the app shows it at once while the connection is made.
+    pub fn cached_inbox(&self, account: Account) -> Vec<Header> {
+        let account: config::Account = account.into();
+        Backend::cached_headers(&account, "INBOX")
+            .into_iter()
+            .map(Header::from)
+            .collect()
+    }
+
     pub fn cached_headers(&self, folder_id: String) -> Vec<Header> {
         match lock(&self.account).as_ref() {
             Some(a) => Backend::cached_headers(a, &folder_id)

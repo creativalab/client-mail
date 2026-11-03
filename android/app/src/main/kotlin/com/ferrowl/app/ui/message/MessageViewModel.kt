@@ -3,14 +3,12 @@ package com.ferrowl.app.ui.message
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ferrowl.app.data.MailRepository
+import com.ferrowl.app.ui.notice.Notices
 import com.ferrowl.core.FerrowlException
 import com.ferrowl.core.InviteReply
 import com.ferrowl.core.Message
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -35,17 +33,16 @@ data class InviteState(
 )
 
 @HiltViewModel
-class MessageViewModel @Inject constructor(private val repo: MailRepository) : ViewModel() {
+class MessageViewModel @Inject constructor(
+    private val repo: MailRepository,
+    private val notices: Notices,
+) : ViewModel() {
     private val _state = MutableStateFlow<MessageState>(MessageState.Loading)
     val state: StateFlow<MessageState> = _state.asStateFlow()
     private var folderId = ""
     private var uid = 0u
     private val _invite = MutableStateFlow(InviteState())
     val invite: StateFlow<InviteState> = _invite.asStateFlow()
-    private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 4)
-
-    /** Results to show in a snackbar ("Reply sent…"). */
-    val notices: SharedFlow<String> = _notices.asSharedFlow()
 
     private val _starred = MutableStateFlow(false)
 
@@ -89,7 +86,7 @@ class MessageViewModel @Inject constructor(private val repo: MailRepository) : V
             }
             refreshInvite()
             _invite.update { it.copy(busy = false) }
-            if (notice.isNotBlank()) _notices.emit(notice)
+            notices.info(notice)
         }
     }
 
@@ -105,7 +102,7 @@ class MessageViewModel @Inject constructor(private val repo: MailRepository) : V
             }
             refreshInvite()
             _invite.update { it.copy(busy = false) }
-            if (notice.isNotBlank()) _notices.emit(notice)
+            notices.info(notice)
         }
     }
 
@@ -150,7 +147,7 @@ class MessageViewModel @Inject constructor(private val repo: MailRepository) : V
                 repo.setFlagged(folderId, listOf(uid), on)
             } catch (e: FerrowlException) {
                 _starred.value = !on
-                _notices.emit(e.message.orEmpty())
+                notices.error(e.message.orEmpty())
             }
         }
     }

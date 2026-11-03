@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrowl.app.R
+import com.ferrowl.app.ui.notice.ReportError
 import com.ferrowl.core.Contact
 import com.ferrowl.core.initials
 
@@ -61,6 +62,7 @@ import com.ferrowl.core.initials
 @Composable
 fun ContactsScreen(onBack: () -> Unit, onWrite: (String) -> Unit, vm: ContactsViewModel = hiltViewModel()) {
     val s by vm.state.collectAsStateWithLifecycle()
+    ReportError(s.error, vm::errorShown)
     Scaffold(
         topBar = {
             TopAppBar(
@@ -88,14 +90,6 @@ fun ContactsScreen(onBack: () -> Unit, onWrite: (String) -> Unit, vm: ContactsVi
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             )
-            s.error?.let {
-                Text(
-                    it,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-            }
             if (s.contacts.isEmpty()) {
                 Text(
                     stringResource(R.string.contacts_empty),

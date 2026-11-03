@@ -391,6 +391,42 @@ impl Cache {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// The folder's UIDVALIDITY as last seen, if the folder is cached.
+    pub fn uidvalidity(&self, account: &str, folder: &str) -> Result<Option<u32>> {
+        Ok(self
+            .lock()
+            .query_row(
+                "SELECT uidvalidity FROM folders WHERE account = ?1 AND folder = ?2",
+                params![account, folder],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    /// UIDs of the newest `limit` cached messages (highest UIDs first).
+    pub fn newest_uids(&self, account: &str, folder: &str, limit: u32) -> Result<Vec<u32>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare_cached(
+            "SELECT uid FROM messages WHERE account = ?1 AND folder = ?2 ORDER BY uid DESC LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![account, folder, limit], |r| r.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Updates read and starred state of cached messages: (uid, seen, flagged).
+    pub fn set_flags_many(&self, account: &str, folder: &str, flags: &[(u32, bool, bool)]) -> Result<()> {
+        let mut conn = self.lock();
+        let tx = conn.transaction()?;
+        for (uid, seen, flagged) in flags {
+            tx.execute(
+                "UPDATE messages SET seen = ?4, flagged = ?5 WHERE account = ?1 AND folder = ?2 AND uid = ?3",
+                params![account, folder, uid, seen, flagged],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Number of cached messages and lowest cached UID of a folder.
     pub fn folder_stats(&self, account: &str, folder: &str) -> Result<(u32, Option<u32>)> {
         Ok(self.lock().query_row(

@@ -1,7 +1,10 @@
 package com.ferrowl.app.ui.setup
 
+import android.app.PendingIntent
+import android.content.Intent
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ferrowl.app.data.GoogleSignIn
 import com.ferrowl.app.data.MailRepository
 import com.ferrowl.app.data.MicrosoftSignIn
 import com.ferrowl.app.data.SignInState
@@ -12,8 +15,10 @@ import com.ferrowl.core.OAuthProvider
 import com.ferrowl.core.Protocol
 import com.ferrowl.core.Provider
 import com.ferrowl.core.knownProviders
+import com.ferrowl.core.oauthAccount
 import com.ferrowl.core.oauthAvailable
 import com.ferrowl.core.providerForEmail
+import com.ferrowl.core.translate
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -50,6 +55,9 @@ data class SetupState(
 
     val canSignIn: Boolean get() = !busy && signsIn && oauthAvailable(OAuthProvider.MICROSOFT)
 
+    /** Gmail: Sign in with Google (Google Identity Services), or an app password. */
+    val isGoogle: Boolean get() = chosen?.imapHost == "imap.gmail.com"
+
     val canConnect: Boolean
         get() = !busy && !signsIn && email.contains('@') && password.isNotEmpty() &&
             (chosen != null || (incomingHost.isNotBlank() && smtpHost.isNotBlank() &&
@@ -77,9 +85,13 @@ data class SetupState(
 class SetupViewModel @Inject constructor(
     private val repo: MailRepository,
     private val microsoft: MicrosoftSignIn,
+    private val google: GoogleSignIn,
 ) : ViewModel() {
     private val _state = MutableStateFlow(SetupState(providers = knownProviders()))
     val state: StateFlow<SetupState> = _state.asStateFlow()
+
+    /** The error was shown to the user (as a notice at the top). */
+    fun errorShown() = _state.update { it.copy(error = null) }
 
     init {
         // The Microsoft sign-in may finish while this screen is in the
@@ -143,6 +155,50 @@ class SetupViewModel @Inject constructor(
             _state.update { it.copy(error = e.message) }
             null
         }
+
+    /**
+     * Google: asks for access. Returns the account picker / consent screen
+     * to show, or null when Google answered at once (or failed).
+     */
+    suspend fun googleStart(): PendingIntent? {
+        _state.update { it.copy(busy = true, error = null) }
+        return try {
+            when (val start = google.start()) {
+                is GoogleSignIn.Start.Token -> {
+                    finishGoogle(start.token)
+                    null
+                }
+                is GoogleSignIn.Start.NeedsUser -> start.intent
+            }
+        } catch (e: Exception) {
+            _state.update { it.copy(busy = false, error = translate("err_google_signin")) }
+            null
+        }
+    }
+
+    /** The answer of Google's screen (null data: the user went back). */
+    fun googleResult(data: Intent?) {
+        val token = google.tokenFrom(data)
+        if (token == null) {
+            _state.update { it.copy(busy = false) }
+            return
+        }
+        finishGoogle(token)
+    }
+
+    private fun finishGoogle(token: String) {
+        viewModelScope.launch {
+            try {
+                val email = google.emailOf(token)
+                repo.setUp(oauthAccount(OAuthProvider.GOOGLE, email, _state.value.name.trim().ifEmpty { email }))
+                _state.update { it.copy(busy = false, done = true) }
+            } catch (e: FerrowlException) {
+                _state.update { it.copy(busy = false, error = e.message) }
+            } catch (e: java.io.IOException) {
+                _state.update { it.copy(busy = false, error = translate("err_google_signin")) }
+            }
+        }
+    }
 
     /** Back on the form with the sign-in page closed and no answer: allow a new try. */
     fun resumed() = microsoft.cancelIfWaiting()

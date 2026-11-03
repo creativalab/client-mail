@@ -1,8 +1,10 @@
 package com.ferrowl.app.di
 
 import android.content.Context
+import com.ferrowl.app.data.GoogleSignIn
 import com.ferrowl.app.data.KeystoreTokenVault
 import com.ferrowl.core.Engine
+import com.ferrowl.core.setAccessTokenSource
 import com.ferrowl.core.setTokenVault
 import dagger.Module
 import dagger.Provides
@@ -18,12 +20,14 @@ import javax.inject.Singleton
 object AppModule {
     /**
      * One engine per app process, with its files in the app's private
-     * storage. Sign-in tokens go to the Keystore-backed vault.
+     * storage. Sign-in tokens go to the Keystore-backed vault; Google
+     * tokens come from Google Identity Services.
      */
     @Provides
     @Singleton
-    fun engine(@ApplicationContext context: Context, vault: KeystoreTokenVault): Engine {
+    fun engine(@ApplicationContext context: Context, vault: KeystoreTokenVault, google: GoogleSignIn): Engine {
         setTokenVault(vault)
+        setAccessTokenSource(google)
         return Engine(dataDir = context.filesDir.resolve("mail").path, language = Locale.getDefault().language)
     }
 }
