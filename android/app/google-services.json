@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1044478148459",
+    "project_id": "ferrowl",
+    "storage_bucket": "ferrowl.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1044478148459:android:06e5fcfe318cd824af562e",
+        "android_client_info": {
+          "package_name": "com.ferrowl.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCNJ2DvQlGuG5S71M682x5nwhHAmL0tZiM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

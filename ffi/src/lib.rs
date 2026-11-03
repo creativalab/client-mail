@@ -634,6 +634,15 @@ pub fn initials(name: String) -> String {
     ferrowl_core::initials(&name)
 }
 
+/// The account as the push server stores it (the engine's settings
+/// format, JSON). Sent over HTTPS to push.ferrowl.com, which seals it with
+/// the phone's key.
+#[uniffi::export]
+pub fn push_account_json(account: Account) -> String {
+    let account: config::Account = account.into();
+    serde_json::to_string(&account).unwrap_or_default()
+}
+
 #[uniffi::export]
 pub fn markdown_to_html(markdown: String) -> Option<String> {
     ferrowl_core::markdown::has_formatting(&markdown)
@@ -1124,6 +1133,28 @@ mod tests {
         let f = forward_draft(sample());
         assert_eq!(f.subject, "Fwd: Engines");
         assert!(f.to.is_empty() && f.body.contains("line 2"));
+    }
+
+    #[test]
+    fn push_json_uses_the_engine_format() {
+        let json = push_account_json(Account {
+            display_name: "Ada".into(),
+            email: "ada@example.org".into(),
+            username: "ada".into(),
+            password: "pw".into(),
+            incoming_host: "imap.example.org".into(),
+            incoming_port: 993,
+            smtp_host: "smtp.example.org".into(),
+            smtp_port: 465,
+            protocol: Protocol::Imap,
+            pop3_keep_days: None,
+            pgp_passphrase: String::new(),
+            carddav_url: String::new(),
+            caldav_url: String::new(),
+        });
+        let back: config::Account = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.imap_host, "imap.example.org");
+        assert_eq!(back.password, "pw");
     }
 
     #[test]

@@ -2307,6 +2307,7 @@ dependencies = [
  "chrono",
  "ferrowl-core",
  "rustls",
+ "serde_json",
  "tokio",
  "uniffi",
 ]

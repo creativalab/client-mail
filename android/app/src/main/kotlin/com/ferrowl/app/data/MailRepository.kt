@@ -13,6 +13,7 @@ import com.ferrowl.core.Header
 import com.ferrowl.core.InviteReply
 import com.ferrowl.core.Message
 import com.ferrowl.core.Outgoing
+import com.ferrowl.app.push.PushRegistrar
 import com.ferrowl.core.markdownToHtml
 import com.ferrowl.core.translate
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +42,7 @@ import javax.inject.Singleton
 class MailRepository @Inject constructor(
     private val engine: Engine,
     private val accounts: AccountStore,
+    private val push: PushRegistrar,
 ) {
     private val connectLock = Mutex()
     private val _folders = MutableStateFlow<List<Folder>>(emptyList())
@@ -69,6 +71,8 @@ class MailRepository @Inject constructor(
         }
         learnFromSent()
         syncContactsQuietly()
+        // A new account replaces the one watched for notifications.
+        runCatching { push.accountChanged() }
     }
 
     /** Connects the saved account once per process. */
@@ -82,6 +86,8 @@ class MailRepository @Inject constructor(
         if (connected) {
             learnFromSent()
             syncContactsQuietly()
+            // Notifications on: tell the server again (it forgets the key on restart).
+            runCatching { push.sync() }
         }
         return connected
     }
