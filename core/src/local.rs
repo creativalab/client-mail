@@ -121,6 +121,10 @@ impl Store {
                 "parents",
                 "ALTER TABLE local_messages ADD COLUMN parents TEXT NOT NULL DEFAULT ''",
             ),
+            (
+                "flagged",
+                "ALTER TABLE local_messages ADD COLUMN flagged INTEGER NOT NULL DEFAULT 0",
+            ),
         ] {
             if !crate::cache::has_column(&conn, "local_messages", column)? {
                 conn.execute_batch(ddl)?;
@@ -184,7 +188,7 @@ impl Store {
     pub fn headers(&self, account: &str, folder: &str, limit: u32) -> Result<Vec<Header>> {
         let conn = self.lock();
         let mut stmt = conn.prepare_cached(
-            "SELECT id, sender, subject, preview, ts, seen, attach, msgid, parents FROM local_messages
+            "SELECT id, sender, subject, preview, ts, seen, attach, msgid, parents, flagged FROM local_messages
              WHERE account = ?1 AND folder = ?2 ORDER BY ts DESC, id DESC LIMIT ?3",
         )?;
         let rows = stmt.query_map(params![account, folder, limit], row_to_header)?;
@@ -195,7 +199,7 @@ impl Store {
     pub fn search(&self, account: &str, folder: &str, words: &[String], limit: u32) -> Result<Vec<Header>> {
         let conn = self.lock();
         let mut sql = String::from(
-            "SELECT id, sender, subject, preview, ts, seen, attach, msgid, parents FROM local_messages
+            "SELECT id, sender, subject, preview, ts, seen, attach, msgid, parents, flagged FROM local_messages
              WHERE account = ?1 AND folder = ?2",
         );
         let patterns: Vec<String> = words
@@ -238,6 +242,14 @@ impl Store {
             params![account, folder],
             |r| r.get(0),
         )?)
+    }
+
+    pub fn set_flagged(&self, account: &str, id: u32, flagged: bool) -> Result<()> {
+        self.lock().execute(
+            "UPDATE local_messages SET flagged = ?3 WHERE account = ?1 AND id = ?2",
+            params![account, id, flagged],
+        )?;
+        Ok(())
     }
 
     pub fn set_seen(&self, account: &str, id: u32, seen: bool) -> Result<()> {
@@ -306,6 +318,7 @@ fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<Header> {
             .split_whitespace()
             .map(str::to_owned)
             .collect(),
+        flagged: r.get(9)?,
         ..Default::default()
     })
 }
@@ -334,6 +347,8 @@ mod tests {
 
         s.set_seen("acc", id, true).unwrap();
         assert_eq!(s.unseen("acc", INBOX).unwrap(), 0);
+        s.set_flagged("acc", id, true).unwrap();
+        assert!(s.headers("acc", INBOX, 10).unwrap()[0].flagged);
         s.move_to("acc", id, ARCHIVE).unwrap();
         assert!(s.headers("acc", INBOX, 10).unwrap().is_empty());
         assert_eq!(s.raw("acc", id).unwrap().as_deref(), Some(RAW));

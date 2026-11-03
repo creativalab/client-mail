@@ -540,6 +540,7 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         row![
             seg(t("filter_all"), ListFilter::All),
             seg(t("filter_unread"), ListFilter::Unread),
+            seg(t("filter_starred"), ListFilter::Starred),
             seg(t("filter_attachments"), ListFilter::Attachments),
         ]
         .spacing(4),
@@ -547,24 +548,20 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     .padding(3)
     .style(chip_box(p.chip, p.text2, 9.0));
 
-    let header = dir_row(vec![
-        container(
-            text(trunc(&title, 22))
-                .size(20)
-                .font(INTER_BOLD)
-                .wrapping(Wrapping::None),
-        )
-        .width(Fill)
-        .clip(true)
-        .into(),
-        filters.into(),
-    ])
-    .spacing(12)
-    .align_y(Alignment::Center)
+    // The folder name on its own line: the filters (four of them) and the
+    // Select menu share the line below.
+    let header = container(
+        text(trunc(&title, 34))
+            .size(20)
+            .font(INTER_BOLD)
+            .wrapping(Wrapping::None),
+    )
+    .width(Fill)
+    .clip(true)
     .padding(Padding {
         top: 16.0,
         right: 20.0,
-        bottom: 12.0,
+        bottom: 10.0,
         left: 20.0,
     });
 
@@ -574,7 +571,7 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         .padding([4, 8]);
     let bar: Element<'a, Message> = if app.checked.is_empty() {
         // Conversations or messages is chosen in Settings › Appearance.
-        dir_row(vec![space::horizontal().into(), picker.into()])
+        dir_row(vec![filters.into(), space::horizontal().into(), picker.into()])
             .align_y(Alignment::Center)
             .into()
     } else {
@@ -598,6 +595,8 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             space::horizontal().into(),
             act(icons::EYE, t("mark_read"), Message::Bulk(Bulk::Read)),
             act(icons::MAIL, t("mark_unread"), Message::Bulk(Bulk::Unread)),
+            act(icons::STAR_FILLED, t("star_add"), Message::Bulk(Bulk::Star)),
+            act(icons::STAR, t("star_remove"), Message::Bulk(Bulk::Unstar)),
             act(icons::ARCHIVE, t("archive"), Message::Bulk(Bulk::Archive)),
             {
                 // "Move to": every other selectable folder.
@@ -721,6 +720,26 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                     .color(p.muted)
                     .into(),
             );
+            // Star: on when any message of the row is starred; a click
+            // stars (or unstars) the whole row.
+            let starred = uids.iter().any(|u| {
+                app.headers
+                    .iter()
+                    .chain(app.search_results.iter().flatten())
+                    .any(|m| m.uid == *u && m.flagged)
+            });
+            top.push(tooltip(
+                button(icon(
+                    if starred { icons::STAR_FILLED } else { icons::STAR },
+                    15.0,
+                    if starred { theme::hex("#E2A400") } else { p.field },
+                ))
+                .padding(2)
+                .style(ghost(p, p.muted))
+                .on_press(Message::ToggleStar(uids.clone(), !starred)),
+                if starred { t("star_remove") } else { t("star_add") },
+                p,
+            ));
 
             let mut lines = column![
                 dir_row(top).spacing(8).align_y(Alignment::Center),
@@ -874,6 +893,27 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     tools.push(tooltip(
         tool_btn(p, icons::MAIL, None, Message::ToggleRead),
         t("mark_unread"),
+        p,
+    ));
+    let starred = app
+        .headers
+        .iter()
+        .chain(app.search_results.iter().flatten())
+        .any(|h| h.uid == msg.uid && h.flagged);
+    tools.push(tooltip(
+        button(
+            container(icon(
+                if starred { icons::STAR_FILLED } else { icons::STAR },
+                18.0,
+                if starred { theme::hex("#E2A400") } else { p.text2 },
+            ))
+            .center_y(Fill),
+        )
+        .height(44)
+        .padding([0, 13])
+        .style(ghost(p, p.text2))
+        .on_press(Message::ToggleStar(vec![msg.uid], !starred)),
+        if starred { t("star_remove") } else { t("star_add") },
         p,
     ));
     tools.push(space::horizontal().into());

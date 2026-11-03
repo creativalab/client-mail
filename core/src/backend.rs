@@ -592,6 +592,24 @@ impl Backend {
         .await
     }
 
+    /// Stars or unstars messages (\\Flagged) with one server command.
+    pub async fn set_flagged_many(&self, folder: String, uids: Vec<u32>, flagged: bool) -> Res<()> {
+        self.blocking(move |b| {
+            if let Some(account) = b.pop3_account() {
+                return local_op(&account, |s, key| {
+                    uids.iter().try_for_each(|&u| s.set_flagged(key, u, flagged))
+                });
+            }
+            b.with_session_sync(|s| mail::set_flagged(s, &folder, &uids, flagged))?;
+            b.cache(|c, key| {
+                uids.iter()
+                    .try_for_each(|&u| c.set_flagged(key, &folder, u, flagged))
+            });
+            Ok(())
+        })
+        .await
+    }
+
     pub async fn move_to(&self, folder: String, uid: u32, target: String) -> Res<()> {
         self.move_many(folder, vec![uid], target).await
     }

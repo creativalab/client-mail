@@ -174,6 +174,10 @@ impl Cache {
                 "counted",
                 "ALTER TABLE messages ADD COLUMN counted INTEGER NOT NULL DEFAULT 0",
             ),
+            (
+                "flagged",
+                "ALTER TABLE messages ADD COLUMN flagged INTEGER NOT NULL DEFAULT 0",
+            ),
         ] {
             if !has_column(&conn, "messages", column)? {
                 conn.execute_batch(ddl)?;
@@ -237,11 +241,12 @@ impl Cache {
         }
         {
             let mut stmt = tx.prepare_cached(
-                "INSERT INTO messages (account, folder, uid, sender, subject, preview, ts, seen, attach, body, msgid, parents, counted)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1)
+                "INSERT INTO messages (account, folder, uid, sender, subject, preview, ts, seen, attach, body, msgid, parents, counted, flagged)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1, ?13)
                  ON CONFLICT (account, folder, uid) DO UPDATE SET
                     counted = 1,
                     seen = excluded.seen,
+                    flagged = excluded.flagged,
                     msgid = excluded.msgid,
                     parents = excluded.parents,
                     sender = excluded.sender,
@@ -263,7 +268,8 @@ impl Cache {
                     h.has_attachment,
                     h.text,
                     h.message_id,
-                    h.parents.join(" ")
+                    h.parents.join(" "),
+                    h.flagged
                 ])?;
             }
         }
@@ -302,6 +308,14 @@ impl Cache {
         Ok(())
     }
 
+    pub fn set_flagged(&self, account: &str, folder: &str, uid: u32, flagged: bool) -> Result<()> {
+        self.lock().execute(
+            "UPDATE messages SET flagged = ?4 WHERE account = ?1 AND folder = ?2 AND uid = ?3",
+            params![account, folder, uid, flagged],
+        )?;
+        Ok(())
+    }
+
     pub fn set_seen(&self, account: &str, folder: &str, uid: u32, seen: bool) -> Result<()> {
         self.lock().execute(
             "UPDATE messages SET seen = ?4 WHERE account = ?1 AND folder = ?2 AND uid = ?3",
@@ -322,7 +336,7 @@ impl Cache {
     pub fn headers(&self, account: &str, folder: &str, limit: u32) -> Result<Vec<Header>> {
         let conn = self.lock();
         let mut stmt = conn.prepare_cached(
-            "SELECT uid, sender, subject, preview, ts, seen, attach, msgid, parents FROM messages
+            "SELECT uid, sender, subject, preview, ts, seen, attach, msgid, parents, flagged FROM messages
              WHERE account = ?1 AND folder = ?2 ORDER BY ts DESC, uid DESC LIMIT ?3",
         )?;
         let rows = stmt.query_map(params![account, folder, limit], row_to_header)?;
@@ -643,7 +657,7 @@ impl Cache {
         };
         let conn = self.lock();
         let mut stmt = conn.prepare_cached(
-            "SELECT m.uid, m.sender, m.subject, m.preview, m.ts, m.seen, m.attach, m.msgid, m.parents
+            "SELECT m.uid, m.sender, m.subject, m.preview, m.ts, m.seen, m.attach, m.msgid, m.parents, m.flagged
              FROM messages_fts f JOIN messages m ON m.id = f.rowid
              WHERE messages_fts MATCH ?3 AND m.account = ?1 AND m.folder = ?2
              ORDER BY m.ts DESC LIMIT ?4",
@@ -669,6 +683,7 @@ fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<Header> {
             .split_whitespace()
             .map(str::to_owned)
             .collect(),
+        flagged: r.get(9)?,
         ..Default::default()
     })
 }
@@ -759,6 +774,33 @@ mod tests {
             text: text.into(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn stars_are_stored_and_changed() {
+        let c = Cache::in_memory();
+        let h = |uid: u32, flagged: bool| Header {
+            uid,
+            timestamp: uid as i64,
+            flagged,
+            ..Default::default()
+        };
+        c.store_headers("a", "INBOX", &[h(1, true), h(2, false)], "")
+            .unwrap();
+        let stars = |c: &Cache| -> Vec<(u32, bool)> {
+            c.headers("a", "INBOX", 10)
+                .unwrap()
+                .iter()
+                .map(|h| (h.uid, h.flagged))
+                .collect()
+        };
+        assert_eq!(stars(&c), [(2, false), (1, true)]);
+        c.set_flagged("a", "INBOX", 2, true).unwrap();
+        c.set_flagged("a", "INBOX", 1, false).unwrap();
+        assert_eq!(stars(&c), [(2, true), (1, false)]);
+        // A refresh from the server wins.
+        c.store_headers("a", "INBOX", &[h(1, true)], "").unwrap();
+        assert_eq!(stars(&c)[1], (1, true));
     }
 
     #[test]

@@ -152,6 +152,32 @@ class MailboxViewModel @Inject constructor(
         repo.setSeen(folder, uids, seen)
     }
 
+    fun starSelected(on: Boolean) = bulk { folder, uids -> star(folder, uids, on) }
+
+    /** The star of a list row (all its messages). */
+    fun toggleStar(uids: List<UInt>, on: Boolean) {
+        val folder = _state.value.folderId
+        viewModelScope.launch {
+            try {
+                star(folder, uids, on)
+            } catch (e: FerrowlException) {
+                star(folder, uids, !on, local = true)
+                _state.update { it.copy(error = e.message) }
+            }
+        }
+    }
+
+    /** Updates the list right away, then the server (unless [local]). */
+    private suspend fun star(folder: String, uids: List<UInt>, on: Boolean, local: Boolean = false) {
+        _state.update { s ->
+            s.copy(
+                messages = s.messages.map { if (it.uid in uids) it.copy(flagged = on) else it },
+                results = s.results.map { if (it.uid in uids) it.copy(flagged = on) else it },
+            )
+        }
+        if (!local) repo.setFlagged(folder, uids, on)
+    }
+
     fun archiveSelected() = bulk { folder, uids -> repo.archive(folder, uids) }
 
     fun moveSelected(targetId: String) = bulk { folder, uids -> repo.move(folder, uids, targetId) }

@@ -197,6 +197,8 @@ pub struct Header {
     pub from_address: String,
     /// To and Cc as (name, address), for the address book.
     pub recipients: Vec<(String, String)>,
+    /// Starred (the IMAP \\Flagged flag, shown as a star by every client).
+    pub flagged: bool,
 }
 
 /// A slice of a folder's message list, by sequence number.
@@ -599,11 +601,9 @@ fn fetch_range(
             // Headers + start of the body: enough to build the preview.
             let mut raw = f.header().unwrap_or_default().to_vec();
             raw.extend_from_slice(f.text().unwrap_or_default());
-            Some(header_from_raw(
-                uid,
-                &raw,
-                f.flags().contains(&imap::types::Flag::Seen),
-            ))
+            let mut h = header_from_raw(uid, &raw, f.flags().contains(&imap::types::Flag::Seen));
+            h.flagged = f.flags().contains(&imap::types::Flag::Flagged);
+            Some(h)
         })
         .collect();
     headers.sort_by(|a, b| b.timestamp.cmp(&a.timestamp).then(b.uid.cmp(&a.uid)));
@@ -655,6 +655,7 @@ pub fn header_from_raw(uid: u32, raw: &[u8], seen: bool) -> Header {
         parents: thread_parents(raw),
         from_address,
         recipients,
+        flagged: false,
     }
 }
 
@@ -899,6 +900,21 @@ pub fn set_seen(session: &mut ImapSession, folder: &str, uids: &[u32], seen: boo
         "+FLAGS (\\Seen)"
     } else {
         "-FLAGS (\\Seen)"
+    };
+    session.uid_store(uid_set(uids), op)?;
+    Ok(())
+}
+
+/// Stars or unstars messages (the \\Flagged flag).
+pub fn set_flagged(session: &mut ImapSession, folder: &str, uids: &[u32], flagged: bool) -> Result<()> {
+    if uids.is_empty() {
+        return Ok(());
+    }
+    session.select(folder)?;
+    let op = if flagged {
+        "+FLAGS (\\Flagged)"
+    } else {
+        "-FLAGS (\\Flagged)"
     };
     session.uid_store(uid_set(uids), op)?;
     Ok(())

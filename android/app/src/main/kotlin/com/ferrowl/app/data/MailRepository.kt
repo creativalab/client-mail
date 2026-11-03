@@ -209,6 +209,10 @@ class MailRepository @Inject constructor(
         }
     }
 
+    /** Stars or unstars messages (IMAP \\Flagged, shown by every client). */
+    suspend fun setFlagged(folderId: String, uids: List<UInt>, flagged: Boolean) =
+        engine.setFlaggedMany(folderId, uids, flagged)
+
     /** Marks several messages read or unread at once. */
     suspend fun setSeen(folderId: String, uids: List<UInt>, seen: Boolean) {
         engine.setSeenMany(folderId, uids, seen)

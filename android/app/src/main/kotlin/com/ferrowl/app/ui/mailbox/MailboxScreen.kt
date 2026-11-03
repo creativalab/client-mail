@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -81,7 +82,8 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MailboxScreen(
-    onOpen: (folderId: String, uid: UInt) -> Unit,
+    /** Opens a message; `starred` lets the message screen show its star. */
+    onOpen: (folderId: String, uid: UInt, starred: Boolean) -> Unit,
     onOpenConversation: (folderId: String, uids: List<UInt>) -> Unit,
     onCompose: () -> Unit,
     onSettings: () -> Unit,
@@ -230,6 +232,8 @@ fun MailboxScreen(
                                     unread = c.unread > 0u,
                                     checked = if (s.selecting) s.selected.containsAll(c.uids) else null,
                                     onLongClick = { vm.toggle(c.uids) },
+                                    starred = rowStarred(s, c.uids),
+                                    onStar = { on -> vm.toggleStar(c.uids, on) },
                                 ) {
                                     if (s.selecting) {
                                         vm.toggle(c.uids)
@@ -238,7 +242,7 @@ fun MailboxScreen(
                                     } else {
                                         // Opening reads it: update the dot right away.
                                         vm.opened(c.latest.uid)
-                                        onOpen(s.folderId, c.latest.uid)
+                                        onOpen(s.folderId, c.latest.uid, rowStarred(s, c.uids))
                                     }
                                 }
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -289,6 +293,8 @@ private fun SelectionBar(count: Int, vm: MailboxViewModel, folders: List<Folder>
                 HorizontalDivider()
                 item(R.string.mark_read) { vm.markSelected(true) }
                 item(R.string.mark_unread) { vm.markSelected(false) }
+                item(R.string.star_add) { vm.starSelected(true) }
+                item(R.string.star_remove) { vm.starSelected(false) }
                 item(R.string.archive) { vm.archiveSelected() }
                 item(R.string.move_to) { moving = true }
             }
@@ -307,6 +313,9 @@ internal fun MessageRow(
     unread: Boolean = !h.seen,
     checked: Boolean? = null,
     onLongClick: (() -> Unit)? = null,
+    starred: Boolean = h.flagged,
+    /** Shows a star that toggles (with the new state); null = no star. */
+    onStar: ((Boolean) -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val weight = if (!unread) FontWeight.Normal else FontWeight.SemiBold
@@ -319,9 +328,25 @@ internal fun MessageRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (checked != null) Checkbox(checked = checked, onCheckedChange = { onClick() })
-        RowBody(h, count, unread, weight)
+        Box(Modifier.weight(1f)) { RowBody(h, count, unread, weight) }
+        if (onStar != null) StarButton(starred) { onStar(!starred) }
     }
 }
+
+/** The star of a row: gold when on, faint when off. */
+@Composable
+fun StarButton(starred: Boolean, onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        Icon(
+            Icons.Filled.Star,
+            contentDescription = stringResource(if (starred) R.string.star_remove else R.string.star_add),
+            tint = if (starred) Color(0xFFE2A400) else MaterialTheme.colorScheme.outlineVariant,
+        )
+    }
+}
+
+/** Whether any message of a row is starred. */
+private fun rowStarred(s: MailboxState, uids: List<UInt>): Boolean = s.shown.any { it.flagged && it.uid in uids }
 
 @Composable
 private fun RowBody(h: Header, count: Int, unread: Boolean, weight: FontWeight) {

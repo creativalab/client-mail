@@ -31,7 +31,8 @@ import kotlinx.serialization.Serializable
 
 /** The event form: `url` of the event to change, or null for a new one on `day` (YYYY-MM-DD). */
 @Serializable data class EditEvent(val url: String? = null, val day: String = "")
-@Serializable data class Read(val folderId: String, val uid: Long)
+/** A message; `starred` comes from the list (the message itself does not carry flags). */
+@Serializable data class Read(val folderId: String, val uid: Long, val starred: Boolean = false)
 
 /** A conversation; `uids` are comma-separated, oldest first. */
 @Serializable data class Thread(val folderId: String, val uids: String)
@@ -58,7 +59,7 @@ fun FerrowlNavHost() {
         }
         composable<Mailbox> {
             MailboxScreen(
-                onOpen = { folderId, uid -> nav.navigate(Read(folderId, uid.toLong())) },
+                onOpen = { folderId, uid, starred -> nav.navigate(Read(folderId, uid.toLong(), starred)) },
                 onOpenConversation = { folderId, uids -> nav.navigate(Thread(folderId, uids.joinToString(","))) },
                 onCompose = { nav.navigate(Write()) },
                 onSettings = { nav.navigate(Settings) },
@@ -95,6 +96,7 @@ fun FerrowlNavHost() {
             MessageScreen(
                 folderId = route.folderId,
                 uid = route.uid.toUInt(),
+                starred = route.starred,
                 onBack = { nav.popBackStack() },
                 onReply = { kind -> nav.navigate(Write(kind.name, route.folderId, route.uid)) },
             )
