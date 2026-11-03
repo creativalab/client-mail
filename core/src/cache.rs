@@ -190,6 +190,10 @@ impl Cache {
                 "size",
                 "ALTER TABLE messages ADD COLUMN size INTEGER NOT NULL DEFAULT 0",
             ),
+            (
+                "labels",
+                "ALTER TABLE messages ADD COLUMN labels TEXT NOT NULL DEFAULT ''",
+            ),
         ] {
             if !has_column(&conn, "messages", column)? {
                 conn.execute_batch(ddl)?;
@@ -253,12 +257,13 @@ impl Cache {
         }
         {
             let mut stmt = tx.prepare_cached(
-                "INSERT INTO messages (account, folder, uid, sender, subject, preview, ts, seen, attach, body, msgid, parents, counted, flagged, size)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1, ?13, ?14)
+                "INSERT INTO messages (account, folder, uid, sender, subject, preview, ts, seen, attach, body, msgid, parents, counted, flagged, size, labels)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1, ?13, ?14, ?15)
                  ON CONFLICT (account, folder, uid) DO UPDATE SET
                     counted = 1,
                     seen = excluded.seen,
                     flagged = excluded.flagged,
+                    labels = excluded.labels,
                     size = CASE WHEN excluded.size > 0 THEN excluded.size ELSE messages.size END,
                     msgid = excluded.msgid,
                     parents = excluded.parents,
@@ -283,7 +288,8 @@ impl Cache {
                     h.message_id,
                     h.parents.join(" "),
                     h.flagged,
-                    h.size
+                    h.size,
+                    h.labels.join("\n")
                 ])?;
             }
         }
@@ -322,6 +328,28 @@ impl Cache {
         Ok(())
     }
 
+    /// Adds or removes one Gmail label of a cached message.
+    pub fn set_label(&self, account: &str, folder: &str, uid: u32, label: &str, on: bool) -> Result<()> {
+        let conn = self.lock();
+        let current: Option<String> = conn
+            .query_row(
+                "SELECT labels FROM messages WHERE account = ?1 AND folder = ?2 AND uid = ?3",
+                params![account, folder, uid],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(current) = current else { return Ok(()) };
+        let mut labels: Vec<&str> = current.lines().filter(|l| !l.is_empty() && *l != label).collect();
+        if on {
+            labels.push(label);
+        }
+        conn.execute(
+            "UPDATE messages SET labels = ?4 WHERE account = ?1 AND folder = ?2 AND uid = ?3",
+            params![account, folder, uid, labels.join("\n")],
+        )?;
+        Ok(())
+    }
+
     pub fn set_flagged(&self, account: &str, folder: &str, uid: u32, flagged: bool) -> Result<()> {
         self.lock().execute(
             "UPDATE messages SET flagged = ?4 WHERE account = ?1 AND folder = ?2 AND uid = ?3",
@@ -350,7 +378,7 @@ impl Cache {
     pub fn headers(&self, account: &str, folder: &str, limit: u32) -> Result<Vec<Header>> {
         let conn = self.lock();
         let mut stmt = conn.prepare_cached(
-            "SELECT uid, sender, subject, preview, ts, seen, attach, msgid, parents, flagged, size FROM messages
+            "SELECT uid, sender, subject, preview, ts, seen, attach, msgid, parents, flagged, size, labels FROM messages
              WHERE account = ?1 AND folder = ?2 ORDER BY ts DESC, uid DESC LIMIT ?3",
         )?;
         let rows = stmt.query_map(params![account, folder, limit], row_to_header)?;
@@ -721,7 +749,7 @@ impl Cache {
         };
         let conn = self.lock();
         let mut stmt = conn.prepare_cached(
-            "SELECT m.uid, m.sender, m.subject, m.preview, m.ts, m.seen, m.attach, m.msgid, m.parents, m.flagged, m.size
+            "SELECT m.uid, m.sender, m.subject, m.preview, m.ts, m.seen, m.attach, m.msgid, m.parents, m.flagged, m.size, m.labels
              FROM messages_fts f JOIN messages m ON m.id = f.rowid
              WHERE messages_fts MATCH ?3 AND m.account = ?1 AND m.folder = ?2
              ORDER BY m.ts DESC LIMIT ?4",
@@ -749,6 +777,12 @@ fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<Header> {
             .collect(),
         flagged: r.get(9)?,
         size: r.get(10)?,
+        labels: r
+            .get::<_, String>(11)?
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(str::to_owned)
+            .collect(),
         ..Default::default()
     })
 }
@@ -896,6 +930,24 @@ mod tests {
         // A refresh from the server wins.
         c.store_headers("a", "INBOX", &[h(1, true)], "").unwrap();
         assert_eq!(stars(&c)[1], (1, true));
+    }
+
+    #[test]
+    fn gmail_labels_are_stored_and_changed() {
+        let c = Cache::in_memory();
+        let h = Header {
+            uid: 7,
+            labels: vec!["Lavoro".into()],
+            ..Default::default()
+        };
+        c.store_headers("a", "INBOX", &[h], "").unwrap();
+        c.set_label("a", "INBOX", 7, "Clienti", true).unwrap();
+        assert_eq!(
+            c.headers("a", "INBOX", 5).unwrap()[0].labels,
+            ["Lavoro", "Clienti"]
+        );
+        c.set_label("a", "INBOX", 7, "Lavoro", false).unwrap();
+        assert_eq!(c.headers("a", "INBOX", 5).unwrap()[0].labels, ["Clienti"]);
     }
 
     #[test]

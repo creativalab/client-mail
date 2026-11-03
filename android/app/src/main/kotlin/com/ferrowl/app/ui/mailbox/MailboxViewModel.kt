@@ -188,6 +188,33 @@ class MailboxViewModel @Inject constructor(
         if (!local) repo.setFlagged(folder, uids, on)
     }
 
+    /** Gmail: whether the folder's messages have labels. */
+    val gmail: Boolean get() = repo.isGmail()
+
+    fun labelChoices(): List<Folder> = repo.labelChoices(_state.value.folderId)
+
+    /** Adds or removes a label on the checked messages (the selection stays). */
+    fun toggleLabel(label: String, on: Boolean) {
+        val s = _state.value
+        val uids = s.selected.toList()
+        if (uids.isEmpty()) return
+        val apply = { add: Boolean ->
+            _state.update { st ->
+                fun fix(h: Header) = if (h.uid in uids) h.copy(labels = h.labels.filter { it != label } + if (add) listOf(label) else emptyList()) else h
+                st.copy(messages = st.messages.map(::fix), results = st.results.map(::fix))
+            }
+        }
+        apply(on)
+        viewModelScope.launch {
+            try {
+                repo.setLabel(s.folderId, uids, label, on)
+            } catch (e: FerrowlException) {
+                apply(!on)
+                _state.update { it.copy(error = e.message) }
+            }
+        }
+    }
+
     fun setSort(order: SortOrder) {
         viewModelScope.launch { settings.setSort(order) }
     }

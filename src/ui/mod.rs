@@ -89,6 +89,9 @@ pub mod icons {
         r#"<path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/>"#
     );
     pub const BLOCK: &str = icon_svg!(r#"<circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/>"#);
+    pub const TAG: &str = icon_svg!(
+        r#"<path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/>"#
+    );
     pub const PLUS: &str = icon_svg!(r#"<path d="M12 5v14"/><path d="M5 12h14"/>"#);
     pub const CALENDAR: &str = icon_svg!(
         r#"<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>"#

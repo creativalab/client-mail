@@ -174,6 +174,9 @@ pub struct Header {
     /// Sender's bare address (for the sender lists).
     #[uniffi(default = "")]
     pub from_address: String,
+    /// Gmail labels (raw folder names); empty on other servers.
+    #[uniffi(default = [])]
+    pub labels: Vec<String>,
 }
 
 impl From<mail::Header> for Header {
@@ -191,6 +194,7 @@ impl From<mail::Header> for Header {
             flagged: h.flagged,
             size: h.size,
             from_address: h.from_address,
+            labels: h.labels,
         }
     }
 }
@@ -210,6 +214,7 @@ impl From<&Header> for mail::Header {
             flagged: h.flagged,
             size: h.size,
             from_address: h.from_address.clone(),
+            labels: h.labels.clone(),
             ..Default::default()
         }
     }
@@ -1068,6 +1073,22 @@ impl Engine {
         Ok(self.backend.archive_many(folder_id, uids, folders).await?)
     }
 
+    /// Whether the account is Gmail (messages have labels).
+    pub fn is_gmail(&self) -> bool {
+        self.backend.is_gmail()
+    }
+
+    /// Adds or removes a Gmail label (a folder's raw name) on messages.
+    pub async fn set_label_many(
+        &self,
+        folder_id: String,
+        uids: Vec<u32>,
+        label: String,
+        on: bool,
+    ) -> Result<()> {
+        Ok(self.backend.set_label_many(folder_id, uids, label, on).await?)
+    }
+
     /// Moves messages to Spam (marked $Junk for the server's filter).
     pub async fn report_spam(&self, folder_id: String, uids: Vec<u32>) -> Result<String> {
         let folders = lock(&self.folders).clone();
@@ -1217,6 +1238,7 @@ mod tests {
             flagged: false,
             size: 0,
             from_address: String::new(),
+            labels: Vec::new(),
         };
         let c = group_conversations(vec![h(1, "a", &[]), h(2, "b", &["a"]), h(3, "x", &[])]);
         assert_eq!(c.len(), 2);

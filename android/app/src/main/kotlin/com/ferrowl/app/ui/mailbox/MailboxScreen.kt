@@ -2,6 +2,7 @@ package com.ferrowl.app.ui.mailbox
 
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
@@ -237,6 +238,8 @@ fun MailboxScreen(
                                     checked = if (s.selecting) s.selected.containsAll(c.uids) else null,
                                     onLongClick = { vm.toggle(c.uids) },
                                     starred = rowStarred(s, c.uids),
+                                    // Gmail labels by their folder's name (not the open folder).
+                                    labels = c.latest.labels.filter { it != s.folderId }.mapNotNull { id -> s.folders.firstOrNull { it.id == id }?.name },
                                     onStar = { on -> vm.toggleStar(c.uids, on) },
                                 ) {
                                     if (s.selecting) {
@@ -267,6 +270,11 @@ fun MailboxScreen(
 private fun SelectionBar(count: Int, vm: MailboxViewModel, folders: List<Folder>, current: String) {
     var menu by remember { mutableStateOf(false) }
     var moving by remember { mutableStateOf(false) }
+    var labeling by remember { mutableStateOf(false) }
+    if (labeling) {
+        val s by vm.state.collectAsStateWithLifecycle()
+        LabelDialog(vm.labelChoices(), s, onToggle = vm::toggleLabel, onDone = { labeling = false })
+    }
     if (moving) {
         MoveDialog(folders.filter { it.selectable && it.id != current }, onDismiss = { moving = false }) { target ->
             moving = false
@@ -301,6 +309,7 @@ private fun SelectionBar(count: Int, vm: MailboxViewModel, folders: List<Folder>
                 item(R.string.star_remove) { vm.starSelected(false) }
                 item(R.string.archive) { vm.archiveSelected() }
                 item(if (vm.inSpam) R.string.spam_not else R.string.spam_report) { vm.spamSelected() }
+                if (vm.gmail) item(R.string.labels) { labeling = true }
                 item(R.string.move_to) { moving = true }
             }
         },
@@ -319,6 +328,7 @@ internal fun MessageRow(
     checked: Boolean? = null,
     onLongClick: (() -> Unit)? = null,
     starred: Boolean = h.flagged,
+    labels: List<String> = emptyList(),
     /** Shows a star that toggles (with the new state); null = no star. */
     onStar: ((Boolean) -> Unit)? = null,
     onClick: () -> Unit,
@@ -333,7 +343,7 @@ internal fun MessageRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (checked != null) Checkbox(checked = checked, onCheckedChange = { onClick() })
-        Box(Modifier.weight(1f)) { RowBody(h, count, unread, weight) }
+        Box(Modifier.weight(1f)) { RowBody(h, count, unread, weight, labels) }
         if (onStar != null) StarButton(starred) { onStar(!starred) }
     }
 }
@@ -348,6 +358,36 @@ fun StarButton(starred: Boolean, onClick: () -> Unit) {
             tint = if (starred) Color(0xFFE2A400) else MaterialTheme.colorScheme.outlineVariant,
         )
     }
+}
+
+/** Gmail labels for the checked messages: a check box per label. */
+@Composable
+private fun LabelDialog(choices: List<Folder>, s: MailboxState, onToggle: (String, Boolean) -> Unit, onDone: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDone,
+        title = { Text(stringResource(R.string.labels)) },
+        text = {
+            if (choices.isEmpty()) {
+                Text(stringResource(R.string.labels_none))
+            } else {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    choices.forEach { f ->
+                        // Checked when every checked message has the label.
+                        val on = s.selected.isNotEmpty() &&
+                            s.selected.all { uid -> s.shown.any { it.uid == uid && f.id in it.labels } }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().clickable { onToggle(f.id, !on) },
+                        ) {
+                            Checkbox(checked = on, onCheckedChange = { onToggle(f.id, it) })
+                            Text(f.name)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDone) { Text(stringResource(R.string.close)) } },
+    )
 }
 
 /** "Sort by…": the orders, the current one checked. */
@@ -387,7 +427,7 @@ private fun sortLabel(order: SortOrder): Int = when (order) {
 private fun rowStarred(s: MailboxState, uids: List<UInt>): Boolean = s.shown.any { it.flagged && it.uid in uids }
 
 @Composable
-private fun RowBody(h: Header, count: Int, unread: Boolean, weight: FontWeight) {
+private fun RowBody(h: Header, count: Int, unread: Boolean, weight: FontWeight, labels: List<String>) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -417,6 +457,23 @@ private fun RowBody(h: Header, count: Int, unread: Boolean, weight: FontWeight) 
             )
         }
         Text(h.subject, fontWeight = weight, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        // Gmail labels as small chips.
+        if (labels.isNotEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(vertical = 2.dp)) {
+                labels.take(3).forEach { label ->
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                    )
+                }
+            }
+        }
         Text(
             h.preview,
             style = MaterialTheme.typography.bodySmall,
