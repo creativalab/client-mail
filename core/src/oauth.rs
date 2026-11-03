@@ -182,8 +182,20 @@ fn write_store(store: &HashMap<String, String>) -> Result<()> {
     Ok(())
 }
 
+/// Where the mobile apps keep refresh tokens (Android Keystore, iOS
+/// Keychain). When set, it replaces the system keychain and the file.
+static VAULT: OnceLock<Box<dyn crate::secrets::Store>> = OnceLock::new();
+
+/// Hands refresh-token storage to the app (once, at start-up).
+pub fn set_vault(vault: Box<dyn crate::secrets::Store>) {
+    let _ = VAULT.set(vault);
+}
+
 fn load_refresh_token(provider: Provider, email: &str) -> Option<String> {
     use crate::secrets::Store;
+    if let Some(vault) = VAULT.get() {
+        return vault.get(&keychain_entry(provider, email));
+    }
     crate::secrets::SystemKeychain
         .get(&keychain_entry(provider, email))
         .or_else(|| load_store().get(&key(provider, email)).cloned())
@@ -191,6 +203,12 @@ fn load_refresh_token(provider: Provider, email: &str) -> Option<String> {
 
 fn save_refresh_token(provider: Provider, email: &str, token: &str) -> Result<()> {
     use crate::secrets::Store;
+    if let Some(vault) = VAULT.get() {
+        if !vault.set(&keychain_entry(provider, email), token) {
+            bail!("could not save the sign-in on this device");
+        }
+        return Ok(());
+    }
     let _guard = file_lock().lock().unwrap_or_else(|p| p.into_inner());
     if crate::secrets::SystemKeychain.set(&keychain_entry(provider, email), token) {
         // In the keychain now: drop any older copy from the file.
@@ -208,6 +226,9 @@ fn save_refresh_token(provider: Provider, email: &str, token: &str) -> Result<()
 /// Forgets the tokens of an account (sign-out / account removed).
 pub fn forget(provider: Provider, email: &str) {
     use crate::secrets::Store;
+    if let Some(vault) = VAULT.get() {
+        vault.delete(&keychain_entry(provider, email));
+    }
     let _guard = file_lock().lock().unwrap_or_else(|p| p.into_inner());
     crate::secrets::SystemKeychain.delete(&keychain_entry(provider, email));
     let mut store = load_store();

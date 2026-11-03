@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.ferrowl.core.Account
+import com.ferrowl.core.OAuthProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -54,12 +55,14 @@ class AccountStore @Inject constructor(
         val pop3: Boolean,
         val pop3KeepDays: Int? = null,
         val pgpPassphraseSealed: String = "",
+        /** "MICROSOFT" / "GOOGLE" when the account signs in instead of a password. */
+        val oauth: String? = null,
     ) {
         fun toAccount(secrets: SecretBox) = Account(
             displayName = displayName,
             email = email,
             username = username,
-            password = secrets.decrypt(passwordSealed),
+            password = if (passwordSealed.isEmpty()) "" else secrets.decrypt(passwordSealed),
             incomingHost = incomingHost,
             incomingPort = incomingPort.toUShort(),
             smtpHost = smtpHost,
@@ -67,6 +70,7 @@ class AccountStore @Inject constructor(
             protocol = if (pop3) com.ferrowl.core.Protocol.POP3 else com.ferrowl.core.Protocol.IMAP,
             pop3KeepDays = pop3KeepDays?.toUInt(),
             pgpPassphrase = if (pgpPassphraseSealed.isEmpty()) "" else secrets.decrypt(pgpPassphraseSealed),
+            oauth = oauth?.let { name -> OAuthProvider.entries.firstOrNull { it.name == name } },
         )
 
         companion object {
@@ -74,7 +78,7 @@ class AccountStore @Inject constructor(
                 displayName = a.displayName,
                 email = a.email,
                 username = a.username,
-                passwordSealed = secrets.encrypt(a.password),
+                passwordSealed = if (a.password.isEmpty()) "" else secrets.encrypt(a.password),
                 incomingHost = a.incomingHost,
                 incomingPort = a.incomingPort.toInt(),
                 smtpHost = a.smtpHost,
@@ -82,6 +86,7 @@ class AccountStore @Inject constructor(
                 pop3 = a.protocol == com.ferrowl.core.Protocol.POP3,
                 pop3KeepDays = a.pop3KeepDays?.toInt(),
                 pgpPassphraseSealed = if (a.pgpPassphrase.isEmpty()) "" else secrets.encrypt(a.pgpPassphrase),
+                oauth = a.oauth?.name,
             )
         }
     }

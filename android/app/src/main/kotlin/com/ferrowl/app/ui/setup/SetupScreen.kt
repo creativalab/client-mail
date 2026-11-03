@@ -26,6 +26,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
@@ -73,7 +74,7 @@ fun SetupScreen(onDone: () -> Unit, vm: SetupViewModel = hiltViewModel()) {
         Field(stringResource(R.string.email), s.email, vm::setEmail, modifier = Modifier.fillMaxWidth(), keyboard = KeyboardType.Email)
 
         val p = s.chosen
-        if (p?.login == Login.MICROSOFT_SIGN_IN) {
+        if (s.signsIn) {
             Text(stringResource(R.string.ms_signin_hint), color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
             Field(stringResource(R.string.password), s.password, vm::setPassword, modifier = Modifier.fillMaxWidth(), keyboard = KeyboardType.Password, secret = true)
@@ -92,11 +93,27 @@ fun SetupScreen(onDone: () -> Unit, vm: SetupViewModel = hiltViewModel()) {
 
         s.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
-        Button(onClick = vm::connect, enabled = s.canConnect, modifier = Modifier.fillMaxWidth()) {
+        if (s.signsIn) {
+            // The Custom Tab opens over this activity; it is created here so
+            // it uses the activity's context, not the application's.
+            val context = LocalContext.current
+            Button(onClick = { vm.signIn(CustomTabOpener(context)) }, enabled = s.canSignIn, modifier = Modifier.fillMaxWidth()) {
+                if (s.busy) {
+                    CircularProgressIndicator(Modifier.width(20.dp), strokeWidth = 2.dp)
+                } else {
+                    Text(stringResource(R.string.oauth_microsoft))
+                }
+            }
             if (s.busy) {
-                CircularProgressIndicator(Modifier.width(20.dp), strokeWidth = 2.dp)
-            } else {
-                Text(stringResource(R.string.save))
+                Text(stringResource(R.string.oauth_waiting), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            Button(onClick = vm::connect, enabled = s.canConnect, modifier = Modifier.fillMaxWidth()) {
+                if (s.busy) {
+                    CircularProgressIndicator(Modifier.width(20.dp), strokeWidth = 2.dp)
+                } else {
+                    Text(stringResource(R.string.save))
+                }
             }
         }
     }

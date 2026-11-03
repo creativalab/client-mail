@@ -38,6 +38,9 @@ class PushRegistrar @Inject constructor(
     suspend fun enable() {
         val account = accounts.account.first() ?: return
         if (account.protocol == Protocol.POP3) throw PushException(translate("push_pop3"), 0)
+        // The push server watches the inbox with a password; signed-in
+        // accounts (Microsoft, Google) are not supported there yet.
+        if (account.oauth != null) throw PushException(translate("push_oauth"), 0)
         store.setEnabled(true)
         try {
             sync()
@@ -59,7 +62,7 @@ class PushRegistrar @Inject constructor(
     suspend fun sync(): Unit = lock.withLock {
         if (!store.current().enabled) return
         val account = accounts.account.first() ?: return
-        if (account.protocol == Protocol.POP3) return
+        if (account.protocol == Protocol.POP3 || account.oauth != null) return
         val fcmToken = FirebaseMessaging.getInstance().token.await()
         var s = store.current()
         if (s.deviceToken != null) {

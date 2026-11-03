@@ -10,7 +10,7 @@
 //! engine never reads a config file on mobile.
 
 use ferrowl_core::backend::Backend;
-use ferrowl_core::{config, events, i18n, invite, mail, paths, providers};
+use ferrowl_core::{config, events, i18n, invite, mail, oauth, paths, providers};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -75,6 +75,34 @@ pub struct Account {
     /// Calendar server (CalDAV); empty = found from the address's domain.
     #[uniffi(default = "")]
     pub caldav_url: String,
+    /// Signed in with Microsoft/Google instead of a password.
+    #[uniffi(default = None)]
+    pub oauth: Option<OAuthProvider>,
+}
+
+/// Providers whose accounts sign in in the browser (OAuth 2.0).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum OAuthProvider {
+    Microsoft,
+    Google,
+}
+
+impl From<OAuthProvider> for oauth::Provider {
+    fn from(p: OAuthProvider) -> Self {
+        match p {
+            OAuthProvider::Microsoft => oauth::Provider::Microsoft,
+            OAuthProvider::Google => oauth::Provider::Google,
+        }
+    }
+}
+
+impl From<oauth::Provider> for OAuthProvider {
+    fn from(p: oauth::Provider) -> Self {
+        match p {
+            oauth::Provider::Microsoft => OAuthProvider::Microsoft,
+            oauth::Provider::Google => OAuthProvider::Google,
+        }
+    }
 }
 
 impl From<Account> for config::Account {
@@ -97,7 +125,7 @@ impl From<Account> for config::Account {
             keyring: false,
             carddav_url: a.carddav_url,
             caldav_url: a.caldav_url,
-            oauth: None,
+            oauth: a.oauth.map(Into::into),
         }
     }
 }
@@ -696,6 +724,107 @@ pub fn provider_for_email(email: String) -> Option<u32> {
     providers::for_email(&email).map(|i| i as u32)
 }
 
+// ---------------------------------------------------------------- sign-in
+
+/// Secure storage the app offers for sign-in (refresh) tokens: Android
+/// Keystore, iOS Keychain. Called from background threads.
+#[uniffi::export(with_foreign)]
+pub trait TokenVault: Send + Sync {
+    fn get(&self, key: String) -> Option<String>;
+    /// True when saved.
+    fn set(&self, key: String, secret: String) -> bool;
+    fn delete(&self, key: String);
+}
+
+struct Vault(Arc<dyn TokenVault>);
+
+impl ferrowl_core::secrets::Store for Vault {
+    fn get(&self, user: &str) -> Option<String> {
+        self.0.get(user.to_string())
+    }
+    fn set(&self, user: &str, secret: &str) -> bool {
+        self.0.set(user.to_string(), secret.to_string())
+    }
+    fn delete(&self, user: &str) {
+        self.0.delete(user.to_string())
+    }
+}
+
+/// Hands token storage to the engine. Call once at start-up, before any
+/// account that signs in with Microsoft/Google connects.
+#[uniffi::export]
+pub fn set_token_vault(vault: Arc<dyn TokenVault>) {
+    oauth::set_vault(Box::new(Vault(vault)));
+}
+
+/// Opens the provider's sign-in page (in a Custom Tab / the browser).
+#[uniffi::export(with_foreign)]
+pub trait BrowserOpener: Send + Sync {
+    fn open(&self, url: String);
+}
+
+/// Whether this build can sign in with `provider` (client registered).
+#[uniffi::export]
+pub fn oauth_available(provider: OAuthProvider) -> bool {
+    oauth::Provider::from(provider).available()
+}
+
+/// The provider whose sign-in an address needs, if any.
+#[uniffi::export]
+pub fn oauth_provider_for_email(email: String) -> Option<OAuthProvider> {
+    oauth::Provider::for_email(&email).map(Into::into)
+}
+
+/// Signs in on the provider's page (opened with `browser`) and returns the
+/// signed-in address. The page sends the browser back to a port on this
+/// device that the engine listens on; tokens go to the [`TokenVault`].
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn oauth_sign_in(
+    provider: OAuthProvider,
+    login_hint: String,
+    browser: Arc<dyn BrowserOpener>,
+) -> Result<String> {
+    let provider: oauth::Provider = provider.into();
+    tokio::task::spawn_blocking(move || {
+        oauth::sign_in(provider, &login_hint, &|url: &str| {
+            browser.open(url.to_string());
+            Ok(())
+        })
+    })
+    .await
+    .map_err(|e| FerrowlError::Failed(e.to_string()))?
+    .map_err(|e| FerrowlError::Failed(format!("{e:#}")))
+}
+
+/// A complete account for an address signed in with `provider` (servers
+/// filled in; no password).
+#[uniffi::export]
+pub fn oauth_account(provider: OAuthProvider, email: String, display_name: String) -> Account {
+    let ((imap_host, imap_port), (smtp_host, smtp_port)) = oauth::Provider::from(provider).servers(&email);
+    Account {
+        display_name,
+        email: email.clone(),
+        username: email,
+        password: String::new(),
+        incoming_host: imap_host.into(),
+        incoming_port: imap_port,
+        smtp_host: smtp_host.into(),
+        smtp_port,
+        protocol: Protocol::Imap,
+        pop3_keep_days: None,
+        pgp_passphrase: String::new(),
+        carddav_url: String::new(),
+        caldav_url: String::new(),
+        oauth: Some(provider),
+    }
+}
+
+/// Forgets the sign-in of an account (when it is removed).
+#[uniffi::export]
+pub fn oauth_forget(provider: OAuthProvider, email: String) {
+    oauth::forget(provider.into(), &email);
+}
+
 /// HTML to send alongside the text when the user wrote Markdown formatting
 /// (`None` for plain text, which is then sent as text only).
 /// Initials for an avatar: "Giulia Ferri" -> "GF", "anna@x.it" -> "A".
@@ -1289,6 +1418,7 @@ mod tests {
             pgp_passphrase: String::new(),
             carddav_url: String::new(),
             caldav_url: String::new(),
+            oauth: None,
         });
         let back: config::Account = serde_json::from_str(&json).unwrap();
         assert_eq!(back.imap_host, "imap.example.org");
@@ -1311,6 +1441,7 @@ mod tests {
             pgp_passphrase: String::new(),
             carddav_url: String::new(),
             caldav_url: String::new(),
+            oauth: None,
         };
         let core: config::Account = a.into();
         assert!(core.is_pop3());
