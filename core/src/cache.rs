@@ -531,6 +531,18 @@ impl Cache {
         Ok(())
     }
 
+    /// A stored event by item URL: (calendar URL, ETag, iCalendar text).
+    pub fn event(&self, account: &str, url: &str) -> Result<Option<(String, String, String)>> {
+        Ok(self
+            .lock()
+            .query_row(
+                "SELECT calendar, etag, ics FROM events WHERE account = ?1 AND url = ?2",
+                params![account, url],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?)
+    }
+
     /// URL and ETag of the stored event with this UID, if any.
     pub fn event_by_uid(&self, account: &str, uid: &str) -> Result<Option<(String, String)>> {
         if uid.is_empty() {
@@ -599,25 +611,27 @@ impl Cache {
         account: &str,
         from: i64,
         to: i64,
-    ) -> Result<Vec<(String, crate::ical::Occurrence)>> {
-        let stored: Vec<(String, String)> = {
+    ) -> Result<Vec<(String, String, crate::ical::Occurrence)>> {
+        let stored: Vec<(String, String, String)> = {
             let conn = self.lock();
             let mut stmt = conn.prepare_cached(
-                "SELECT calendar, ics FROM events
+                "SELECT calendar, url, ics FROM events
                  WHERE account = ?1 AND first_ts < ?3 AND (last_ts IS NULL OR last_ts >= ?2)",
             )?;
-            let rows = stmt.query_map(params![account, from, to], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            let rows = stmt.query_map(params![account, from, to], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })?;
             rows.collect::<rusqlite::Result<_>>()?
         };
-        let mut out: Vec<(String, crate::ical::Occurrence)> = stored
+        let mut out: Vec<(String, String, crate::ical::Occurrence)> = stored
             .into_iter()
-            .flat_map(|(calendar, ics)| {
+            .flat_map(|(calendar, url, ics)| {
                 crate::ical::occurrences(&crate::ical::parse(&ics), from, to)
                     .into_iter()
-                    .map(move |o| (calendar.clone(), o))
+                    .map(move |o| (calendar.clone(), url.clone(), o))
             })
             .collect();
-        out.sort_by_key(|(_, o)| (o.start, !o.all_day, o.end));
+        out.sort_by_key(|(_, _, o)| (o.start, !o.all_day, o.end));
         Ok(out)
     }
 
@@ -947,7 +961,7 @@ mod tests {
         // A year later only the endless series remains.
         let later = c.occurrences("acc", from + 365 * day, from + 366 * day).unwrap();
         assert_eq!(later.len(), 1);
-        assert_eq!(later[0].1.summary, "daily");
+        assert_eq!(later[0].2.summary, "daily");
         assert_eq!(c.calendars("acc").unwrap(), cals);
 
         c.apply_events("acc", &Changes::default()).unwrap();

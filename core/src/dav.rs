@@ -124,6 +124,14 @@ impl Kind {
         }
     }
 
+    /// Error text for this kind: the contacts or the calendar server.
+    fn text(self, contacts: &str, calendar: &str) -> &'static str {
+        match self {
+            Kind::Contacts => crate::i18n::t(contacts),
+            Kind::Calendar => crate::i18n::t(calendar),
+        }
+    }
+
     fn not_found(self) -> &'static str {
         match self {
             Kind::Contacts => crate::i18n::t("err_dav_none"),
@@ -163,11 +171,11 @@ pub struct Changes {
 
 /// The server refused the username or password.
 #[derive(Debug)]
-pub struct AuthRefused;
+pub struct AuthRefused(pub Kind);
 
 impl std::fmt::Display for AuthRefused {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(crate::i18n::t("err_dav_auth"))
+        f.write_str(self.0.text("err_dav_auth", "err_caldav_auth"))
     }
 }
 
@@ -230,6 +238,10 @@ impl Client {
     /// (refused if one already exists at that URL).
     pub fn put(&self, url: &str, data: &str, content_type: &str, etag: Option<&str>) -> Result<()> {
         let (_, status, _) = self.request("PUT", url, None, data, content_type, Some(etag.unwrap_or("*")))?;
+        // Changed (or created) elsewhere since our copy.
+        if status == StatusCode::PRECONDITION_FAILED {
+            bail!("{}", crate::i18n::t("err_event_changed"));
+        }
         if !status.is_success() {
             bail!("PUT: HTTP {status}");
         }
@@ -239,6 +251,9 @@ impl Client {
     /// Deletes an item (a missing one counts as deleted).
     pub fn delete(&self, url: &str, etag: Option<&str>) -> Result<()> {
         let (_, status, _) = self.request("DELETE", url, None, "", "text/plain", etag.or(Some("")))?;
+        if status == StatusCode::PRECONDITION_FAILED {
+            bail!("{}", crate::i18n::t("err_event_changed"));
+        }
         if !status.is_success() && status != StatusCode::NOT_FOUND {
             bail!("DELETE: HTTP {status}");
         }
@@ -259,7 +274,7 @@ impl Client {
         let mut url = url.to_owned();
         for _ in 0..=MAX_REDIRECTS {
             if !url.starts_with("https://") && !(self.allow_http && url.starts_with("http://")) {
-                bail!("{}", crate::i18n::t("err_dav_insecure"));
+                bail!("{}", self.kind.text("err_dav_insecure", "err_caldav_insecure"));
             }
             let authenticated = self.may_authenticate(&url);
             let mut req = Request::builder()
@@ -278,10 +293,13 @@ impl Client {
                 req = req.header("Depth", d);
             }
             let req = req.body(body.to_owned())?;
-            let mut resp = self
-                .agent
-                .run(req)
-                .map_err(|e| anyhow!(crate::i18n::tf("err_dav_connect", &[("msg", &e.to_string())])))?;
+            let mut resp = self.agent.run(req).map_err(|e| {
+                let key = match self.kind {
+                    Kind::Contacts => "err_dav_connect",
+                    Kind::Calendar => "err_caldav_connect",
+                };
+                anyhow!(crate::i18n::tf(key, &[("msg", &e.to_string())]))
+            })?;
             let status = resp.status();
             if status.is_redirection() {
                 let to = resp
@@ -295,7 +313,7 @@ impl Client {
             // A refusal of our credentials. Elsewhere a 401 just means this
             // is not the server we look for (discovery goes on).
             if authenticated && (status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN) {
-                return Err(AuthRefused.into());
+                return Err(AuthRefused(self.kind).into());
             }
             let text = resp
                 .body_mut()
@@ -983,5 +1001,176 @@ mod tests {
             .sync(&account, &[])
             .unwrap_err();
         assert!(err.is::<AuthRefused>(), "{err:#}");
+    }
+
+    /// A tiny CalDAV server keeping events in memory, with ETags and
+    /// conditional PUT/DELETE. The typed URL is the calendar itself.
+    fn fake_caldav() -> String {
+        use std::collections::BTreeMap;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            let mut items: BTreeMap<String, (u32, String)> = BTreeMap::new();
+            let mut version = 0u32;
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut first = String::new();
+                reader.read_line(&mut first).unwrap();
+                let (mut len, mut if_match, mut if_none) = (0usize, None::<String>, false);
+                loop {
+                    let mut line = String::new();
+                    reader.read_line(&mut line).unwrap();
+                    if line.trim().is_empty() {
+                        break;
+                    }
+                    let lower = line.to_ascii_lowercase();
+                    if let Some(v) = lower.strip_prefix("content-length:") {
+                        len = v.trim().parse().unwrap();
+                    }
+                    if let Some(v) = line.strip_prefix("If-Match:").or(line.strip_prefix("if-match:")) {
+                        if_match = Some(v.trim().to_owned());
+                    }
+                    if lower.starts_with("if-none-match:") {
+                        if_none = true;
+                    }
+                }
+                let mut body = vec![0; len];
+                reader.read_exact(&mut body).unwrap();
+                let body = String::from_utf8(body).unwrap();
+                let mut it = first.split_whitespace();
+                let (method, path) = (it.next().unwrap().to_owned(), it.next().unwrap().to_owned());
+                let etag = |v: u32| format!("\"{v}\"");
+                let ms = |inner: String| {
+                    (
+                        207,
+                        format!(
+                            r#"<?xml version="1.0"?><d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">{inner}</d:multistatus>"#
+                        ),
+                    )
+                };
+                let (status, text) = match (method.as_str(), path.as_str()) {
+                    ("PROPFIND", "/cal/") => {
+                        let mut inner = String::from(
+                            r#"<d:response><d:href>/cal/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/><c:calendar/></d:resourcetype><d:displayname>Lavoro</d:displayname></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"#,
+                        );
+                        if !body.contains("current-user-principal") {
+                            for (name, (v, _)) in &items {
+                                inner += &format!(
+                                    r#"<d:response><d:href>/cal/{name}</d:href><d:propstat><d:prop><d:getetag>{}</d:getetag><d:resourcetype/></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"#,
+                                    etag(*v)
+                                );
+                            }
+                        }
+                        ms(inner)
+                    }
+                    ("REPORT", "/cal/") => {
+                        let mut inner = String::new();
+                        for (name, (v, data)) in &items {
+                            if body.contains(&format!("/cal/{name}<")) {
+                                inner += &format!(
+                                    r#"<d:response><d:href>/cal/{name}</d:href><d:propstat><d:prop><d:getetag>{}</d:getetag><c:calendar-data>{}</c:calendar-data></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>"#,
+                                    etag(*v),
+                                    xml_escape(data)
+                                );
+                            }
+                        }
+                        ms(inner)
+                    }
+                    ("PUT", p) if p.starts_with("/cal/") => {
+                        let name = p[5..].to_owned();
+                        let current = items.get(&name).map(|(v, _)| etag(*v));
+                        let ok = match (&if_match, if_none) {
+                            (Some(m), _) => current.as_deref() == Some(m.as_str()),
+                            (None, true) => current.is_none(),
+                            _ => true,
+                        };
+                        if ok {
+                            version += 1;
+                            items.insert(name, (version, body.clone()));
+                            (201, String::new())
+                        } else {
+                            (412, String::new())
+                        }
+                    }
+                    ("DELETE", p) if p.starts_with("/cal/") => {
+                        let name = &p[5..];
+                        let current = items.get(name).map(|(v, _)| etag(*v));
+                        match (&if_match, current) {
+                            (_, None) => (404, String::new()),
+                            (Some(m), Some(c)) if *m != c => (412, String::new()),
+                            _ => {
+                                items.remove(name);
+                                (204, String::new())
+                            }
+                        }
+                    }
+                    _ => (404, String::new()),
+                };
+                let reason = match status {
+                    201 => "Created",
+                    204 => "No Content",
+                    207 => "Multi-Status",
+                    412 => "Precondition Failed",
+                    _ => "Not Found",
+                };
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 {status} {reason}\r\nContent-Type: application/xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}",
+                    text.len()
+                );
+            }
+        });
+        base
+    }
+
+    #[test]
+    fn creates_edits_and_deletes_events() {
+        use crate::events::{self, Draft};
+        let base = fake_caldav();
+        let account = Account {
+            email: "user@example.org".into(),
+            caldav_url: format!("{base}/cal/"),
+            ..Default::default()
+        };
+        let c = Client::new(&account, Kind::Calendar);
+        let mut draft = Draft::new_on(chrono::NaiveDate::from_ymd_opt(2026, 12, 1).unwrap());
+        draft.summary = "Kickoff".into();
+        let (uid, ics) = events::create(&draft);
+        let url = crate::invite::item_url(&format!("{base}/cal/"), &uid);
+        c.put(&url, &ics, "text/calendar", None).unwrap();
+        // Creating again at the same URL is refused (If-None-Match).
+        assert!(c.put(&url, &ics, "text/calendar", None).is_err());
+
+        let first = c.sync(&account, &[]).unwrap();
+        assert_eq!(first.items.len(), 1);
+        let item = &first.items[0].1;
+        assert_eq!(crate::ical::parse(&item.data).events[0].summary, "Kickoff");
+
+        draft.summary = "Kickoff (moved)".into();
+        let changed = events::update(&item.data, &draft);
+        c.put(&url, &changed, "text/calendar", Some(&item.etag)).unwrap();
+        // The old ETag no longer matches: a clear "changed elsewhere".
+        let stale = c
+            .put(&url, &changed, "text/calendar", Some(&item.etag))
+            .unwrap_err();
+        assert!(
+            !stale.to_string().starts_with("PUT:"),
+            "412 is reported as a conflict"
+        );
+
+        let known = vec![(item.url.clone(), item.etag.clone())];
+        let second = c.sync(&account, &known).unwrap();
+        assert_eq!(
+            crate::ical::parse(&second.items[0].1.data).events[0].summary,
+            "Kickoff (moved)"
+        );
+        assert_eq!(crate::ical::parse(&second.items[0].1.data).events[0].sequence, 1);
+
+        c.delete(&url, Some(&second.items[0].1.etag)).unwrap();
+        let third = c
+            .sync(&account, &[(url.clone(), second.items[0].1.etag.clone())])
+            .unwrap();
+        assert_eq!(third.gone, [url]);
     }
 }

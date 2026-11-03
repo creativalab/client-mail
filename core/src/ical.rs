@@ -532,7 +532,7 @@ fn parse_rule(v: &str) -> Option<Rule> {
 
 // ---------------------------------------------------------------- expanding
 
-fn days_in_month(year: i32, month: u32) -> u32 {
+pub(crate) fn days_in_month(year: i32, month: u32) -> u32 {
     let (ny, nm) = if month == 12 {
         (year + 1, 1)
     } else {

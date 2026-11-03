@@ -3,6 +3,8 @@ package com.ferrowl.app.data
 import com.ferrowl.core.Account
 import com.ferrowl.core.AddressSuggestion
 import com.ferrowl.core.CalendarEvent
+import com.ferrowl.core.CalendarInfo
+import com.ferrowl.core.EventDraft
 import com.ferrowl.core.Contact
 import com.ferrowl.core.Engine
 import com.ferrowl.core.Folder
@@ -107,6 +109,19 @@ class MailRepository @Inject constructor(
     /** Event occurrences between two instants (seconds since the epoch). */
     suspend fun agenda(from: Long, to: Long): List<CalendarEvent> =
         withContext(Dispatchers.IO) { engine.agenda(from, to) }
+
+    /** The account's calendars. */
+    suspend fun calendars(): List<CalendarInfo> = withContext(Dispatchers.IO) { engine.calendars() }
+
+    /** The form for a stored event. */
+    suspend fun eventDraft(url: String): EventDraft? = withContext(Dispatchers.IO) { engine.eventDraft(url) }
+
+    /** Saves a new or changed event; returns the text to show. */
+    suspend fun saveEvent(calendarUrl: String, url: String?, draft: EventDraft): String =
+        engine.saveEvent(calendarUrl, url, draft)
+
+    /** Deletes a stored event; returns the text to show. */
+    suspend fun deleteEvent(url: String): String = engine.deleteEvent(url)
 
     /** Updates the calendars from the server. */
     suspend fun syncCalendar() {

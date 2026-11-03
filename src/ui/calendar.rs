@@ -3,10 +3,12 @@
 //! Events come from the account's CalDAV server (see `ferrowl_core::dav`).
 
 use super::*;
-use crate::app::{App, SyncState};
+use crate::app::{App, EventField, EventForm, SyncState};
+use crate::backend::Backend;
 use crate::i18n::t;
 use chrono::{Datelike, NaiveDate};
 use ferrowl_core::backend::AgendaEntry;
+use ferrowl_core::events::Repeat;
 use ferrowl_core::ical::{self, day_label, month_label};
 use iced::widget::{Column, column, scrollable, space};
 use iced::{Alignment, Length::Fill, Padding};
@@ -94,6 +96,14 @@ pub fn list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             .on_press(Message::CalendarMonth(0))
             .into(),
         nav(forward, t("next_month"), 1),
+        tooltip(
+            button(icon(icons::PLUS, 18.0, p.text2))
+                .padding(8)
+                .style(ghost(p, p.text2))
+                .on_press(Message::NewEvent),
+            t("new_event"),
+            p,
+        ),
         tooltip(
             button(icon(icons::SYNC, 18.0, p.text2))
                 .padding(8)
@@ -211,6 +221,9 @@ fn event_row<'a>(app: &'a App, i: usize, p: Palette) -> Element<'a, Message> {
 }
 
 pub fn detail<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
+    if let Some(f) = &app.event_form {
+        return form(app, f, p);
+    }
     let Some(e) = app.agenda_selected.and_then(|i| app.agenda.get(i)) else {
         let inner = column![
             icon(icons::CALENDAR, 48.0, p.field),
@@ -278,7 +291,257 @@ pub fn detail<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         );
     }
 
+    // Edit / delete (asks first).
+    let actions: Element<'a, Message> = if app.confirm_event_delete {
+        column![
+            text(t("event_delete_confirm")).size(14).color(p.text),
+            dir_row(vec![
+                button(text(t("delete")).size(13).font(semibold()))
+                    .padding([7, 14])
+                    .style(move |_, st| button::Style {
+                        background: Some(Background::Color(if matches!(st, button::Status::Hovered) {
+                            mix(p.danger, Color::BLACK, 0.15)
+                        } else {
+                            p.danger
+                        })),
+                        text_color: Color::WHITE,
+                        border: Border {
+                            radius: radius(8.0),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    })
+                    .on_press(Message::DeleteEvent(true))
+                    .into(),
+                button(text(t("cancel")).size(13).font(medium()))
+                    .padding([7, 14])
+                    .style(outline_btn(p, p.text))
+                    .on_press(Message::CancelEvent)
+                    .into(),
+            ])
+            .spacing(8),
+        ]
+        .spacing(10)
+        .into()
+    } else {
+        dir_row(vec![
+            button(text(t("event_edit")).size(13).font(medium()))
+                .padding([7, 14])
+                .style(outline_btn(p, p.text))
+                .on_press(Message::EditEvent)
+                .into(),
+            button(text(t("delete")).size(13).font(medium()))
+                .padding([7, 14])
+                .style(outline_btn(p, p.danger))
+                .on_press(Message::DeleteEvent(false))
+                .into(),
+        ])
+        .spacing(8)
+        .into()
+    };
+    body = body.push(space().height(8)).push(actions);
+
     container(scrollable(container(body).padding(32).max_width(720)).style(scroll_style(p)))
+        .width(Fill)
+        .height(Fill)
+        .style(panel(p.bg))
+        .into()
+}
+
+/// A repeat choice in the picker, with its label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RepeatChoice(Repeat);
+
+impl std::fmt::Display for RepeatChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self.0 {
+            Repeat::Never => t("repeat_never"),
+            Repeat::Daily => t("repeat_daily"),
+            Repeat::Weekly => t("repeat_weekly"),
+            Repeat::Monthly => t("repeat_monthly"),
+            Repeat::Yearly => t("repeat_yearly"),
+            Repeat::Custom => t("repeat_custom"),
+        })
+    }
+}
+
+/// A calendar in the picker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CalendarChoice {
+    url: String,
+    name: String,
+}
+
+impl std::fmt::Display for CalendarChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.name)
+    }
+}
+
+/// New event, or changes to the open one.
+fn form<'a>(app: &'a App, f: &'a EventForm, p: Palette) -> Element<'a, Message> {
+    let label = |s: &'static str| text(s).size(13).font(medium()).color(p.text2);
+    let input = |placeholder: &'static str, value: &'a str, field: EventField, width: f32| {
+        text_input(placeholder, value)
+            .on_input(move |v| Message::EventField(field, v))
+            .on_submit(Message::SaveEvent)
+            .size(14)
+            .padding([9, 12])
+            .width(width)
+            .style(super::input(p, 8.0))
+    };
+    let when = |date: &'a str, time: &'a str, df: EventField, tf_: EventField| -> Element<'a, Message> {
+        let mut r = vec![input(t("event_date_placeholder"), date, df, 150.0).into()];
+        if !f.all_day {
+            r.push(input(t("event_time_placeholder"), time, tf_, 90.0).into());
+        }
+        dir_row(r).spacing(8).into()
+    };
+
+    let mut col = Column::new()
+        .spacing(10)
+        .push(
+            text(if f.url.is_some() {
+                t("edit_event")
+            } else {
+                t("new_event")
+            })
+            .size(22)
+            .font(INTER_BOLD)
+            .color(p.text),
+        )
+        .push(space().height(4))
+        .push(label(t("event_title")))
+        .push(
+            text_input(t("event_title"), &f.summary)
+                .on_input(|v| Message::EventField(EventField::Summary, v))
+                .on_submit(Message::SaveEvent)
+                .size(16)
+                .padding([10, 12])
+                .style(super::input(p, 8.0)),
+        )
+        .push(
+            iced::widget::checkbox(f.all_day)
+                .label(t("all_day"))
+                .on_toggle(Message::EventAllDay)
+                .size(16)
+                .text_size(14),
+        )
+        .push(
+            dir_row(vec![
+                column![
+                    label(t("event_starts")),
+                    when(
+                        &f.start_date,
+                        &f.start_time,
+                        EventField::StartDate,
+                        EventField::StartTime
+                    )
+                ]
+                .spacing(6)
+                .into(),
+                column![
+                    label(t("event_ends")),
+                    when(&f.end_date, &f.end_time, EventField::EndDate, EventField::EndTime)
+                ]
+                .spacing(6)
+                .into(),
+            ])
+            .spacing(24)
+            .wrap(),
+        );
+
+    let mut repeats = vec![
+        RepeatChoice(Repeat::Never),
+        RepeatChoice(Repeat::Daily),
+        RepeatChoice(Repeat::Weekly),
+        RepeatChoice(Repeat::Monthly),
+        RepeatChoice(Repeat::Yearly),
+    ];
+    if f.repeat == Repeat::Custom {
+        repeats.push(RepeatChoice(Repeat::Custom));
+    }
+    let mut pickers: Vec<Element<'a, Message>> = vec![
+        column![
+            label(t("repeat")),
+            iced::widget::pick_list(repeats, Some(RepeatChoice(f.repeat)), |c: RepeatChoice| {
+                Message::EventRepeat(c.0)
+            })
+            .text_size(14)
+            .padding([8, 12])
+            .width(220),
+        ]
+        .spacing(6)
+        .into(),
+    ];
+    // Calendar choice for a new event, when there is more than one.
+    if f.url.is_none() {
+        let calendars: Vec<CalendarChoice> = app
+            .config
+            .account()
+            .map(Backend::calendars)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|c| CalendarChoice {
+                url: c.url,
+                name: c.name,
+            })
+            .collect();
+        if calendars.len() > 1 {
+            let chosen = calendars.iter().find(|c| c.url == f.calendar).cloned();
+            pickers.push(
+                column![
+                    label(t("event_calendar")),
+                    iced::widget::pick_list(calendars, chosen, |c: CalendarChoice| Message::EventCalendar(
+                        c.url
+                    ))
+                    .text_size(14)
+                    .padding([8, 12])
+                    .width(220),
+                ]
+                .spacing(6)
+                .into(),
+            );
+        }
+    }
+    col = col
+        .push(dir_row(pickers).spacing(24).wrap())
+        .push(label(t("event_location")))
+        .push(
+            text_input(t("event_location"), &f.location)
+                .on_input(|v| Message::EventField(EventField::Location, v))
+                .size(14)
+                .padding([9, 12])
+                .style(super::input(p, 8.0)),
+        )
+        .push(label(t("event_notes")))
+        .push(
+            iced::widget::text_editor(&f.notes)
+                .on_action(Message::EventNotes)
+                .height(120)
+                .size(14)
+                .padding(10),
+        );
+    if let Some(e) = &f.error {
+        col = col.push(text(e.as_str()).size(13).color(p.danger));
+    }
+    col = col.push(space().height(4)).push(
+        dir_row(vec![
+            button(text(t("event_save")).size(14).font(semibold()))
+                .padding([9, 18])
+                .style(accent_btn(p))
+                .on_press_maybe((!f.saving && !f.summary.trim().is_empty()).then_some(Message::SaveEvent))
+                .into(),
+            button(text(t("cancel")).size(14).font(medium()))
+                .padding([9, 18])
+                .style(outline_btn(p, p.text))
+                .on_press(Message::CancelEvent)
+                .into(),
+        ])
+        .spacing(10),
+    );
+
+    container(scrollable(container(col).padding(32).max_width(720)).style(scroll_style(p)))
         .width(Fill)
         .height(Fill)
         .style(panel(p.bg))

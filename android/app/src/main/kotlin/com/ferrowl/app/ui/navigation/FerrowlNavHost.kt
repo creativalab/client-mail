@@ -7,6 +7,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.ferrowl.app.ui.calendar.CalendarScreen
+import com.ferrowl.app.ui.calendar.EventEditScreen
 import com.ferrowl.app.ui.compose.ComposeScreen
 import com.ferrowl.app.ui.contacts.ContactsScreen
 import com.ferrowl.app.ui.conversation.ConversationScreen
@@ -27,6 +28,9 @@ import kotlinx.serialization.Serializable
 @Serializable object Settings
 @Serializable object Contacts
 @Serializable object Agenda
+
+/** The event form: `url` of the event to change, or null for a new one on `day` (YYYY-MM-DD). */
+@Serializable data class EditEvent(val url: String? = null, val day: String = "")
 @Serializable data class Read(val folderId: String, val uid: Long)
 
 /** A conversation; `uids` are comma-separated, oldest first. */
@@ -63,7 +67,14 @@ fun FerrowlNavHost() {
             )
         }
         composable<Settings> { SettingsScreen(onBack = { nav.popBackStack() }) }
-        composable<Agenda> { CalendarScreen(onBack = { nav.popBackStack() }) }
+        composable<Agenda> {
+            CalendarScreen(
+                onBack = { nav.popBackStack() },
+                onNewEvent = { day -> nav.navigate(EditEvent(day = day.toString())) },
+                onEditEvent = { url -> nav.navigate(EditEvent(url = url)) },
+            )
+        }
+        composable<EditEvent> { EventEditScreen(onClose = { nav.popBackStack() }) }
         composable<Contacts> {
             ContactsScreen(
                 onBack = { nav.popBackStack() },

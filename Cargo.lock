@@ -2281,6 +2281,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "dirs",
+ "iana-time-zone",
  "imap",
  "keyring",
  "lettre",

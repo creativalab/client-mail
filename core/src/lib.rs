@@ -9,6 +9,7 @@ pub mod carddav;
 pub mod config;
 pub mod crypto;
 pub mod dav;
+pub mod events;
 pub mod html;
 pub mod i18n;
 pub mod ical;

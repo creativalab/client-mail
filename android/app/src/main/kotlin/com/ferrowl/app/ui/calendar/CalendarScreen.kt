@@ -1,5 +1,17 @@
 package com.ferrowl.app.ui.calendar
 
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import java.time.YearMonth
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -80,11 +92,30 @@ private fun rememberFormats(): Formats {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CalendarScreen(onBack: () -> Unit, vm: CalendarViewModel = hiltViewModel()) {
+fun CalendarScreen(
+    onBack: () -> Unit,
+    onNewEvent: (LocalDate) -> Unit,
+    onEditEvent: (String) -> Unit,
+    vm: CalendarViewModel = hiltViewModel(),
+) {
     val s by vm.state.collectAsStateWithLifecycle()
     val f = rememberFormats()
     val today = LocalDate.now()
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(Unit) { vm.notices.collect { if (it.isNotBlank()) snackbar.showSnackbar(it) } }
+    // Back from the event form: show what changed.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refresh() }
+    var confirmDelete by remember { mutableStateOf<CalendarEvent?>(null) }
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
+        floatingActionButton = {
+            FloatingActionButton(onClick = {
+                // Today in the current month, else the month's first day.
+                onNewEvent(if (YearMonth.from(today) == s.month) today else s.month.atDay(1))
+            }) {
+                Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.new_event))
+            }
+        },
         topBar = {
             TopAppBar(
                 title = { Text(s.month.format(f.month).replaceFirstChar { it.titlecase(f.locale) }) },
@@ -138,7 +169,30 @@ fun CalendarScreen(onBack: () -> Unit, vm: CalendarViewModel = hiltViewModel()) 
     }
 
     s.open?.let { e ->
-        ModalBottomSheet(onDismissRequest = { vm.open(null) }) { EventSheet(e) }
+        ModalBottomSheet(onDismissRequest = { vm.open(null) }) {
+            EventSheet(
+                e,
+                onEdit = {
+                    vm.open(null)
+                    onEditEvent(e.url)
+                },
+                onDelete = { confirmDelete = e },
+            )
+        }
+    }
+
+    confirmDelete?.let { e ->
+        AlertDialog(
+            onDismissRequest = { confirmDelete = null },
+            text = { Text(stringResource(R.string.event_delete_confirm)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = null
+                    vm.delete(e)
+                }) { Text(stringResource(R.string.delete)) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text(stringResource(R.string.cancel)) } },
+        )
     }
 }
 
@@ -186,7 +240,7 @@ private fun EventRow(e: CalendarEvent, onClick: () -> Unit) {
 
 /** Title, when, place, calendar, organizer and description. */
 @Composable
-private fun EventSheet(e: CalendarEvent) {
+private fun EventSheet(e: CalendarEvent, onEdit: () -> Unit, onDelete: () -> Unit) {
     val rowColors = ListItemDefaults.colors(containerColor = Color.Transparent)
     val f = rememberFormats()
     Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp)) {
@@ -232,6 +286,10 @@ private fun EventSheet(e: CalendarEvent) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
             )
+        }
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onEdit) { Text(stringResource(R.string.event_edit)) }
+            OutlinedButton(onClick = onDelete) { Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error) }
         }
     }
 }

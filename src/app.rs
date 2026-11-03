@@ -42,6 +42,79 @@ pub struct InviteCard {
     pub busy: bool,
 }
 
+/// The event form (new event, or changes to a stored one).
+pub struct EventForm {
+    /// The stored event being changed (`None` = new).
+    pub url: Option<String>,
+    /// Calendar for a new event (its URL).
+    pub calendar: String,
+    pub summary: String,
+    pub location: String,
+    pub notes: text_editor::Content,
+    pub all_day: bool,
+    /// As typed: "YYYY-MM-DD" and "HH:MM".
+    pub start_date: String,
+    pub start_time: String,
+    pub end_date: String,
+    pub end_time: String,
+    pub repeat: ferrowl_core::events::Repeat,
+    pub error: Option<String>,
+    pub saving: bool,
+}
+
+impl EventForm {
+    fn new(url: Option<String>, calendar: String, d: &ferrowl_core::events::Draft) -> EventForm {
+        EventForm {
+            url,
+            calendar,
+            summary: d.summary.clone(),
+            location: d.location.clone(),
+            notes: text_editor::Content::with_text(&d.description),
+            all_day: d.all_day,
+            start_date: d.start.format("%Y-%m-%d").to_string(),
+            start_time: d.start.format("%H:%M").to_string(),
+            end_date: d.end.format("%Y-%m-%d").to_string(),
+            end_time: d.end.format("%H:%M").to_string(),
+            repeat: d.repeat,
+            error: None,
+            saving: false,
+        }
+    }
+
+    /// The form as a draft, if dates and times are readable.
+    pub fn draft(&self) -> Option<ferrowl_core::events::Draft> {
+        let at = |date: &str, time: &str| {
+            let d = chrono::NaiveDate::parse_from_str(date.trim(), "%Y-%m-%d").ok()?;
+            let t = if self.all_day {
+                chrono::NaiveTime::MIN
+            } else {
+                chrono::NaiveTime::parse_from_str(time.trim(), "%H:%M").ok()?
+            };
+            Some(d.and_time(t))
+        };
+        Some(ferrowl_core::events::Draft {
+            summary: self.summary.clone(),
+            location: self.location.clone(),
+            description: self.notes.text().trim_end().to_string(),
+            all_day: self.all_day,
+            start: at(&self.start_date, &self.start_time)?,
+            end: at(&self.end_date, &self.end_time)?,
+            repeat: self.repeat,
+        })
+    }
+}
+
+/// Which text field of the event form changed.
+#[derive(Debug, Clone, Copy)]
+pub enum EventField {
+    Summary,
+    Location,
+    StartDate,
+    StartTime,
+    EndDate,
+    EndTime,
+}
+
 /// What the main window shows beside the sidebar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pane {
@@ -503,6 +576,9 @@ pub struct App {
     pub agenda_selected: Option<usize>,
     pub calendar_sync: SyncState,
     pub invite: Option<InviteCard>,
+    pub event_form: Option<EventForm>,
+    /// Asking before deleting the open event.
+    pub confirm_event_delete: bool,
 }
 
 // ---------------------------------------------------------------- messages
@@ -664,6 +740,20 @@ pub enum Message {
     /// Remove the cancelled event from the calendar.
     InviteRemove,
     InviteRemoved(Res<String>),
+    NewEvent,
+    /// Edit the open event.
+    EditEvent,
+    EventField(EventField, String),
+    EventNotes(text_editor::Action),
+    EventAllDay(bool),
+    EventRepeat(ferrowl_core::events::Repeat),
+    EventCalendar(String),
+    SaveEvent,
+    EventSaved(Res<String>),
+    CancelEvent,
+    /// Delete the open event (false = ask first).
+    DeleteEvent(bool),
+    EventDeleted(Res<String>),
     /// New message to (name, address).
     WriteTo(String, String),
     // compose
@@ -781,6 +871,8 @@ impl App {
             agenda_selected: None,
             calendar_sync: SyncState::Idle,
             invite: None,
+            event_form: None,
+            confirm_event_delete: false,
         };
         // Development: open a given view directly (used for screenshots).
         match std::env::var("FERROWL_DEV_VIEW").as_deref() {
@@ -815,6 +907,13 @@ impl App {
                     .and_then(|n| n.parse().ok())
                     .unwrap_or(0);
                 app.agenda_selected = (nth < app.agenda.len()).then_some(nth);
+                // The event form, new or for the open event.
+                let _ = match std::env::var("FERROWL_DEV_EVENT").as_deref() {
+                    Ok("new") => app.update(Message::NewEvent),
+                    Ok("edit") => app.update(Message::EditEvent),
+                    Ok("delete") => app.update(Message::DeleteEvent(false)),
+                    _ => Task::none(),
+                };
             }
             Ok("contacts") => {
                 app.pane = Pane::Contacts;
@@ -2744,6 +2843,8 @@ impl App {
                 Task::none()
             }
             Message::AgendaSelect(i) => {
+                self.event_form = None;
+                self.confirm_event_delete = false;
                 self.agenda_selected = (i < self.agenda.len()).then_some(i);
                 Task::none()
             }
@@ -2803,6 +2904,145 @@ impl App {
                 }
                 self.reload_agenda();
                 toast
+            }
+            Message::NewEvent => {
+                let Some(acc) = self.config.account() else {
+                    return Task::none();
+                };
+                let calendars = Backend::calendars(acc);
+                let Some(first) = calendars.first() else {
+                    return self.toast(t("err_no_calendar"), true);
+                };
+                // On today when this month is shown, else on its first day.
+                let today = ferrowl_core::ical::today();
+                let day = if month_start(today) == self.cal_month {
+                    today
+                } else {
+                    self.cal_month
+                };
+                let draft = ferrowl_core::events::Draft::new_on(day);
+                self.event_form = Some(EventForm::new(None, first.url.clone(), &draft));
+                self.confirm_event_delete = false;
+                Task::none()
+            }
+            Message::EditEvent => {
+                let Some((acc, e)) = self
+                    .config
+                    .account()
+                    .zip(self.agenda_selected.and_then(|i| self.agenda.get(i)))
+                else {
+                    return Task::none();
+                };
+                if let Some(draft) = Backend::event_draft(acc, &e.url) {
+                    self.event_form = Some(EventForm::new(
+                        Some(e.url.clone()),
+                        e.calendar_url.clone(),
+                        &draft,
+                    ));
+                }
+                self.confirm_event_delete = false;
+                Task::none()
+            }
+            Message::EventField(field, value) => {
+                if let Some(f) = self.event_form.as_mut() {
+                    let target = match field {
+                        EventField::Summary => &mut f.summary,
+                        EventField::Location => &mut f.location,
+                        EventField::StartDate => &mut f.start_date,
+                        EventField::StartTime => &mut f.start_time,
+                        EventField::EndDate => &mut f.end_date,
+                        EventField::EndTime => &mut f.end_time,
+                    };
+                    *target = value;
+                    f.error = None;
+                }
+                Task::none()
+            }
+            Message::EventNotes(action) => {
+                if let Some(f) = self.event_form.as_mut() {
+                    f.notes.perform(action);
+                }
+                Task::none()
+            }
+            Message::EventAllDay(on) => {
+                if let Some(f) = self.event_form.as_mut() {
+                    f.all_day = on;
+                }
+                Task::none()
+            }
+            Message::EventRepeat(r) => {
+                if let Some(f) = self.event_form.as_mut() {
+                    f.repeat = r;
+                }
+                Task::none()
+            }
+            Message::EventCalendar(url) => {
+                if let Some(f) = self.event_form.as_mut() {
+                    f.calendar = url;
+                }
+                Task::none()
+            }
+            Message::SaveEvent => {
+                let Some(acc) = self.config.account().cloned() else {
+                    return Task::none();
+                };
+                let Some(f) = self.event_form.as_mut().filter(|f| !f.saving) else {
+                    return Task::none();
+                };
+                let Some(draft) = f.draft().filter(|d| d.is_valid()) else {
+                    f.error = Some(t("event_bad_time").to_string());
+                    return Task::none();
+                };
+                f.saving = true;
+                let (calendar, url) = (f.calendar.clone(), f.url.clone());
+                self.perform(
+                    Backend::save_event(acc, calendar, url, draft),
+                    Message::EventSaved,
+                )
+            }
+            Message::EventSaved(result) => match result {
+                Ok(note) => {
+                    self.event_form = None;
+                    self.reload_agenda();
+                    self.toast(note, false)
+                }
+                Err(e) => {
+                    if let Some(f) = self.event_form.as_mut() {
+                        f.saving = false;
+                        f.error = Some(e);
+                    }
+                    Task::none()
+                }
+            },
+            Message::CancelEvent => {
+                self.event_form = None;
+                self.confirm_event_delete = false;
+                Task::none()
+            }
+            Message::DeleteEvent(confirmed) => {
+                if !confirmed {
+                    self.confirm_event_delete = true;
+                    return Task::none();
+                }
+                self.confirm_event_delete = false;
+                let Some((acc, e)) = self
+                    .config
+                    .account()
+                    .cloned()
+                    .zip(self.agenda_selected.and_then(|i| self.agenda.get(i)))
+                else {
+                    return Task::none();
+                };
+                let url = e.url.clone();
+                self.perform(Backend::delete_event(acc, url), Message::EventDeleted)
+            }
+            Message::EventDeleted(result) => {
+                self.agenda_selected = None;
+                self.reload_agenda();
+                match result {
+                    Ok(note) => self.toast(note, false),
+                    Err(e) => self.toast(e, true),
+                }
             }
             Message::WriteTo(name, address) => {
                 if self.compose.is_none() && self.config.account().is_some() {
@@ -3121,7 +3361,8 @@ impl App {
             }
             return Task::none();
         }
-        if self.compose.is_some() || self.screen != Screen::Mail {
+        // Mail shortcuts only where the mail is shown.
+        if self.compose.is_some() || self.screen != Screen::Mail || self.pane != Pane::Mail {
             return Task::none();
         }
         if modifiers.command() {

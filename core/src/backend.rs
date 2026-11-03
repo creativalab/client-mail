@@ -21,10 +21,25 @@ pub struct Backend {
     inner: Arc<Mutex<Inner>>,
 }
 
+/// Reloads the calendars from the server after a change (errors only
+/// mean the local copy catches up at the next sync).
+fn refresh_calendar(account: &Account, cache: &cache::Cache, key: &str) {
+    let result = cache.event_etags(key).and_then(|known| {
+        let changes = crate::dav::Client::new(account, crate::dav::Kind::Calendar).sync(account, &known)?;
+        cache.apply_events(key, &changes)
+    });
+    if let Err(e) = result {
+        eprintln!("calendar refresh: {e:#}");
+    }
+}
+
 /// One occurrence of an event, with its calendar's name and color.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AgendaEntry {
     pub occurrence: crate::ical::Occurrence,
+    /// The stored event (item URL) this occurrence comes from.
+    pub url: String,
+    pub calendar_url: String,
     pub calendar: String,
     /// "#RRGGBB" or "#RRGGBBAA" (empty when the server sets none).
     pub color: String,
@@ -156,15 +171,97 @@ impl Backend {
             .occurrences(&key, from, to)
             .unwrap_or_default()
             .into_iter()
-            .map(|(url, occurrence)| {
-                let cal = calendars.iter().find(|c| c.url == url);
+            .map(|(calendar_url, url, occurrence)| {
+                let cal = calendars.iter().find(|c| c.url == calendar_url);
                 AgendaEntry {
+                    url,
+                    calendar_url,
                     calendar: cal.map(|c| c.name.clone()).unwrap_or_default(),
                     color: cal.map(|c| c.color.clone()).unwrap_or_default(),
                     occurrence,
                 }
             })
             .collect()
+    }
+
+    /// The account's calendars (from the cache).
+    pub fn calendars(account: &Account) -> Vec<crate::dav::Collection> {
+        cache::get()
+            .and_then(|c| c.calendars(&cache::account_key(account)).ok())
+            .unwrap_or_default()
+    }
+
+    /// The form for a stored event (by item URL).
+    pub fn event_draft(account: &Account, url: &str) -> Option<crate::events::Draft> {
+        let (_, _, ics) = cache::get()?.event(&cache::account_key(account), url).ok()??;
+        crate::events::Draft::from_ics(&ics)
+    }
+
+    /// Saves an event: changes the stored one at `url`, or creates a new
+    /// one in `calendar` (its URL; empty = the first calendar). Returns the
+    /// text to show.
+    pub async fn save_event(
+        account: Account,
+        calendar: String,
+        url: Option<String>,
+        draft: crate::events::Draft,
+    ) -> Res<String> {
+        if !draft.is_valid() {
+            return Err(t("event_bad_time").to_string());
+        }
+        tokio::task::spawn_blocking(move || {
+            let cache = cache::get().ok_or_else(generic_error)?;
+            let key = cache::account_key(&account);
+            let client = crate::dav::Client::new(&account, crate::dav::Kind::Calendar);
+            const ICS: &str = "text/calendar; charset=utf-8";
+            match url {
+                Some(url) => {
+                    let (_, etag, ics) = cache
+                        .event(&key, &url)
+                        .map_err(text)?
+                        .ok_or_else(|| t("err_event_changed").to_string())?;
+                    let data = crate::events::update(&ics, &draft);
+                    client.put(&url, &data, ICS, Some(&etag)).map_err(text)?;
+                }
+                None => {
+                    let calendars = cache.calendars(&key).map_err(text)?;
+                    let cal = calendars
+                        .iter()
+                        .find(|c| c.url == calendar)
+                        .or(calendars.first())
+                        .ok_or_else(|| t("err_no_calendar").to_string())?;
+                    let (uid, data) = crate::events::create(&draft);
+                    client
+                        .put(&crate::invite::item_url(&cal.url, &uid), &data, ICS, None)
+                        .map_err(text)?;
+                }
+            }
+            refresh_calendar(&account, cache, &key);
+            Ok(t("event_saved").to_string())
+        })
+        .await
+        .map_err(|e| format!("{}\n({e})", generic_error()))?
+    }
+
+    /// Deletes a stored event (a series with all its occurrences).
+    pub async fn delete_event(account: Account, url: String) -> Res<String> {
+        tokio::task::spawn_blocking(move || {
+            let cache = cache::get().ok_or_else(generic_error)?;
+            let key = cache::account_key(&account);
+            let etag = cache.event(&key, &url).map_err(text)?.map(|(_, etag, _)| etag);
+            crate::dav::Client::new(&account, crate::dav::Kind::Calendar)
+                .delete(&url, etag.as_deref())
+                .map_err(text)?;
+            let changes = crate::dav::Changes {
+                collections: cache.calendars(&key).map_err(text)?,
+                gone: vec![url],
+                ..Default::default()
+            };
+            cache.apply_events(&key, &changes).map_err(text)?;
+            Ok(t("event_deleted").to_string())
+        })
+        .await
+        .map_err(|e| format!("{}\n({e})", generic_error()))?
     }
 
     /// Our earlier answer to an invitation (by event UID), if any.
