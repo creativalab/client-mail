@@ -49,6 +49,8 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -57,6 +59,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberDrawerState
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,6 +70,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -96,6 +100,7 @@ fun MailboxScreen(
     onContacts: () -> Unit,
     onCalendar: () -> Unit,
     onAddAccount: () -> Unit,
+    onReply: (folderId: String, uid: UInt) -> Unit,
     vm: MailboxViewModel = hiltViewModel(),
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
@@ -271,6 +276,28 @@ fun MailboxScreen(
                                 }
                             }
                             items(rows, key = { it.latest.uid.toLong() }) { c ->
+                                // Swipe a row: towards the start (left) archives it,
+                                // towards the end (right) replies to it.
+                                val swipe = rememberSwipeToDismissBoxState()
+                                val swipeScope = rememberCoroutineScope()
+                                SwipeToDismissBox(
+                                    state = swipe,
+                                    enableDismissFromStartToEnd = !s.selecting,
+                                    enableDismissFromEndToStart = !s.selecting,
+                                    backgroundContent = { SwipeBackground(swipe.dismissDirection) },
+                                    onDismiss = { value ->
+                                        when (value) {
+                                            SwipeToDismissBoxValue.EndToStart -> vm.archiveRow(c.uids)
+                                            SwipeToDismissBoxValue.StartToEnd -> {
+                                                swipeScope.launch { swipe.reset() }
+                                                onReply(s.folderId, c.latest.uid)
+                                            }
+                                            SwipeToDismissBoxValue.Settled -> {}
+                                        }
+                                    },
+                                ) {
+                                // Opaque, so the swipe background shows only beside the row.
+                                Box(Modifier.background(MaterialTheme.colorScheme.background)) {
                                 MessageRow(
                                     c.latest,
                                     count = c.uids.size,
@@ -291,6 +318,8 @@ fun MailboxScreen(
                                         vm.opened(c.latest.uid)
                                         onOpen(s.folderId, c.latest.uid, rowStarred(s, c.uids))
                                     }
+                                }
+                                }
                                 }
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             }
@@ -592,4 +621,24 @@ private fun ConfirmBulkDelete(vm: MailboxViewModel) {
 @Composable
 private fun Centered(text: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
     Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) { Text(text, color = color) }
+}
+
+/** What a swipe does, under the row: reply at the start, archive at the end. */
+@Composable
+private fun SwipeBackground(direction: SwipeToDismissBoxValue) {
+    if (direction == SwipeToDismissBoxValue.Settled) return
+    val reply = direction == SwipeToDismissBoxValue.StartToEnd
+    val colors = MaterialTheme.colorScheme
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(if (reply) colors.primaryContainer else colors.tertiaryContainer)
+            .padding(horizontal = 24.dp),
+        contentAlignment = if (reply) Alignment.CenterStart else Alignment.CenterEnd,
+    ) {
+        Icon(
+            painterResource(if (reply) R.drawable.ic_reply else R.drawable.ic_archive),
+            contentDescription = stringResource(if (reply) R.string.reply else R.string.archive),
+        )
+    }
 }

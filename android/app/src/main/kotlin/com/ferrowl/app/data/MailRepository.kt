@@ -121,6 +121,14 @@ class MailRepository @Inject constructor(
         runCatching { push.accountChanged() }
     }
 
+    /**
+     * Before an action on the server: the list can be on screen before the
+     * connection is made (it comes from the phone's copy), so wait for it.
+     */
+    private suspend fun ready() {
+        if (_folders.value.isEmpty()) ensureConnected()
+    }
+
     /** Connects the saved account once per process. */
     suspend fun ensureConnected(): Boolean {
         val connected = connectLock.withLock {
@@ -173,7 +181,10 @@ class MailRepository @Inject constructor(
         engine.saveEvent(calendarUrl, url, draft)
 
     /** Deletes a stored event; returns the text to show. */
-    suspend fun deleteEvent(url: String): String = engine.deleteEvent(url)
+    suspend fun deleteEvent(url: String): String {
+        ready()
+        return engine.deleteEvent(url)
+    }
 
     /** Updates the calendars from the server. */
     suspend fun syncCalendar() {
@@ -202,7 +213,10 @@ class MailRepository @Inject constructor(
     suspend fun inCalendar(uid: String): Boolean = withContext(Dispatchers.IO) { engine.inCalendar(uid) }
 
     /** Removes a cancelled event from the calendar; returns the text to show. */
-    suspend fun removeCancelled(uid: String): String = engine.removeCancelled(uid)
+    suspend fun removeCancelled(uid: String): String {
+        ready()
+        return engine.removeCancelled(uid)
+    }
 
     /** Recipients matching what is being typed. */
     suspend fun suggest(query: String): List<AddressSuggestion> =
@@ -229,23 +243,31 @@ class MailRepository @Inject constructor(
         withContext(Dispatchers.IO) { engine.cachedHeaders(folderId) }
 
     /** Newest messages from the server. */
-    suspend fun headers(folderId: String): List<Header> = engine.headers(folderId).headers
+    suspend fun headers(folderId: String): List<Header> {
+        ready()
+        return engine.headers(folderId).headers
+    }
 
     suspend fun search(folderId: String, query: String): List<Header> =
         withContext(Dispatchers.IO) { engine.search(folderId, query) }
 
     /** Unread count of every folder. */
     suspend fun unread(): Map<String, UInt> =
-        engine.unread(_folders.value.filter { it.selectable }.map { it.id })
+        ready().let { _ -> engine.unread(_folders.value.filter { it.selectable }.map { it.id }) }
 
-    suspend fun message(folderId: String, uid: UInt): Message = engine.message(folderId, uid)
+    suspend fun message(folderId: String, uid: UInt): Message {
+        ready()
+        return engine.message(folderId, uid)
+    }
 
     suspend fun setSeen(folderId: String, uid: UInt, seen: Boolean) {
+        ready()
         engine.setSeen(folderId, uid, seen)
         _changes.emit(Unit)
     }
 
     suspend fun archive(folderId: String, uid: UInt) {
+        ready()
         engine.archive(folderId, uid)
         changed(translate("archived"))
     }
@@ -256,6 +278,7 @@ class MailRepository @Inject constructor(
 
     /** Moves to the Trash, or deletes for good when already there. */
     suspend fun delete(folderId: String, uid: UInt) {
+        ready()
         if (deletesForever(folderId)) {
             engine.deleteForever(folderId, uid)
             changed(translate("deleted_forever"))
@@ -275,11 +298,14 @@ class MailRepository @Inject constructor(
     }
 
     /** Adds or removes a Gmail label (a folder id) on messages. */
-    suspend fun setLabel(folderId: String, uids: List<UInt>, label: String, on: Boolean) =
+    suspend fun setLabel(folderId: String, uids: List<UInt>, label: String, on: Boolean) {
+        ready()
         engine.setLabelMany(folderId, uids, label, on)
+    }
 
     /** Moves messages to Spam, or back to the inbox ([toSpam] false). */
     suspend fun spam(folderId: String, uids: List<UInt>, toSpam: Boolean) {
+        ready()
         if (toSpam) engine.reportSpam(folderId, uids) else engine.notSpam(folderId, uids)
         val key = if (toSpam) "spam_moved" else "inbox_moved"
         changed(translate(key).replace("{n}", uids.size.toString()))
@@ -307,28 +333,34 @@ class MailRepository @Inject constructor(
     }
 
     /** Stars or unstars messages (IMAP \\Flagged, shown by every client). */
-    suspend fun setFlagged(folderId: String, uids: List<UInt>, flagged: Boolean) =
+    suspend fun setFlagged(folderId: String, uids: List<UInt>, flagged: Boolean) {
+        ready()
         engine.setFlaggedMany(folderId, uids, flagged)
+    }
 
     /** Marks several messages read or unread at once. */
     suspend fun setSeen(folderId: String, uids: List<UInt>, seen: Boolean) {
+        ready()
         engine.setSeenMany(folderId, uids, seen)
         _changes.emit(Unit)
     }
 
     suspend fun archive(folderId: String, uids: List<UInt>) {
+        ready()
         engine.archiveMany(folderId, uids)
         changed(translate("bulk_archived").replace("{n}", uids.size.toString()))
     }
 
     /** Moves several messages to another folder. */
     suspend fun move(folderId: String, uids: List<UInt>, targetId: String) {
+        ready()
         engine.moveMany(folderId, uids, targetId)
         changed(translate("bulk_moved").replace("{n}", uids.size.toString()))
     }
 
     /** Moves several messages to the Trash, or deletes them for good when already there. */
     suspend fun delete(folderId: String, uids: List<UInt>) {
+        ready()
         val n = uids.size.toString()
         if (deletesForever(folderId)) {
             engine.deleteForeverMany(folderId, uids)
@@ -344,6 +376,7 @@ class MailRepository @Inject constructor(
      * as on desktop. A warning is shown when the copy in Sent failed.
      */
     suspend fun send(draft: Outgoing) {
+        ready()
         val warning = engine.send(draft.copy(html = markdownToHtml(draft.body)))
         changed(warning?.let { translate("sent_no_copy").replace("{err}", it) } ?: translate("sent_ok"))
     }

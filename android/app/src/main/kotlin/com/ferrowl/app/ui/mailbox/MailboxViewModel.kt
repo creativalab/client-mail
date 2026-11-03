@@ -307,6 +307,20 @@ class MailboxViewModel @Inject constructor(
 
     fun archiveSelected() = bulk { folder, uids -> repo.archive(folder, uids) }
 
+    /** Swipe: archives a row; it leaves the list at once, before the server answers. */
+    fun archiveRow(uids: List<UInt>) {
+        val folder = _state.value.folderId
+        _state.update { s -> s.copy(messages = s.messages.filterNot { it.uid in uids }) }
+        viewModelScope.launch {
+            try {
+                repo.archive(folder, uids)
+            } catch (e: FerrowlException) {
+                _state.update { it.copy(error = e.message) }
+                refresh()
+            }
+        }
+    }
+
     fun moveSelected(targetId: String) = bulk { folder, uids -> repo.move(folder, uids, targetId) }
 
     /** Trash, or (in the Trash) ask first and then delete for good. */

@@ -68,6 +68,7 @@ fun FerrowlNavHost() {
                 onContacts = { nav.navigate(Contacts) },
                 onCalendar = { nav.navigate(Agenda) },
                 onAddAccount = { nav.navigate(Setup) },
+                onReply = { folderId, uid -> nav.navigate(Write(ReplyKind.REPLY.name, folderId, uid.toLong())) },
             )
         }
         composable<Settings> {
