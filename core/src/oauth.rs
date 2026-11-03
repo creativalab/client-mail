@@ -38,8 +38,9 @@ pub enum Provider {
 /// the default.
 const MICROSOFT_CLIENT_ID: &str = match option_env!("FERROWL_MICROSOFT_CLIENT_ID") {
     Some(id) => id,
-    // "Ferrowl" app registration on Microsoft Entra (public client).
-    None => "a127fa58-611f-4cc9-8ef7-cbbc1f849e5d",
+    // "Ferrowl" app registration (public client) in the Creativalab
+    // Microsoft Entra tenant, publisher domain ferrowl.com.
+    None => "40824528-0620-4dc4-9eee-84f31a1637f5",
 };
 const GOOGLE_CLIENT_ID: &str = match option_env!("FERROWL_GOOGLE_CLIENT_ID") {
     Some(id) => id,
