@@ -1,0 +1,206 @@
+//! vCard (RFC 6350, and the older 3.0) reading: only what the contacts list
+//! needs: name, addresses, phones, organization and note.
+//!
+//! Unknown properties are ignored; the original text is kept by the caller,
+//! so nothing is lost if the contact is written back later.
+
+/// One contact, as shown in the contacts list.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Contact {
+    /// The vCard UID (may be empty on old cards).
+    pub uid: String,
+    /// Display name: FN, or built from N, or the first address.
+    pub name: String,
+    /// Email addresses, preferred first.
+    pub emails: Vec<String>,
+    pub phones: Vec<String>,
+    pub organization: String,
+    pub note: String,
+}
+
+/// Reads the first vCard in `text`. Returns `None` if there is no
+/// BEGIN:VCARD ... END:VCARD block.
+pub fn parse(text: &str) -> Option<Contact> {
+    let mut c = Contact::default();
+    let mut inside = false;
+    let mut structured_name = String::new();
+    // (address, preferred) so PREF addresses can be moved first.
+    let mut emails: Vec<(String, bool)> = Vec::new();
+    for line in unfold(text) {
+        let Some((head, value)) = line.split_once(':') else {
+            continue;
+        };
+        let mut parts = head.split(';');
+        // Grouped properties ("item1.EMAIL") are read like plain ones.
+        let name = parts.next().unwrap_or_default();
+        let name = name.rsplit('.').next().unwrap_or(name).to_ascii_uppercase();
+        let params: Vec<String> = parts.map(|p| p.to_ascii_uppercase()).collect();
+        match name.as_str() {
+            "BEGIN" if value.trim().eq_ignore_ascii_case("VCARD") => inside = true,
+            "END" if value.trim().eq_ignore_ascii_case("VCARD") => {
+                if inside {
+                    break;
+                }
+            }
+            _ if !inside => {}
+            "UID" => c.uid = value.trim().to_owned(),
+            "FN" => c.name = unescape(value),
+            "N" => structured_name = name_from_n(value),
+            "EMAIL" => {
+                let addr = unescape(value).trim().to_owned();
+                if addr.contains('@') && !emails.iter().any(|(a, _)| a.eq_ignore_ascii_case(&addr)) {
+                    emails.push((addr, is_preferred(&params)));
+                }
+            }
+            "TEL" => {
+                let tel = unescape(value).trim().trim_start_matches("tel:").to_owned();
+                if !tel.is_empty() && !c.phones.contains(&tel) {
+                    c.phones.push(tel);
+                }
+            }
+            "ORG" => {
+                c.organization = split_unescaped(value, ';')
+                    .into_iter()
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            }
+            "NOTE" => c.note = unescape(value),
+            _ => {}
+        }
+    }
+    if !inside {
+        return None;
+    }
+    // Stable sort: preferred addresses first, otherwise file order.
+    emails.sort_by_key(|(_, pref)| !pref);
+    c.emails = emails.into_iter().map(|(a, _)| a).collect();
+    c.name = c.name.trim().to_owned();
+    if c.name.is_empty() {
+        c.name = if !structured_name.is_empty() {
+            structured_name
+        } else if !c.organization.is_empty() {
+            c.organization.clone()
+        } else {
+            c.emails.first().cloned().unwrap_or_default()
+        };
+    }
+    Some(c)
+}
+
+/// Joins folded lines (a line starting with a space or tab continues the
+/// previous one) and drops empty lines.
+fn unfold(text: &str) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for raw in text.split('\n') {
+        let raw = raw.strip_suffix('\r').unwrap_or(raw);
+        if let Some(rest) = raw.strip_prefix([' ', '\t'])
+            && let Some(last) = lines.last_mut()
+        {
+            last.push_str(rest);
+            continue;
+        }
+        if !raw.is_empty() {
+            lines.push(raw.to_owned());
+        }
+    }
+    lines
+}
+
+/// TYPE=pref (3.0) or PREF=1 (4.0).
+fn is_preferred(params: &[String]) -> bool {
+    params.iter().any(|p| {
+        p.starts_with("PREF")
+            || p.strip_prefix("TYPE=")
+                .is_some_and(|t| t.split(',').any(|t| t.trim_matches('"') == "PREF"))
+    })
+}
+
+/// "Carli;Fabio;;Dott.;" -> "Dott. Fabio Carli" (prefix, given, additional,
+/// family, suffix).
+fn name_from_n(value: &str) -> String {
+    let f = split_unescaped(value, ';');
+    let get = |i: usize| f.get(i).map(String::as_str).unwrap_or_default();
+    [get(3), get(1), get(2), get(0), get(4)]
+        .iter()
+        .filter(|s| !s.is_empty())
+        .copied()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Splits on `sep` except where it is escaped with a backslash, then
+/// unescapes each piece.
+fn split_unescaped(value: &str, sep: char) -> Vec<String> {
+    let mut out = vec![String::new()];
+    let mut chars = value.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            out.last_mut().unwrap().push(ch);
+            if let Some(next) = chars.next() {
+                out.last_mut().unwrap().push(next);
+            }
+        } else if ch == sep {
+            out.push(String::new());
+        } else {
+            out.last_mut().unwrap().push(ch);
+        }
+    }
+    out.iter().map(|s| unescape(s).trim().to_owned()).collect()
+}
+
+/// Text value escapes: \n, \, \; \\ .
+fn unescape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut chars = value.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.next() {
+                Some('n' | 'N') => out.push('\n'),
+                Some(other) => out.push(other),
+                None => {}
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_a_vcard_4() {
+        let text = "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:urn:uuid:1\r\nFN:Giulia Ferri\r\n\
+                    N:Ferri;Giulia;;;\r\nEMAIL;TYPE=work:giulia@lavoro.it\r\n\
+                    EMAIL;PREF=1:giulia@casa.it\r\nTEL;TYPE=cell:+39 333 1234567\r\n\
+                    ORG:Ferri & Figli\\, S.r.l.;Vendite\r\nNOTE:Prima riga\\nseconda\r\n\
+                    END:VCARD\r\n";
+        let c = parse(text).unwrap();
+        assert_eq!(c.uid, "urn:uuid:1");
+        assert_eq!(c.name, "Giulia Ferri");
+        assert_eq!(c.emails, ["giulia@casa.it", "giulia@lavoro.it"]);
+        assert_eq!(c.phones, ["+39 333 1234567"]);
+        assert_eq!(c.organization, "Ferri & Figli, S.r.l., Vendite");
+        assert_eq!(c.note, "Prima riga\nseconda");
+    }
+
+    #[test]
+    fn reads_folded_grouped_3_0_cards() {
+        let text = "BEGIN:VCARD\nVERSION:3.0\nN:Rossi;Mario;;Dott.;\n\
+                    item1.EMAIL;type=INTERNET;type=pref:mario.rossi@exa\n mple.com\n\
+                    item1.X-ABLabel:_$!<Other>!$_\nEND:VCARD\n";
+        let c = parse(text).unwrap();
+        assert_eq!(c.name, "Dott. Mario Rossi", "built from N without FN");
+        assert_eq!(c.emails, ["mario.rossi@example.com"]);
+    }
+
+    #[test]
+    fn falls_back_to_address_and_rejects_garbage() {
+        let c = parse("BEGIN:VCARD\nEMAIL:solo@x.it\nEND:VCARD").unwrap();
+        assert_eq!(c.name, "solo@x.it");
+        assert!(parse("not a card").is_none());
+    }
+}

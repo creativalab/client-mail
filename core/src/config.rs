@@ -29,6 +29,9 @@ pub struct Account {
     /// Password and passphrase are in the system keychain, not in this file.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub keyring: bool,
+    /// Contacts server (CardDAV); empty = found from the address's domain.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub carddav_url: String,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -54,6 +57,7 @@ impl Default for Account {
             protocol: Protocol::Imap,
             pop3_keep_days: None,
             keyring: false,
+            carddav_url: String::new(),
         }
     }
 }

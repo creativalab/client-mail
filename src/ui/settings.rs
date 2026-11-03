@@ -686,6 +686,15 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
         }
     }
 
+    // Contacts server: found from the address when left empty.
+    form = form.push(
+        column![
+            field(t("carddav_url"), &d.carddav_url, Field::CardDav, false, true),
+            text(t("carddav_url_hint")).size(12).color(p.muted),
+        ]
+        .spacing(4),
+    );
+
     form = form.push(
         dir_row(vec![
             button(text(test_label).size(14).font(medium()))

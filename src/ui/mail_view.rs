@@ -13,14 +13,12 @@ use std::collections::BTreeMap;
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let p = app.palette();
-    let body = dir_row(vec![
-        sidebar(app, p),
-        vline(p.line),
-        message_list(app, p),
-        vline(p.line),
-        reader(app, p),
-    ])
-    .height(Fill);
+    let (list, detail) = if app.contacts_open {
+        (super::contacts::list(app, p), super::contacts::detail(app, p))
+    } else {
+        (message_list(app, p), reader(app, p))
+    };
+    let body = dir_row(vec![sidebar(app, p), vline(p.line), list, vline(p.line), detail]).height(Fill);
 
     let base = container(column![top_bar(app, p), hline(p.line), body])
         .width(Fill)
@@ -178,6 +176,31 @@ fn sidebar<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         }
     }
 
+    // Contacts, under the special folders.
+    let contacts_fg = if app.contacts_open { p.active_text } else { p.text2 };
+    let contacts = button(
+        container(
+            row![
+                container(icon(icons::CONTACTS, 18.0, contacts_fg))
+                    .width(20)
+                    .center_x(20),
+                text(t("contacts"))
+                    .size(14)
+                    .font(if app.contacts_open { semibold() } else { medium() })
+                    .width(Fill),
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
+        )
+        .center_y(Fill),
+    )
+    .width(Fill)
+    .height(40)
+    .padding([0, 12])
+    .style(nav_item(p, app.contacts_open))
+    .on_press_maybe(app.config.account().map(|_| Message::OpenContacts));
+    let specials = specials.push(contacts);
+
     let tree = folder_tree(app, p);
 
     let (dot, status_line) = match &app.conn {
@@ -316,7 +339,7 @@ fn folder_item<'a>(app: &App, p: Palette, f: &Folder, label: String, count: u32)
 }
 
 fn folder_button<'a>(app: &App, p: Palette, f: &Folder, label: String, count: u32) -> Element<'a, Message> {
-    let active = app.current_folder.as_deref() == Some(f.name.as_str());
+    let active = !app.contacts_open && app.current_folder.as_deref() == Some(f.name.as_str());
     let fg = if active { p.active_text } else { p.text2 };
     let count = if count > 0 {
         count.to_string()
@@ -1437,8 +1460,10 @@ pub fn toast_layer<'a>(app: &'a App, p: Palette) -> Option<Element<'a, Message>>
     let accent = if toast.error { p.danger } else { p.accent };
     let boxed = container(
         row![
-            // Accent bar as tall as the toast; text and close button centered.
-            container(space().width(4).height(Fill)).style(chip_box(accent, accent, 2.0)),
+            // Accent bar beside the text. A fixed height: `Fill` would make
+            // the toast as tall as the window.
+            container(space().width(4).height(if toast.error { 46 } else { 22 }))
+                .style(chip_box(accent, accent, 2.0)),
             col.width(Fill),
             close
         ]

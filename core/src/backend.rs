@@ -96,6 +96,30 @@ impl Backend {
             .unwrap_or_default()
     }
 
+    /// Saved contacts matching `query` (all when empty), by name.
+    pub fn contacts(account: &Account, query: &str) -> Vec<crate::vcard::Contact> {
+        cache::get()
+            .and_then(|c| c.contacts(&cache::account_key(account), query).ok())
+            .unwrap_or_default()
+    }
+
+    /// Brings the cached contacts up to date with the account's CardDAV
+    /// server. Returns how many contacts are saved.
+    pub async fn sync_contacts(account: Account) -> Res<usize> {
+        tokio::task::spawn_blocking(move || {
+            let cache = cache::get().ok_or_else(generic_error)?;
+            let key = cache::account_key(&account);
+            let known = cache.contact_etags(&key).map_err(text)?;
+            let changes = crate::carddav::Client::new(&account)
+                .sync(&account, &known)
+                .map_err(text)?;
+            cache.apply_contacts(&key, &changes).map_err(text)?;
+            Ok(cache.contacts(&key, "").map_err(text)?.len())
+        })
+        .await
+        .map_err(|e| format!("{}\n({e})", generic_error()))?
+    }
+
     /// The connected account, if it reads mail with POP3.
     fn pop3_account(&self) -> Option<Account> {
         self.lock().account.clone().filter(Account::is_pop3)
