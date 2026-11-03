@@ -38,8 +38,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (savedInstanceState == null) handle(intent)
-        // Ferrowl Pro: ask Google Play once per start (also after buying elsewhere).
-        billing.start()
         setContent {
             FerrowlTheme {
                 CompositionLocalProvider(LocalNotices provides notices, LocalBilling provides billing) {
@@ -51,6 +49,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Ferrowl Pro: ask Google Play each time (bought or cancelled elsewhere meanwhile).
+        billing.start()
     }
 
     override fun onNewIntent(intent: Intent) {

@@ -865,12 +865,25 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                         .into(),
                 ];
                 if preview && !h.preview.is_empty() {
+                    // The preview takes (and is clipped to) the room left by
+                    // the subject, so a long preview never pushes the subject
+                    // out of view; in right-to-left it hugs the subject.
+                    let rtl = crate::i18n::is_rtl();
                     line.push(
-                        text(format!("— {}", h.preview))
-                            .size(13)
-                            .color(p.muted)
-                            .wrapping(Wrapping::None)
-                            .into(),
+                        container(
+                            text(format!("— {}", h.preview))
+                                .size(13)
+                                .color(p.muted)
+                                .wrapping(Wrapping::None),
+                        )
+                        .width(Fill)
+                        .align_x(if rtl {
+                            iced::alignment::Horizontal::Right
+                        } else {
+                            iced::alignment::Horizontal::Left
+                        })
+                        .clip(true)
+                        .into(),
                     );
                 }
                 top.push(

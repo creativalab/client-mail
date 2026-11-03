@@ -64,6 +64,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -122,6 +123,12 @@ fun MailboxScreen(
     ReportError(s.error, vm::errorShown)
     if (s.confirmDelete) ConfirmBulkDelete(vm)
     if (s.showPro) ProOffer(s.proPrice, vm)
+    LaunchedEffect(s.openAddAccount) {
+        if (s.openAddAccount) {
+            vm.addAccountOpened()
+            onAddAccount()
+        }
+    }
 
     ModalNavigationDrawer(
         drawerState = drawer,
@@ -705,7 +712,7 @@ private fun ProOffer(price: String?, vm: MailboxViewModel) {
         text = { Text(fill(stringResource(R.string.pro_text), "price" to (price ?: "…"))) },
         confirmButton = {
             TextButton(onClick = {
-                if (activity == null || !billing.buy(activity)) vm.proUnavailable() else vm.dismissPro()
+                if (activity == null || !billing.buy(activity)) vm.proUnavailable() else vm.purchaseStarted()
             }) { Text(stringResource(R.string.pro_subscribe)) }
         },
         dismissButton = { TextButton(onClick = vm::dismissPro) { Text(stringResource(R.string.pro_not_now)) } },

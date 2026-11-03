@@ -89,6 +89,21 @@ class MailRepository @Inject constructor(
     }
 
     /**
+     * Without Ferrowl Pro only the first account may be used: makes it the
+     * active one again. It is saved before connecting, so if the connection
+     * fails the next attempt (any server action) uses the right account.
+     */
+    suspend fun backToFirst(email: String) {
+        connectLock.withLock {
+            accounts.setActive(email)
+            _folders.value = emptyList()
+        }
+        _switched.tryEmit(Unit)
+        runCatching { push.accountChanged() }
+        ensureConnected()
+    }
+
+    /**
      * Removes an account from the phone (its sign-in too); another one, if
      * any, becomes active. Returns false when no account is left.
      */

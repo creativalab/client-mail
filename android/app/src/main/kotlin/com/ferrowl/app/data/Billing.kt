@@ -2,7 +2,11 @@ package com.ferrowl.app.data
 
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
+import android.os.Handler
+import android.os.Looper
 import androidx.core.content.edit
+import androidx.core.net.toUri
 import com.android.billingclient.api.AcknowledgePurchaseParams
 import com.android.billingclient.api.BillingClient
 import com.android.billingclient.api.BillingClientStateListener
@@ -27,8 +31,9 @@ import javax.inject.Singleton
  * (product [PRODUCT], created in Play Console). Pro unlocks more than one
  * account; everything else is free.
  *
- * Whether the user is Pro is asked to Google Play at every start and kept on
- * the phone, so the app knows it offline too. Debug builds count as Pro, so
+ * Whether the user is Pro is asked to Google Play whenever the app comes to
+ * the front (and retried if Google Play does not answer) and kept on the
+ * phone, so the app knows it offline too. Debug builds count as Pro, so
  * development is never blocked (Play Billing only works for apps installed
  * from Play).
  */
@@ -43,6 +48,11 @@ class Billing @Inject constructor(
     /** The user can use more than one account. */
     val pro: StateFlow<Boolean> = _pro.asStateFlow()
 
+    private val _subscribed = MutableStateFlow(prefs.getBoolean(KEY_PRO, false))
+
+    /** A real Google Play subscription exists (debug builds aside): it can be managed. */
+    val subscribed: StateFlow<Boolean> = _subscribed.asStateFlow()
+
     private val _price = MutableStateFlow<String?>(null)
 
     /** The yearly price as Google Play shows it to this user ("19,00 €"), once known. */
@@ -50,25 +60,50 @@ class Billing @Inject constructor(
 
     private var details: ProductDetails? = null
 
+    private val main = Handler(Looper.getMainLooper())
+    @Volatile private var connecting = false
+    private var retryMs = FIRST_RETRY_MS
+
     private val client: BillingClient = BillingClient.newBuilder(context)
         .setListener(this)
         .enablePendingPurchases(PendingPurchasesParams.newBuilder().enableOneTimeProducts().build())
         .enableAutoServiceReconnection()
         .build()
 
-    /** Connects to Google Play and refreshes the state (app start). */
+    /**
+     * Connects to Google Play and refreshes the state: when the app comes to
+     * the front and when the offer is shown. Safe to call often.
+     */
     fun start() {
         if (client.isReady) {
             refresh()
             return
         }
+        if (connecting) return
+        connecting = true
         client.startConnection(object : BillingClientStateListener {
             override fun onBillingSetupFinished(result: BillingResult) {
-                if (result.responseCode == BillingClient.BillingResponseCode.OK) refresh()
+                connecting = false
+                if (result.responseCode == BillingClient.BillingResponseCode.OK) {
+                    retryMs = FIRST_RETRY_MS
+                    refresh()
+                } else {
+                    retryLater()
+                }
             }
 
-            override fun onBillingServiceDisconnected() = Unit
+            // Reconnection happens on the next call (enableAutoServiceReconnection).
+            override fun onBillingServiceDisconnected() {
+                connecting = false
+            }
         })
+    }
+
+    /** Google Play unavailable (updating, offline): tries again, waiting longer each time. */
+    private fun retryLater() {
+        main.removeCallbacksAndMessages(null)
+        main.postDelayed({ start() }, retryMs)
+        retryMs = (retryMs * 2).coerceAtMost(MAX_RETRY_MS)
     }
 
     /** Asks Google Play for the subscription and its price. */
@@ -76,7 +111,7 @@ class Billing @Inject constructor(
         client.queryPurchasesAsync(
             QueryPurchasesParams.newBuilder().setProductType(BillingClient.ProductType.SUBS).build(),
         ) { result, purchases ->
-            if (result.responseCode == BillingClient.BillingResponseCode.OK) apply(purchases)
+            if (result.responseCode == BillingClient.BillingResponseCode.OK) apply(purchases) else retryLater()
         }
         val product = QueryProductDetailsParams.Product.newBuilder()
             .setProductId(PRODUCT)
@@ -85,15 +120,18 @@ class Billing @Inject constructor(
         client.queryProductDetailsAsync(QueryProductDetailsParams.newBuilder().setProductList(listOf(product)).build()) { result, found ->
             if (result.responseCode != BillingClient.BillingResponseCode.OK) return@queryProductDetailsAsync
             details = found.productDetailsList.firstOrNull()
-            _price.value = details?.subscriptionOfferDetails?.firstOrNull()
-                ?.pricingPhases?.pricingPhaseList?.lastOrNull()?.formattedPrice
+            _price.value = baseOffer(details)?.pricingPhases?.pricingPhaseList?.lastOrNull()?.formattedPrice
         }
     }
 
     /** Opens Google Play's purchase sheet. False when the subscription is not available. */
     fun buy(activity: Activity): Boolean {
-        val product = details ?: return false
-        val offer = product.subscriptionOfferDetails?.firstOrNull()?.offerToken ?: return false
+        val product = details
+        val offer = baseOffer(product)?.offerToken
+        if (product == null || offer == null) {
+            start() // maybe Google Play did not answer yet
+            return false
+        }
         val params = BillingFlowParams.newBuilder()
             .setProductDetailsParamsList(
                 listOf(
@@ -107,14 +145,29 @@ class Billing @Inject constructor(
         return client.launchBillingFlow(activity, params).responseCode == BillingClient.BillingResponseCode.OK
     }
 
+    /** Opens Google Play's page of this subscription (cancel, change payment). */
+    fun manage(context: Context) {
+        val uri = "https://play.google.com/store/account/subscriptions?sku=$PRODUCT&package=${context.packageName}".toUri()
+        context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
     override fun onPurchasesUpdated(result: BillingResult, purchases: MutableList<Purchase>?) {
-        if (result.responseCode == BillingClient.BillingResponseCode.OK && purchases != null) {
-            // Only adds: a cancelled sheet must not take Pro away.
-            val pro = purchases.filter(::isActivePro)
-            pro.forEach(::acknowledge)
-            if (pro.isNotEmpty()) setPro(true)
+        when (result.responseCode) {
+            BillingClient.BillingResponseCode.OK -> {
+                // Only adds: a cancelled sheet must not take Pro away.
+                val pro = purchases.orEmpty().filter(::isActivePro)
+                pro.forEach(::acknowledge)
+                if (pro.isNotEmpty()) setPro(true)
+            }
+            // Bought before (another phone, reinstall): ask Google Play again.
+            BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED -> refresh()
+            else -> Unit
         }
     }
+
+    /** The yearly base plan (not a special offer, whose order is not guaranteed). */
+    private fun baseOffer(product: ProductDetails?) =
+        product?.subscriptionOfferDetails?.let { offers -> offers.firstOrNull { it.offerId == null } ?: offers.firstOrNull() }
 
     /** The full list of the user's subscriptions: decides Pro either way. */
     private fun apply(purchases: List<Purchase>) {
@@ -134,6 +187,7 @@ class Billing @Inject constructor(
 
     private fun setPro(on: Boolean) {
         prefs.edit { putBoolean(KEY_PRO, on) }
+        _subscribed.value = on
         _pro.value = BuildConfig.DEBUG || on
     }
 
@@ -142,5 +196,7 @@ class Billing @Inject constructor(
         const val PRODUCT = "ferrowl_pro"
         private const val FILE = "billing"
         private const val KEY_PRO = "pro"
+        private const val FIRST_RETRY_MS = 15_000L
+        private const val MAX_RETRY_MS = 15 * 60_000L
     }
 }

@@ -982,6 +982,13 @@ impl App {
             Ok("general") => app.screen = Screen::Settings(Section::General),
             Ok("security") => app.screen = Screen::Settings(Section::Security),
             Ok("popover") => app.appearance_open = true,
+            // The cached inbox without a server (layout of the message list).
+            Ok("list") => {
+                if let Some(acc) = app.config.account() {
+                    app.headers = Backend::cached_headers(acc, "INBOX");
+                    app.current_folder = Some("INBOX".into());
+                }
+            }
             Ok("calendar") => {
                 app.pane = Pane::Calendar;
                 if let Some(m) = std::env::var("FERROWL_DEV_MONTH")

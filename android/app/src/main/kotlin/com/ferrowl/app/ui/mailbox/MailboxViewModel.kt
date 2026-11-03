@@ -20,6 +20,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -33,6 +35,8 @@ data class MailboxState(
     val proPrice: String? = null,
     /** The Ferrowl Pro offer is on screen. */
     val showPro: Boolean = false,
+    /** Ferrowl Pro was just bought from "Add account": open that screen once. */
+    val openAddAccount: Boolean = false,
     val folders: List<Folder> = emptyList(),
     val unread: Map<String, UInt> = emptyMap(),
     val folderId: String = "",
@@ -121,13 +125,29 @@ class MailboxViewModel @Inject constructor(
         viewModelScope.launch { billing.price.collect { p -> _state.update { it.copy(proPrice = p) } } }
         viewModelScope.launch {
             billing.pro.collect { on ->
-                val wasOffered = _state.value.showPro
                 _state.update { it.copy(pro = on, showPro = if (on) false else it.showPro) }
-                if (on && wasOffered) notices.info(translate("pro_thanks"))
-                // Subscription over: back to the first account (the free one).
-                val s = _state.value
-                val first = s.accounts.firstOrNull()
-                if (!on && first != null && !s.active.equals(first, ignoreCase = true)) switchAccount(first)
+                val wanted = buying
+                if (on && wanted != null) {
+                    buying = null
+                    notices.info(translate("pro_thanks"))
+                    // Carry on with what the user wanted to do.
+                    if (wanted == ADD) _state.update { it.copy(openAddAccount = true) } else switchAccount(wanted)
+                }
+            }
+        }
+        // Without Ferrowl Pro only the first account (the free one) may stay
+        // active: checked whenever Pro, the accounts or the active one change,
+        // once the account list is known.
+        viewModelScope.launch {
+            combine(billing.pro, repo.accountList, repo.activeEmail) { on, list, active ->
+                if (on) null else list.firstOrNull()?.email?.takeIf { first -> active != null && !active.equals(first, ignoreCase = true) }
+            }.distinctUntilChanged().collect { first ->
+                if (first == null) return@collect
+                try {
+                    repo.backToFirst(first)
+                } catch (e: FerrowlException) {
+                    _state.update { it.copy(refreshing = false, error = e.message) }
+                }
             }
         }
         // Another account became active: start over with its inbox.
@@ -167,11 +187,31 @@ class MailboxViewModel @Inject constructor(
     fun mayAddAccount(): Boolean {
         val s = _state.value
         if (s.pro || s.accounts.isEmpty()) return true
-        _state.update { it.copy(showPro = true) }
+        offerPro(ADD)
         return false
     }
 
+    /** What the user wanted when the offer appeared: [ADD] or an account's address. */
+    private var offeredFor: String? = null
+
+    /** Purchase sheet open for this wish; done once Pro arrives. */
+    private var buying: String? = null
+
+    private fun offerPro(wanted: String) {
+        offeredFor = wanted
+        billing.start() // fresh price, and maybe the user is Pro already
+        _state.update { it.copy(showPro = true) }
+    }
+
     fun dismissPro() = _state.update { it.copy(showPro = false) }
+
+    /** Google Play's purchase sheet opened. */
+    fun purchaseStarted() {
+        buying = offeredFor
+        _state.update { it.copy(showPro = false) }
+    }
+
+    fun addAccountOpened() = _state.update { it.copy(openAddAccount = false) }
 
     /** The subscription could not be offered (not set up in Google Play yet, offline). */
     fun proUnavailable() {
@@ -184,7 +224,7 @@ class MailboxViewModel @Inject constructor(
         if (email.equals(_state.value.active, ignoreCase = true)) return
         val first = _state.value.accounts.firstOrNull()
         if (!_state.value.pro && first != null && !email.equals(first, ignoreCase = true)) {
-            _state.update { it.copy(showPro = true) }
+            offerPro(email)
             return
         }
         _state.update { it.copy(refreshing = true, error = null) }
@@ -415,6 +455,9 @@ class MailboxViewModel @Inject constructor(
     }
 
     private companion object {
+        /** [offeredFor] value: the user wanted to add an account. */
+        private const val ADD = "\u0000add"
+
         /** How long "Undo" is offered after a swipe (the notice shows this long). */
         const val UNDO_MS = 6_000L
     }
