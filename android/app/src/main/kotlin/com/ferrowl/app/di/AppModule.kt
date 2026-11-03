@@ -1,7 +1,9 @@
 package com.ferrowl.app.di
 
 import android.content.Context
+import com.ferrowl.app.data.KeystoreTokenVault
 import com.ferrowl.core.Engine
+import com.ferrowl.core.setTokenVault
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -14,9 +16,14 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object AppModule {
-    /** One engine per app process, with its files in the app's private storage. */
+    /**
+     * One engine per app process, with its files in the app's private
+     * storage. Sign-in tokens go to the Keystore-backed vault.
+     */
     @Provides
     @Singleton
-    fun engine(@ApplicationContext context: Context): Engine =
-        Engine(dataDir = context.filesDir.resolve("mail").path, language = Locale.getDefault().language)
+    fun engine(@ApplicationContext context: Context, vault: KeystoreTokenVault): Engine {
+        setTokenVault(vault)
+        return Engine(dataDir = context.filesDir.resolve("mail").path, language = Locale.getDefault().language)
+    }
 }

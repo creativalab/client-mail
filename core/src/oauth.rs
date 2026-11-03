@@ -182,8 +182,20 @@ fn write_store(store: &HashMap<String, String>) -> Result<()> {
     Ok(())
 }
 
+/// Where the mobile apps keep refresh tokens (Android Keystore, iOS
+/// Keychain). When set, it replaces the system keychain and the file.
+static VAULT: OnceLock<Box<dyn crate::secrets::Store>> = OnceLock::new();
+
+/// Hands refresh-token storage to the app (once, at start-up).
+pub fn set_vault(vault: Box<dyn crate::secrets::Store>) {
+    let _ = VAULT.set(vault);
+}
+
 fn load_refresh_token(provider: Provider, email: &str) -> Option<String> {
     use crate::secrets::Store;
+    if let Some(vault) = VAULT.get() {
+        return vault.get(&keychain_entry(provider, email));
+    }
     crate::secrets::SystemKeychain
         .get(&keychain_entry(provider, email))
         .or_else(|| load_store().get(&key(provider, email)).cloned())
@@ -191,6 +203,12 @@ fn load_refresh_token(provider: Provider, email: &str) -> Option<String> {
 
 fn save_refresh_token(provider: Provider, email: &str, token: &str) -> Result<()> {
     use crate::secrets::Store;
+    if let Some(vault) = VAULT.get() {
+        if !vault.set(&keychain_entry(provider, email), token) {
+            bail!("could not save the sign-in on this device");
+        }
+        return Ok(());
+    }
     let _guard = file_lock().lock().unwrap_or_else(|p| p.into_inner());
     if crate::secrets::SystemKeychain.set(&keychain_entry(provider, email), token) {
         // In the keychain now: drop any older copy from the file.
@@ -208,6 +226,9 @@ fn save_refresh_token(provider: Provider, email: &str, token: &str) -> Result<()
 /// Forgets the tokens of an account (sign-out / account removed).
 pub fn forget(provider: Provider, email: &str) {
     use crate::secrets::Store;
+    if let Some(vault) = VAULT.get() {
+        vault.delete(&keychain_entry(provider, email));
+    }
     let _guard = file_lock().lock().unwrap_or_else(|p| p.into_inner());
     crate::secrets::SystemKeychain.delete(&keychain_entry(provider, email));
     let mut store = load_store();
@@ -292,14 +313,18 @@ fn post_token(url: &str, form: &[(&str, &str)]) -> Result<TokenResponse> {
     }
 }
 
-/// Interactive sign-in: opens the provider's page with `open_browser`, waits
-/// for the redirect (up to five minutes) and stores the tokens. Returns the
-/// signed-in address.
-pub fn sign_in(
-    provider: Provider,
-    login_hint: &str,
-    open_browser: &dyn Fn(&str) -> Result<()>,
-) -> Result<String> {
+/// A sign-in in progress: the page to open, and what is needed to finish it
+/// when the provider sends the browser back to `redirect`.
+#[derive(Debug, Clone)]
+pub struct Pending {
+    pub url: String,
+    pub state: String,
+    pub verifier: String,
+    pub redirect: String,
+}
+
+/// First half of a sign-in: the provider's page for `redirect` (PKCE).
+pub fn begin(provider: Provider, login_hint: &str, redirect: &str) -> Result<Pending> {
     let e = provider.endpoints();
     if e.client_id.is_empty() {
         bail!(crate::i18n::t("err_oauth_unavailable"));
@@ -307,17 +332,12 @@ pub fn sign_in(
     let verifier = random_string(64);
     let challenge = pkce_challenge(&verifier);
     let state = random_string(24);
-
-    let listener = TcpListener::bind("127.0.0.1:0").context("opening the sign-in port")?;
-    let port = listener.local_addr()?.port();
-    let redirect = format!("http://localhost:{port}");
-
     let mut url = url::Url::parse(e.authorize)?;
     {
         let mut q = url.query_pairs_mut();
         q.append_pair("client_id", e.client_id)
             .append_pair("response_type", "code")
-            .append_pair("redirect_uri", &redirect)
+            .append_pair("redirect_uri", redirect)
             .append_pair("scope", e.scope)
             .append_pair("code_challenge", &challenge)
             .append_pair("code_challenge_method", "S256")
@@ -330,15 +350,24 @@ pub fn sign_in(
                 .append_pair("prompt", "consent");
         }
     }
-    open_browser(url.as_str()).context("opening the browser")?;
+    Ok(Pending {
+        url: url.into(),
+        state,
+        verifier,
+        redirect: redirect.to_string(),
+    })
+}
 
-    let code = wait_for_code(&listener, &state, Duration::from_secs(300))?;
+/// Second half: exchanges the `code` the provider sent back for tokens,
+/// stores them and returns the signed-in address.
+pub fn finish(provider: Provider, pending: &Pending, code: &str, login_hint: &str) -> Result<String> {
+    let e = provider.endpoints();
     let mut form = vec![
         ("client_id", e.client_id),
         ("grant_type", "authorization_code"),
-        ("code", code.as_str()),
-        ("redirect_uri", redirect.as_str()),
-        ("code_verifier", verifier.as_str()),
+        ("code", code),
+        ("redirect_uri", pending.redirect.as_str()),
+        ("code_verifier", pending.verifier.as_str()),
     ];
     if !e.client_secret.is_empty() {
         form.push(("client_secret", e.client_secret));
@@ -360,6 +389,40 @@ pub fn sign_in(
     }
     remember(provider, &email, &tokens)?;
     Ok(email)
+}
+
+/// The code from a redirect address (`...?code=...&state=...`), after
+/// checking it answers `pending`. Provider errors become messages.
+pub fn code_from_redirect(pending: &Pending, redirect: &str) -> Result<String> {
+    let url = url::Url::parse(redirect).context("sign-in answer")?;
+    let params: HashMap<String, String> = url.query_pairs().into_owned().collect();
+    if let Some(err) = params.get("error") {
+        let desc = params.get("error_description").cloned().unwrap_or_default();
+        bail!("{err}: {desc}");
+    }
+    if params.get("state") != Some(&pending.state) {
+        bail!("sign-in response did not match this request");
+    }
+    params
+        .get("code")
+        .cloned()
+        .ok_or_else(|| anyhow!("sign-in response without a code"))
+}
+
+/// Interactive sign-in on a computer: opens the provider's page with
+/// `open_browser`, waits for the redirect on a loopback port (up to five
+/// minutes) and stores the tokens. Returns the signed-in address.
+pub fn sign_in(
+    provider: Provider,
+    login_hint: &str,
+    open_browser: &dyn Fn(&str) -> Result<()>,
+) -> Result<String> {
+    let listener = TcpListener::bind("127.0.0.1:0").context("opening the sign-in port")?;
+    let port = listener.local_addr()?.port();
+    let pending = begin(provider, login_hint, &format!("http://localhost:{port}"))?;
+    open_browser(&pending.url).context("opening the browser")?;
+    let code = wait_for_code(&listener, &pending.state, Duration::from_secs(300))?;
+    finish(provider, &pending, &code, login_hint)
 }
 
 /// Accepts connections on the loopback port until the redirect with our
@@ -550,6 +613,29 @@ mod tests {
             Provider::Microsoft.servers("x@company.com").1.0,
             "smtp.office365.com"
         );
+    }
+
+    #[test]
+    fn code_from_app_redirect() {
+        let pending = Pending {
+            url: String::new(),
+            state: "xyz".into(),
+            verifier: String::new(),
+            redirect: "msauth://com.ferrowl.app/abc%3D".into(),
+        };
+        assert_eq!(
+            code_from_redirect(&pending, "msauth://com.ferrowl.app/abc%3D?code=M.C1&state=xyz").unwrap(),
+            "M.C1"
+        );
+        assert!(
+            code_from_redirect(&pending, "msauth://com.ferrowl.app/abc%3D?code=M.C1&state=other").is_err()
+        );
+        let err = code_from_redirect(
+            &pending,
+            "msauth://com.ferrowl.app/abc%3D?error=access_denied&error_description=cancelled&state=xyz",
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("access_denied"));
     }
 
     #[test]
