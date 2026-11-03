@@ -21,6 +21,15 @@ pub struct Backend {
     inner: Arc<Mutex<Inner>>,
 }
 
+/// One occurrence of an event, with its calendar's name and color.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgendaEntry {
+    pub occurrence: crate::ical::Occurrence,
+    pub calendar: String,
+    /// "#RRGGBB" or "#RRGGBBAA" (empty when the server sets none).
+    pub color: String,
+}
+
 /// Error as text: iced messages must be `Clone`.
 pub type Res<T> = Result<T, String>;
 
@@ -110,14 +119,52 @@ impl Backend {
             let cache = cache::get().ok_or_else(generic_error)?;
             let key = cache::account_key(&account);
             let known = cache.contact_etags(&key).map_err(text)?;
-            let changes = crate::carddav::Client::new(&account)
-                .sync(&account, &known)
-                .map_err(text)?;
+            let changes = crate::carddav::sync(&account, &known).map_err(text)?;
             cache.apply_contacts(&key, &changes).map_err(text)?;
             Ok(cache.contacts(&key, "").map_err(text)?.len())
         })
         .await
         .map_err(|e| format!("{}\n({e})", generic_error()))?
+    }
+
+    /// Brings the cached calendars up to date with the account's CalDAV
+    /// server. Returns how many calendars there are.
+    pub async fn sync_calendar(account: Account) -> Res<usize> {
+        tokio::task::spawn_blocking(move || {
+            let cache = cache::get().ok_or_else(generic_error)?;
+            let key = cache::account_key(&account);
+            let known = cache.event_etags(&key).map_err(text)?;
+            let changes = crate::dav::Client::new(&account, crate::dav::Kind::Calendar)
+                .sync(&account, &known)
+                .map_err(text)?;
+            cache.apply_events(&key, &changes).map_err(text)?;
+            Ok(changes.collections.len())
+        })
+        .await
+        .map_err(|e| format!("{}\n({e})", generic_error()))?
+    }
+
+    /// Event occurrences overlapping `[from, to)` (timestamps), sorted, from
+    /// the cached calendars.
+    pub fn agenda(account: &Account, from: i64, to: i64) -> Vec<AgendaEntry> {
+        let Some(cache) = cache::get() else {
+            return Vec::new();
+        };
+        let key = cache::account_key(account);
+        let calendars = cache.calendars(&key).unwrap_or_default();
+        cache
+            .occurrences(&key, from, to)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(url, occurrence)| {
+                let cal = calendars.iter().find(|c| c.url == url);
+                AgendaEntry {
+                    calendar: cal.map(|c| c.name.clone()).unwrap_or_default(),
+                    color: cal.map(|c| c.color.clone()).unwrap_or_default(),
+                    occurrence,
+                }
+            })
+            .collect()
     }
 
     /// The connected account, if it reads mail with POP3.

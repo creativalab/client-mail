@@ -1,5 +1,6 @@
 //! Common UI building blocks: fonts, icons, styles, formats.
 
+pub mod calendar;
 pub mod compose;
 pub mod contacts;
 pub mod mail_view;
@@ -72,6 +73,16 @@ macro_rules! icon_svg {
 }
 
 pub mod icons {
+    pub const CALENDAR: &str = icon_svg!(
+        r#"<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>"#
+    );
+    pub const PIN: &str = icon_svg!(
+        r#"<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>"#
+    );
+    pub const REPEAT: &str = icon_svg!(
+        r#"<path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>"#
+    );
+    pub const CLOCK: &str = icon_svg!(r#"<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>"#);
     pub const CONTACTS: &str = icon_svg!(
         r#"<circle cx="9" cy="8" r="4"/><path d="M2 21v-1a7 7 0 0 1 14 0v1"/><path d="M16 3.5a4 4 0 0 1 0 9"/><path d="M22 21v-1a7 7 0 0 0-4-6.3"/>"#
     );

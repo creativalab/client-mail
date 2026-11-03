@@ -686,10 +686,11 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
         }
     }
 
-    // Contacts server: found from the address when left empty.
+    // Contacts and calendar servers: found from the address when left empty.
     form = form.push(
         column![
             field(t("carddav_url"), &d.carddav_url, Field::CardDav, false, true),
+            field(t("caldav_url"), &d.caldav_url, Field::CalDav, false, true),
             text(t("carddav_url_hint")).size(12).color(p.muted),
         ]
         .spacing(4),

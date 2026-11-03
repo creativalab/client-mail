@@ -72,6 +72,9 @@ pub struct Account {
     /// Contacts server (CardDAV); empty = found from the address's domain.
     #[uniffi(default = "")]
     pub carddav_url: String,
+    /// Calendar server (CalDAV); empty = found from the address's domain.
+    #[uniffi(default = "")]
+    pub caldav_url: String,
 }
 
 impl From<Account> for config::Account {
@@ -93,6 +96,7 @@ impl From<Account> for config::Account {
             pop3_keep_days: a.pop3_keep_days,
             keyring: false,
             carddav_url: a.carddav_url,
+            caldav_url: a.caldav_url,
         }
     }
 }
@@ -377,6 +381,28 @@ pub struct Contact {
     pub note: String,
 }
 
+/// One occurrence of a calendar event.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct CalendarEvent {
+    pub uid: String,
+    pub summary: String,
+    pub location: String,
+    pub description: String,
+    /// Start and end, seconds since the epoch.
+    pub start: i64,
+    pub end: i64,
+    pub all_day: bool,
+    /// All-day events: first and last day (inclusive), "YYYY-MM-DD".
+    pub first_day: Option<String>,
+    pub last_day: Option<String>,
+    /// Part of a repeating series.
+    pub recurring: bool,
+    pub organizer: String,
+    /// Name and color ("#RRGGBB[AA]", may be empty) of its calendar.
+    pub calendar: String,
+    pub color: String,
+}
+
 /// A known mail provider, for the "add account" screen.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct Provider {
@@ -658,6 +684,45 @@ impl Engine {
         Ok(Backend::sync_contacts(account).await? as u32)
     }
 
+    /// Event occurrences overlapping `[from, to)` (seconds since the
+    /// epoch), sorted by start. Reads the local copy only.
+    pub fn agenda(&self, from: i64, to: i64) -> Vec<CalendarEvent> {
+        let Some(a) = lock(&self.account).clone() else {
+            return Vec::new();
+        };
+        Backend::agenda(&a, from, to)
+            .into_iter()
+            .map(|e| {
+                let o = e.occurrence;
+                CalendarEvent {
+                    uid: o.uid,
+                    summary: o.summary,
+                    location: o.location,
+                    description: o.description,
+                    start: o.start,
+                    end: o.end,
+                    all_day: o.all_day,
+                    first_day: o.first_day.map(|d| d.to_string()),
+                    last_day: o.last_day.map(|d| d.to_string()),
+                    recurring: o.recurring,
+                    organizer: o.organizer,
+                    calendar: e.calendar,
+                    color: e.color,
+                }
+            })
+            .collect()
+    }
+
+    /// Brings the local copy of the calendars up to date with the
+    /// account's CalDAV server. Returns how many calendars there are.
+    pub async fn sync_calendar(&self) -> Result<u32> {
+        // No account yet (the app connects first): nothing to sync.
+        let Some(account) = lock(&self.account).clone() else {
+            return Ok(0);
+        };
+        Ok(Backend::sync_calendar(account).await? as u32)
+    }
+
     /// Unread counts per folder id.
     pub async fn unread(&self, folder_ids: Vec<String>) -> Result<HashMap<String, u32>> {
         Ok(self.backend.unseen(folder_ids).await?)
@@ -808,6 +873,7 @@ mod tests {
             pop3_keep_days: Some(7),
             pgp_passphrase: String::new(),
             carddav_url: String::new(),
+            caldav_url: String::new(),
         };
         let core: config::Account = a.into();
         assert!(core.is_pop3());

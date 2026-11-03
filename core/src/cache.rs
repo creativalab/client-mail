@@ -71,6 +71,27 @@ CREATE TABLE IF NOT EXISTS contacts (
     vcard   TEXT NOT NULL,
     PRIMARY KEY (account, url)
 );
+-- Calendars and their events synced from the account's CalDAV server.
+-- first_ts/last_ts bound the event's occurrences (last_ts NULL = series
+-- without end), so a time range only parses the events it may contain.
+CREATE TABLE IF NOT EXISTS calendars (
+    account TEXT NOT NULL,
+    url     TEXT NOT NULL,
+    name    TEXT NOT NULL,
+    color   TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (account, url)
+);
+CREATE TABLE IF NOT EXISTS events (
+    account  TEXT NOT NULL,
+    url      TEXT NOT NULL,
+    calendar TEXT NOT NULL,
+    etag     TEXT NOT NULL,
+    first_ts INTEGER NOT NULL,
+    last_ts  INTEGER,
+    ics      TEXT NOT NULL,
+    PRIMARY KEY (account, url)
+);
+CREATE INDEX IF NOT EXISTS events_span ON events (account, first_ts);
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
     sender, subject, body,
     content = 'messages', content_rowid = 'id',
@@ -454,6 +475,99 @@ impl Cache {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Item URL and ETag of every cached event (to compare with the server).
+    pub fn event_etags(&self, account: &str) -> Result<Vec<(String, String)>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare_cached("SELECT url, etag FROM events WHERE account = ?1")?;
+        let rows = stmt.query_map(params![account], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Stores what a CalDAV sync changed. The calendars list is replaced;
+    /// events of calendars that no longer exist are removed.
+    pub fn apply_events(&self, account: &str, changes: &crate::dav::Changes) -> Result<()> {
+        let mut conn = self.lock();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM calendars WHERE account = ?1", params![account])?;
+        for c in &changes.collections {
+            tx.execute(
+                "INSERT OR REPLACE INTO calendars (account, url, name, color) VALUES (?1, ?2, ?3, ?4)",
+                params![account, c.url, c.name, c.color],
+            )?;
+        }
+        {
+            let mut put = tx.prepare_cached(
+                "INSERT OR REPLACE INTO events (account, url, calendar, etag, first_ts, last_ts, ics)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            )?;
+            for (calendar, item) in &changes.items {
+                // Objects without events (tasks, journals) are not kept.
+                let Some((first, last)) = crate::ical::span(&crate::ical::parse(&item.data)) else {
+                    continue;
+                };
+                put.execute(params![
+                    account, item.url, calendar, item.etag, first, last, item.data
+                ])?;
+            }
+            let mut del = tx.prepare_cached("DELETE FROM events WHERE account = ?1 AND url = ?2")?;
+            for url in &changes.gone {
+                del.execute(params![account, url])?;
+            }
+        }
+        tx.execute(
+            "DELETE FROM events WHERE account = ?1
+             AND calendar NOT IN (SELECT url FROM calendars WHERE account = ?1)",
+            params![account],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The account's calendars.
+    pub fn calendars(&self, account: &str) -> Result<Vec<crate::dav::Collection>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare_cached(
+            "SELECT url, name, color FROM calendars WHERE account = ?1 ORDER BY name COLLATE NOCASE",
+        )?;
+        let rows = stmt.query_map(params![account], |r| {
+            Ok(crate::dav::Collection {
+                url: r.get(0)?,
+                name: r.get(1)?,
+                color: r.get(2)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Occurrences overlapping `[from, to)` (timestamps), with the URL of
+    /// their calendar, sorted by start.
+    pub fn occurrences(
+        &self,
+        account: &str,
+        from: i64,
+        to: i64,
+    ) -> Result<Vec<(String, crate::ical::Occurrence)>> {
+        let stored: Vec<(String, String)> = {
+            let conn = self.lock();
+            let mut stmt = conn.prepare_cached(
+                "SELECT calendar, ics FROM events
+                 WHERE account = ?1 AND first_ts < ?3 AND (last_ts IS NULL OR last_ts >= ?2)",
+            )?;
+            let rows = stmt.query_map(params![account, from, to], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        let mut out: Vec<(String, crate::ical::Occurrence)> = stored
+            .into_iter()
+            .flat_map(|(calendar, ics)| {
+                crate::ical::occurrences(&crate::ical::parse(&ics), from, to)
+                    .into_iter()
+                    .map(move |o| (calendar.clone(), o))
+            })
+            .collect();
+        out.sort_by_key(|(_, o)| (o.start, !o.all_day, o.end));
+        Ok(out)
+    }
+
     /// Full-text search in one folder. Each word matches as a prefix,
     /// accents and case are ignored; all words must match.
     pub fn search(&self, account: &str, folder: &str, words: &[String], limit: u32) -> Result<Vec<Header>> {
@@ -688,6 +802,7 @@ mod tests {
         let books = vec![Book {
             url: "https://d/book/".into(),
             name: "B".into(),
+            ..Default::default()
         }];
         c.apply_contacts(
             "acc",
@@ -728,5 +843,61 @@ mod tests {
         assert_eq!(c.contacts("acc", "").unwrap().len(), 1);
         c.apply_contacts("acc", &Changes::default()).unwrap();
         assert!(c.contacts("acc", "").unwrap().is_empty());
+    }
+
+    #[test]
+    fn events_are_stored_and_expanded_in_a_range() {
+        use crate::dav::{Changes, Collection, Item};
+        let c = Cache::in_memory();
+        let ics = |uid: &str, rule: &str| {
+            format!(
+                "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:{uid}\nSUMMARY:{uid}\nDTSTART:20261102T090000Z\nDTEND:20261102T100000Z\n{rule}END:VEVENT\nEND:VCALENDAR\n"
+            )
+        };
+        let item = |url: &str, data: String| {
+            (
+                "https://d/cal/".to_owned(),
+                Item {
+                    url: url.into(),
+                    etag: "1".into(),
+                    data,
+                },
+            )
+        };
+        let cals = vec![Collection {
+            url: "https://d/cal/".into(),
+            name: "Lavoro".into(),
+            color: "#A63A0CFF".into(),
+        }];
+        c.apply_events(
+            "acc",
+            &Changes {
+                collections: cals.clone(),
+                items: vec![
+                    item("u1", ics("once", "")),
+                    item("u2", ics("daily", "RRULE:FREQ=DAILY\n")),
+                    item(
+                        "u3",
+                        "BEGIN:VCALENDAR\nBEGIN:VTODO\nUID:t\nEND:VTODO\nEND:VCALENDAR\n".into(),
+                    ),
+                ],
+                gone: vec![],
+            },
+        )
+        .unwrap();
+        assert_eq!(c.event_etags("acc").unwrap().len(), 2, "tasks are not kept");
+        // 2-4 Nov: the one-off on the 2nd plus three daily occurrences.
+        let day = 86_400;
+        let from = 1_793_577_600; // 2026-11-02T00:00:00Z
+        let list = c.occurrences("acc", from, from + 3 * day).unwrap();
+        assert_eq!(list.len(), 4);
+        // A year later only the endless series remains.
+        let later = c.occurrences("acc", from + 365 * day, from + 366 * day).unwrap();
+        assert_eq!(later.len(), 1);
+        assert_eq!(later[0].1.summary, "daily");
+        assert_eq!(c.calendars("acc").unwrap(), cals);
+
+        c.apply_events("acc", &Changes::default()).unwrap();
+        assert!(c.event_etags("acc").unwrap().is_empty(), "calendar removed");
     }
 }

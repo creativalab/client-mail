@@ -1,7 +1,7 @@
 //! Main window: top bar · folders · list · reader (Main.dc.html).
 
 use super::*;
-use crate::app::{App, Bulk, Conn, ListFilter, MoveTarget, READER_ID, SEARCH_ID, Section, Select};
+use crate::app::{App, Bulk, Conn, ListFilter, MoveTarget, Pane, READER_ID, SEARCH_ID, Section, Select};
 use crate::i18n::{self, SUPPORT_EMAIL, t, tf};
 use crate::mail::{Folder, FolderKind};
 use crate::theme;
@@ -13,10 +13,10 @@ use std::collections::BTreeMap;
 
 pub fn view(app: &App) -> Element<'_, Message> {
     let p = app.palette();
-    let (list, detail) = if app.contacts_open {
-        (super::contacts::list(app, p), super::contacts::detail(app, p))
-    } else {
-        (message_list(app, p), reader(app, p))
+    let (list, detail) = match app.pane {
+        Pane::Contacts => (super::contacts::list(app, p), super::contacts::detail(app, p)),
+        Pane::Calendar => (super::calendar::list(app, p), super::calendar::detail(app, p)),
+        Pane::Mail => (message_list(app, p), reader(app, p)),
     };
     let body = dir_row(vec![sidebar(app, p), vline(p.line), list, vline(p.line), detail]).height(Fill);
 
@@ -176,30 +176,24 @@ fn sidebar<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         }
     }
 
-    // Contacts, under the special folders.
-    let contacts_fg = if app.contacts_open { p.active_text } else { p.text2 };
-    let contacts = button(
-        container(
-            row![
-                container(icon(icons::CONTACTS, 18.0, contacts_fg))
-                    .width(20)
-                    .center_x(20),
-                text(t("contacts"))
-                    .size(14)
-                    .font(if app.contacts_open { semibold() } else { medium() })
-                    .width(Fill),
-            ]
-            .spacing(12)
-            .align_y(Alignment::Center),
-        )
-        .center_y(Fill),
-    )
-    .width(Fill)
-    .height(40)
-    .padding([0, 12])
-    .style(nav_item(p, app.contacts_open))
-    .on_press_maybe(app.config.account().map(|_| Message::OpenContacts));
-    let specials = specials.push(contacts);
+    // Contacts and calendar, under the special folders.
+    let specials = specials
+        .push(pane_item(
+            app,
+            p,
+            icons::CONTACTS,
+            t("contacts"),
+            Pane::Contacts,
+            Message::OpenContacts,
+        ))
+        .push(pane_item(
+            app,
+            p,
+            icons::CALENDAR,
+            t("calendar"),
+            Pane::Calendar,
+            Message::OpenCalendar,
+        ));
 
     let tree = folder_tree(app, p);
 
@@ -302,6 +296,39 @@ fn sidebar<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         .into()
 }
 
+/// Sidebar entry that shows contacts or the calendar.
+fn pane_item<'a>(
+    app: &App,
+    p: Palette,
+    ic: &'static str,
+    label: &'static str,
+    pane: Pane,
+    msg: Message,
+) -> Element<'a, Message> {
+    let active = app.pane == pane;
+    let fg = if active { p.active_text } else { p.text2 };
+    button(
+        container(
+            row![
+                container(icon(ic, 18.0, fg)).width(20).center_x(20),
+                text(label)
+                    .size(14)
+                    .font(if active { semibold() } else { medium() })
+                    .width(Fill),
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
+        )
+        .center_y(Fill),
+    )
+    .width(Fill)
+    .height(40)
+    .padding([0, 12])
+    .style(nav_item(p, active))
+    .on_press_maybe(app.config.account().map(|_| msg))
+    .into()
+}
+
 fn section_label<'a>(s: &str, p: Palette) -> Element<'a, Message> {
     container(text(s.to_uppercase()).size(12).font(semibold()).color(p.muted))
         .padding([0, 12])
@@ -339,7 +366,7 @@ fn folder_item<'a>(app: &App, p: Palette, f: &Folder, label: String, count: u32)
 }
 
 fn folder_button<'a>(app: &App, p: Palette, f: &Folder, label: String, count: u32) -> Element<'a, Message> {
-    let active = !app.contacts_open && app.current_folder.as_deref() == Some(f.name.as_str());
+    let active = app.pane == Pane::Mail && app.current_folder.as_deref() == Some(f.name.as_str());
     let fg = if active { p.active_text } else { p.text2 };
     let count = if count > 0 {
         count.to_string()

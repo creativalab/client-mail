@@ -90,7 +90,7 @@ pub fn parse(text: &str) -> Option<Contact> {
 
 /// Joins folded lines (a line starting with a space or tab continues the
 /// previous one) and drops empty lines.
-fn unfold(text: &str) -> Vec<String> {
+pub(crate) fn unfold(text: &str) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     for raw in text.split('\n') {
         let raw = raw.strip_suffix('\r').unwrap_or(raw);
@@ -150,7 +150,7 @@ fn split_unescaped(value: &str, sep: char) -> Vec<String> {
 }
 
 /// Text value escapes: \n, \, \; \\ .
-fn unescape(value: &str) -> String {
+pub(crate) fn unescape(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     let mut chars = value.chars();
     while let Some(ch) = chars.next() {
