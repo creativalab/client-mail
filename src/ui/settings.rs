@@ -542,22 +542,44 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
     }
 
     let d = &app.draft;
+    let shown = app.show_password;
     let field =
         |label: &'static str, value: &str, f: Field, secure: bool, mono: bool| -> Element<'_, Message> {
-            column![
-                text(label).size(13).font(medium()).color(p.text2),
-                text_input("", value)
-                    .id(field_id(f))
-                    .on_input(move |v| Message::Draft(f, v))
-                    .secure(secure)
-                    .size(14)
-                    .padding([10, 12])
-                    .font(if mono { MONO } else { INTER })
-                    .style(input(p, 8.0))
-            ]
-            .spacing(6)
-            .width(Fill)
-            .into()
+            let input_el = text_input("", value)
+                .id(field_id(f))
+                .on_input(move |v| Message::Draft(f, v))
+                .secure(secure && !shown)
+                .size(14)
+                .padding([10, 12])
+                .font(if mono { MONO } else { INTER })
+                .style(input(p, 8.0));
+            // Secret fields get an eye to show what is being typed.
+            let control: Element<'_, Message> = if secure {
+                dir_row(vec![
+                    input_el.width(Fill).into(),
+                    tooltip(
+                        button(icon(
+                            if shown { icons::EYE_OFF } else { icons::EYE },
+                            17.0,
+                            p.text2,
+                        ))
+                        .padding([9, 10])
+                        .style(ghost(p, p.text2))
+                        .on_press(Message::TogglePassword),
+                        t(if shown { "hide_password" } else { "show_password" }),
+                        p,
+                    ),
+                ])
+                .spacing(4)
+                .align_y(Alignment::Center)
+                .into()
+            } else {
+                input_el.into()
+            };
+            column![text(label).size(13).font(medium()).color(p.text2), control]
+                .spacing(6)
+                .width(Fill)
+                .into()
         };
     let port = |label: &'static str, value: &str, f: Field| -> Element<'_, Message> {
         column![

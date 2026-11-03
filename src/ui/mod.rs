@@ -147,6 +147,11 @@ pub mod icons {
     pub const EYE: &str = icon_svg!(
         r#"<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>"#
     );
+    pub const EYE_OFF: &str = icon_svg!(
+        r#"<path d="M9.9 5.2A9.6 9.6 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-2.6 3.5"/>"#,
+        r#"<path d="M6.6 6.6C3.7 8.4 2 12 2 12s3.5 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/>"#,
+        r#"<path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="M2 2l20 20"/>"#
+    );
     pub const FORWARD: &str = icon_svg!(r#"<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0-6 6v5"/>"#);
     pub const LOCK: &str =
         icon_svg!(r#"<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>"#);

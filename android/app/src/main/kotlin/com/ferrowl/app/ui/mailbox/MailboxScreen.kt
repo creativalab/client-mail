@@ -33,6 +33,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Menu
@@ -95,6 +96,7 @@ fun MailboxScreen(
     onSettings: () -> Unit,
     onContacts: () -> Unit,
     onCalendar: () -> Unit,
+    onAddAccount: () -> Unit,
     vm: MailboxViewModel = hiltViewModel(),
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
@@ -114,8 +116,35 @@ fun MailboxScreen(
             ModalDrawerSheet {
                 // Scrollable list inside the sheet: some accounts have dozens of folders.
                 Column(Modifier.verticalScroll(rememberScrollState())) {
+                    // Accounts first: tap one to show it, or add another.
+                    Text(
+                        stringResource(R.string.section_account),
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(start = 28.dp, top = 20.dp, bottom = 8.dp),
+                    )
+                    s.accounts.forEach { email ->
+                        NavigationDrawerItem(
+                            label = { Text(email, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            selected = email.equals(s.active, ignoreCase = true),
+                            onClick = {
+                                vm.switchAccount(email)
+                                scope.launch { drawer.close() }
+                            },
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                        )
+                    }
+                    NavigationDrawerItem(
+                        label = { Text(stringResource(R.string.add_account)) },
+                        icon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                        selected = false,
+                        onClick = {
+                            scope.launch { drawer.close() }
+                            onAddAccount()
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     // Contacts and calendar on top: the folder list can be long.
-                    Spacer(Modifier.height(12.dp))
                     NavigationDrawerItem(
                         label = { Text(stringResource(R.string.contacts)) },
                         selected = false,

@@ -573,6 +573,8 @@ pub struct App {
     pub appearance_open: bool,
     pub compose: Option<Compose>,
     pub draft: AccountDraft,
+    /// Password fields of the account form show what is typed (the eye).
+    pub show_password: bool,
     /// Account being edited in settings (`None` = new account).
     pub editing: Option<usize>,
     pub confirm_remove: bool,
@@ -790,6 +792,8 @@ pub enum Message {
     SetKeepDays(Option<u32>),
     /// From the sidebar: open settings on an empty account form.
     AddAccount,
+    /// The eye next to a password field.
+    TogglePassword,
     /// Settings of the account at this index (from the sidebar).
     OpenAccountSettings(usize),
     RemoveAccount(bool),
@@ -928,6 +932,7 @@ impl App {
             appearance_open: false,
             compose: None,
             draft,
+            show_password: false,
             editing,
             confirm_remove: false,
             oauth_busy: false,
@@ -3262,6 +3267,10 @@ impl App {
                     self.test_result = None;
                     self.confirm_remove = false;
                 }
+                Task::none()
+            }
+            Message::TogglePassword => {
+                self.show_password = !self.show_password;
                 Task::none()
             }
             Message::OpenAccountSettings(i) => {

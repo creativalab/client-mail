@@ -55,7 +55,9 @@ fun FerrowlNavHost() {
             }
         }
         composable<Setup> {
-            SetupScreen(onDone = { nav.navigate(Mailbox) { popUpTo(Setup) { inclusive = true } } })
+            // First account, or one more from the mailbox: either way the
+            // mailbox starts over with the new (active) account.
+            SetupScreen(onDone = { nav.navigate(Mailbox) { popUpTo(nav.graph.id) { inclusive = true } } })
         }
         composable<Mailbox> {
             MailboxScreen(
@@ -65,9 +67,15 @@ fun FerrowlNavHost() {
                 onSettings = { nav.navigate(Settings) },
                 onContacts = { nav.navigate(Contacts) },
                 onCalendar = { nav.navigate(Agenda) },
+                onAddAccount = { nav.navigate(Setup) },
             )
         }
-        composable<Settings> { SettingsScreen(onBack = { nav.popBackStack() }) }
+        composable<Settings> {
+            SettingsScreen(
+                onBack = { nav.popBackStack() },
+                onNoAccount = { nav.navigate(Setup) { popUpTo(nav.graph.id) { inclusive = true } } },
+            )
+        }
         composable<Agenda> {
             CalendarScreen(
                 onBack = { nav.popBackStack() },

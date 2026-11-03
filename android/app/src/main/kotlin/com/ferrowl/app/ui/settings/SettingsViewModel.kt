@@ -73,10 +73,36 @@ class SettingsViewModel @Inject constructor(
     val pushEnabled: StateFlow<Boolean> =
         pushStore.state.map { it.enabled }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
-    /** POP3 accounts have no IDLE: the server cannot watch them. */
-    val pushAvailable: StateFlow<Boolean> =
-        accounts.account.map { it?.protocol != Protocol.POP3 }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+    /**
+     * Why instant notifications are not available for the active account
+     * (translation key), or null when they are: POP3 has no IDLE, and the
+     * server cannot watch accounts that sign in with Microsoft/Google yet.
+     */
+    val pushUnavailable: StateFlow<String?> =
+        accounts.account.map {
+            when {
+                it?.protocol == Protocol.POP3 -> "push_pop3"
+                it?.oauth != null -> "push_oauth"
+                else -> null
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** Address of the active account (for "Remove account"). */
+    val activeEmail: StateFlow<String> =
+        accounts.account.map { it?.email.orEmpty() }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "")
+
+    /** Set after removing the last account: the app goes back to setup. */
+    private val _noAccount = MutableStateFlow(false)
+    val noAccount: StateFlow<Boolean> = _noAccount.asStateFlow()
+
+    /** Removes the active account from the phone (mail on the server is not touched). */
+    fun removeActiveAccount() {
+        val email = activeEmail.value.ifEmpty { return }
+        viewModelScope.launch {
+            val left = runCatching { repo.removeAccount(email) }.getOrDefault(true)
+            if (!left) _noAccount.value = true
+        }
+    }
 
     private val _pushBusy = MutableStateFlow(false)
     val pushBusy: StateFlow<Boolean> = _pushBusy.asStateFlow()
