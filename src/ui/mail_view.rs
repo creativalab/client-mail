@@ -1007,7 +1007,11 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     if let Some(strip) = conversation_strip(app, msg.uid, p) {
         content = content.push(strip);
     }
-    content = content.push(sender).push(body);
+    content = content.push(sender);
+    if let Some(card) = super::invite::view(app, msg.uid, p) {
+        content = content.push(card);
+    }
+    content = content.push(body);
 
     if !msg.attachments.is_empty() {
         let label = if msg.attachments.len() == 1 {

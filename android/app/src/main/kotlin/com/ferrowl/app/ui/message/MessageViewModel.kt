@@ -4,11 +4,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ferrowl.app.data.MailRepository
 import com.ferrowl.core.FerrowlException
+import com.ferrowl.core.InviteReply
 import com.ferrowl.core.Message
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -20,12 +25,27 @@ sealed interface MessageState {
     data object Gone : MessageState
 }
 
+/** Our side of the message's invitation. */
+data class InviteState(
+    val reply: InviteReply? = null,
+    /** A cancelled event that is still in the calendar. */
+    val inCalendar: Boolean = false,
+    /** An answer is being sent. */
+    val busy: Boolean = false,
+)
+
 @HiltViewModel
 class MessageViewModel @Inject constructor(private val repo: MailRepository) : ViewModel() {
     private val _state = MutableStateFlow<MessageState>(MessageState.Loading)
     val state: StateFlow<MessageState> = _state.asStateFlow()
     private var folderId = ""
     private var uid = 0u
+    private val _invite = MutableStateFlow(InviteState())
+    val invite: StateFlow<InviteState> = _invite.asStateFlow()
+    private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 4)
+
+    /** Results to show in a snackbar ("Reply sent…"). */
+    val notices: SharedFlow<String> = _notices.asSharedFlow()
 
     fun load(folderId: String, uid: UInt) {
         if (this.folderId == folderId && this.uid == uid) return
@@ -37,6 +57,49 @@ class MessageViewModel @Inject constructor(private val repo: MailRepository) : V
             } catch (e: FerrowlException) {
                 MessageState.Failed(e.message ?: "")
             }
+            refreshInvite()
+        }
+    }
+
+    /** Reads our earlier answer to the message's invitation, if any. */
+    private suspend fun refreshInvite() {
+        val inv = (_state.value as? MessageState.Shown)?.message?.invitation ?: return
+        _invite.value = InviteState(
+            reply = repo.invitationReply(inv.uid),
+            inCalendar = inv.method == "CANCEL" && repo.inCalendar(inv.uid),
+        )
+    }
+
+    /** Accept / Maybe / Decline. */
+    fun respond(reply: InviteReply) {
+        val calendar = (_state.value as? MessageState.Shown)?.message?.calendar ?: return
+        if (_invite.value.busy) return
+        _invite.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            val notice = try {
+                repo.respondInvitation(calendar, reply)
+            } catch (e: FerrowlException) {
+                e.message.orEmpty()
+            }
+            refreshInvite()
+            _invite.update { it.copy(busy = false) }
+            if (notice.isNotBlank()) _notices.emit(notice)
+        }
+    }
+
+    /** Removes the cancelled event from the calendar. */
+    fun removeCancelled() {
+        val uid = (_state.value as? MessageState.Shown)?.message?.invitation?.uid ?: return
+        _invite.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            val notice = try {
+                repo.removeCancelled(uid)
+            } catch (e: FerrowlException) {
+                e.message.orEmpty()
+            }
+            refreshInvite()
+            _invite.update { it.copy(busy = false) }
+            if (notice.isNotBlank()) _notices.emit(notice)
         }
     }
 

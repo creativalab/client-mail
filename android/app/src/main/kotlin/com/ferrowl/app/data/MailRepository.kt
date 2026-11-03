@@ -8,6 +8,7 @@ import com.ferrowl.core.Engine
 import com.ferrowl.core.Folder
 import com.ferrowl.core.FolderKind
 import com.ferrowl.core.Header
+import com.ferrowl.core.InviteReply
 import com.ferrowl.core.Message
 import com.ferrowl.core.Outgoing
 import com.ferrowl.core.markdownToHtml
@@ -118,6 +119,23 @@ class MailRepository @Inject constructor(
 
     /** Updates the contacts from the server; returns how many are saved. */
     suspend fun syncContacts(): Int = engine.syncContacts().toInt()
+
+    /**
+     * Answers an invitation: mails the reply to the organizer and updates
+     * the calendar when the account has one. Returns the text to show.
+     */
+    suspend fun respondInvitation(calendar: String, reply: InviteReply): String =
+        engine.respondInvitation(calendar, reply)
+
+    /** Our earlier answer to the invitation with this event UID, if any. */
+    suspend fun invitationReply(uid: String): InviteReply? =
+        withContext(Dispatchers.IO) { engine.invitationReply(uid) }
+
+    /** Whether the event is in the calendar. */
+    suspend fun inCalendar(uid: String): Boolean = withContext(Dispatchers.IO) { engine.inCalendar(uid) }
+
+    /** Removes a cancelled event from the calendar; returns the text to show. */
+    suspend fun removeCancelled(uid: String): String = engine.removeCancelled(uid)
 
     /** Recipients matching what is being typed. */
     suspend fun suggest(query: String): List<AddressSuggestion> =

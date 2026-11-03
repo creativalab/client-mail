@@ -152,14 +152,14 @@ const MAX_PERIODS: u32 = 20000;
 // ---------------------------------------------------------------- reading
 
 /// A content line: NAME;PARAM=VALUE;...:value
-struct Line {
-    name: String,
-    params: Vec<(String, String)>,
-    value: String,
+pub(crate) struct Line {
+    pub(crate) name: String,
+    pub(crate) params: Vec<(String, String)>,
+    pub(crate) value: String,
 }
 
 impl Line {
-    fn param(&self, name: &str) -> Option<&str> {
+    pub(crate) fn param(&self, name: &str) -> Option<&str> {
         self.params
             .iter()
             .find(|(k, _)| k.eq_ignore_ascii_case(name))
@@ -169,7 +169,7 @@ impl Line {
 
 /// Splits a content line, honouring quoted parameter values (which may
 /// contain ':' and ';').
-fn split_line(line: &str) -> Option<Line> {
+pub(crate) fn split_line(line: &str) -> Option<Line> {
     let mut in_quotes = false;
     let mut colon = None;
     for (i, ch) in line.char_indices() {
