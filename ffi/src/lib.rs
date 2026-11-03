@@ -97,6 +97,7 @@ impl From<Account> for config::Account {
             keyring: false,
             carddav_url: a.carddav_url,
             caldav_url: a.caldav_url,
+            oauth: None,
         }
     }
 }
@@ -177,6 +178,10 @@ pub struct Header {
     /// Gmail labels (raw folder names); empty on other servers.
     #[uniffi(default = [])]
     pub labels: Vec<String>,
+    /// Gmail inbox tab: 0 Primary, 1 Promotions, 2 Social, 3 Updates,
+    /// 4 Forums (0 on other servers).
+    #[uniffi(default = 0)]
+    pub category: u8,
 }
 
 impl From<mail::Header> for Header {
@@ -195,6 +200,7 @@ impl From<mail::Header> for Header {
             size: h.size,
             from_address: h.from_address,
             labels: h.labels,
+            category: h.category.code(),
         }
     }
 }
@@ -215,6 +221,7 @@ impl From<&Header> for mail::Header {
             size: h.size,
             from_address: h.from_address.clone(),
             labels: h.labels.clone(),
+            category: mail::Category::from_code(h.category),
             ..Default::default()
         }
     }
@@ -1239,6 +1246,7 @@ mod tests {
             size: 0,
             from_address: String::new(),
             labels: Vec::new(),
+            category: 0,
         };
         let c = group_conversations(vec![h(1, "a", &[]), h(2, "b", &["a"]), h(3, "x", &[])]);
         assert_eq!(c.len(), 2);

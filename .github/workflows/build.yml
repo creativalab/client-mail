@@ -128,6 +128,11 @@ jobs:
 
       - name: Build
         run: cargo build --release --locked
+        env:
+          # "Sign in with Google": the OAuth client secret of the desktop
+          # client (not confidential for installed apps, but kept out of the
+          # public repository). Without it the button is hidden.
+          FERROWL_GOOGLE_CLIENT_SECRET: ${{ secrets.FERROWL_GOOGLE_CLIENT_SECRET }}
 
       # AppImage + .deb + tar.gz on Linux, .dmg (Ferrowl.app) + tar.gz on
       # macOS, zip on Windows. See packaging/build.sh.

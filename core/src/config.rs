@@ -35,6 +35,10 @@ pub struct Account {
     /// Calendar server (CalDAV); empty = found from the address's domain.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub caldav_url: String,
+    /// Signed in with Google or Microsoft (OAuth2) instead of a password;
+    /// the tokens live in the keychain, not here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth: Option<crate::oauth::Provider>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,6 +66,7 @@ impl Default for Account {
             keyring: false,
             carddav_url: String::new(),
             caldav_url: String::new(),
+            oauth: None,
         }
     }
 }
@@ -74,7 +79,7 @@ impl Account {
     pub fn is_complete(&self) -> bool {
         !self.email.is_empty()
             && !self.username.is_empty()
-            && !self.password.is_empty()
+            && (!self.password.is_empty() || self.oauth.is_some())
             && !self.imap_host.is_empty()
             && !self.smtp_host.is_empty()
     }

@@ -204,6 +204,8 @@ pub struct Header {
     /// Gmail labels (raw IMAP names, as the folders'; Gmail's own system
     /// labels like \\Inbox left out). Empty on other servers.
     pub labels: Vec<String>,
+    /// Gmail inbox tab (Primary elsewhere).
+    pub category: Category,
 }
 
 /// A slice of a folder's message list, by sequence number.
@@ -427,16 +429,29 @@ pub fn connect(account: &Account) -> Result<ImapSession> {
 
     let mut client = imap::Client::new(tls);
     client.read_greeting().context("IMAP greeting")?;
-    client
-        .login(&account.username, &account.password)
-        .map_err(|(e, _)| {
-            let msg = e.to_string();
-            if msg.to_uppercase().contains("AUTHENTICATIONFAILED") {
-                anyhow!(tf("err_auth", &[("msg", &msg)]))
-            } else {
-                anyhow!(tf("err_login", &[("msg", &msg)]))
-            }
-        })
+    let login_error = |e: imap::Error| {
+        let msg = e.to_string();
+        if msg.to_uppercase().contains("AUTHENTICATIONFAILED") {
+            anyhow!(tf("err_auth", &[("msg", &msg)]))
+        } else {
+            anyhow!(tf("err_login", &[("msg", &msg)]))
+        }
+    };
+    match account.oauth {
+        // Signed in with Google/Microsoft: XOAUTH2 with a fresh access token.
+        Some(provider) => {
+            let token = crate::oauth::access_token(provider, &account.email)?;
+            let auth = crate::oauth::ImapXoauth2 {
+                response: crate::oauth::xoauth2(&account.username, &token),
+            };
+            client
+                .authenticate("XOAUTH2", &auth)
+                .map_err(|(e, _)| login_error(e))
+        }
+        None => client
+            .login(&account.username, &account.password)
+            .map_err(|(e, _)| login_error(e)),
+    }
 }
 
 /// Whether the server supports IMAP IDLE (push).
@@ -666,6 +681,7 @@ pub fn header_from_raw(uid: u32, raw: &[u8], seen: bool) -> Header {
         // server's size instead.
         size: u32::try_from(raw.len()).unwrap_or(u32::MAX),
         labels: Vec::new(),
+        category: Category::Primary,
     }
 }
 
@@ -938,23 +954,119 @@ pub fn has_gmail_labels(session: &mut ImapSession) -> bool {
         .unwrap_or(false)
 }
 
-/// Gmail labels of messages, by UID. The IMAP library does not know this
-/// extension, so the command is sent and its reply read as text.
+/// Quotes a string for an IMAP command.
+fn imap_quote(s: &str) -> String {
+    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// The UIDs among `uids` that a Gmail search matches (e.g. `X-GM-LABELS
+/// "Work"` or `X-GM-RAW "category:social"`). Searches are used because the
+/// IMAP library cannot read Gmail's own FETCH items; SEARCH replies it can.
+fn gmail_search(
+    session: &mut ImapSession,
+    uids: &[u32],
+    criterion: &str,
+) -> Result<std::collections::HashSet<u32>> {
+    let (Some(min), Some(max)) = (uids.iter().min(), uids.iter().max()) else {
+        return Ok(Default::default());
+    };
+    Ok(session.uid_search(format!("UID {min}:{max} {criterion}"))?)
+}
+
+/// Gmail labels of messages in `folder`, by UID: one search per label
+/// (`labels` = the raw names of the user's labels).
 pub fn fetch_labels(
     session: &mut ImapSession,
     folder: &str,
     uids: &[u32],
+    labels: &[String],
 ) -> Result<HashMap<u32, Vec<String>>> {
+    let mut out: HashMap<u32, Vec<String>> = HashMap::new();
     if uids.is_empty() {
-        return Ok(HashMap::new());
+        return Ok(out);
     }
     session.select(folder)?;
-    let raw =
-        session.run_command_and_read_response(format!("UID FETCH {} (UID X-GM-LABELS)", uid_set(uids)))?;
-    Ok(parse_gmail_labels(&String::from_utf8_lossy(&raw)))
+    for label in labels.iter().filter(|l| l.as_str() != folder) {
+        for uid in gmail_search(session, uids, &format!("X-GM-LABELS {}", imap_quote(label)))? {
+            out.entry(uid).or_default().push(label.clone());
+        }
+    }
+    Ok(out)
 }
 
-/// Adds or removes a Gmail label (its raw IMAP name) on messages.
+/// Gmail inbox tabs. Primary is what no other tab takes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum Category {
+    #[default]
+    Primary,
+    Promotions,
+    Social,
+    Updates,
+    Forums,
+}
+
+impl Category {
+    pub const ALL: [Category; 5] = [
+        Category::Primary,
+        Category::Promotions,
+        Category::Social,
+        Category::Updates,
+        Category::Forums,
+    ];
+
+    /// Stored in the cache as a number.
+    pub fn code(self) -> u8 {
+        self as u8
+    }
+
+    pub fn from_code(n: u8) -> Category {
+        Category::ALL.get(n as usize).copied().unwrap_or_default()
+    }
+
+    /// The label's translation key.
+    pub fn key(self) -> &'static str {
+        match self {
+            Category::Primary => "gmail_primary",
+            Category::Promotions => "gmail_promotions",
+            Category::Social => "gmail_social",
+            Category::Updates => "gmail_updates",
+            Category::Forums => "gmail_forums",
+        }
+    }
+
+    fn search(self) -> Option<&'static str> {
+        match self {
+            Category::Primary => None,
+            Category::Promotions => Some("category:promotions"),
+            Category::Social => Some("category:social"),
+            Category::Updates => Some("category:updates"),
+            Category::Forums => Some("category:forums"),
+        }
+    }
+}
+
+/// The Gmail inbox tab of each message (Primary when no other).
+pub fn fetch_categories(
+    session: &mut ImapSession,
+    folder: &str,
+    uids: &[u32],
+) -> Result<HashMap<u32, Category>> {
+    let mut out = HashMap::new();
+    if uids.is_empty() {
+        return Ok(out);
+    }
+    session.select(folder)?;
+    for cat in Category::ALL {
+        let Some(raw) = cat.search() else { continue };
+        for uid in gmail_search(session, uids, &format!("X-GM-RAW {}", imap_quote(raw)))? {
+            out.insert(uid, cat);
+        }
+    }
+    Ok(out)
+}
+
+/// Adds or removes a Gmail label (its raw IMAP name) on messages. `.SILENT`
+/// keeps Gmail from answering with label lists the library cannot read.
 pub fn set_gmail_label(
     session: &mut ImapSession,
     folder: &str,
@@ -966,61 +1078,12 @@ pub fn set_gmail_label(
         return Ok(());
     }
     session.select(folder)?;
-    let quoted = format!("\"{}\"", label.replace('\\', "\\\\").replace('"', "\\\""));
     let op = if on { '+' } else { '-' };
-    session.run_command_and_check_ok(format!("UID STORE {} {op}X-GM-LABELS ({quoted})", uid_set(uids)))?;
+    session.uid_store(
+        uid_set(uids),
+        format!("{op}X-GM-LABELS.SILENT ({})", imap_quote(label)),
+    )?;
     Ok(())
-}
-
-/// Reads `* n FETCH (X-GM-LABELS (...) UID u)` lines. System labels (those
-/// starting with a backslash) are left out.
-fn parse_gmail_labels(reply: &str) -> HashMap<u32, Vec<String>> {
-    let mut out = HashMap::new();
-    for line in reply.lines() {
-        let Some(at) = line.find("X-GM-LABELS (") else {
-            continue;
-        };
-        let Some(uid) = line
-            .split("UID ")
-            .nth(1)
-            .and_then(|r| r.split(|c: char| !c.is_ascii_digit()).next())
-            .and_then(|n| n.parse::<u32>().ok())
-        else {
-            continue;
-        };
-        // The parenthesized list: atoms and quoted strings.
-        let mut labels = Vec::new();
-        let mut chars = line[at + "X-GM-LABELS (".len()..].chars().peekable();
-        let mut cur = String::new();
-        let mut quoted = false;
-        while let Some(c) = chars.next() {
-            match c {
-                '\\' if quoted => {
-                    if let Some(n) = chars.next() {
-                        cur.push(n);
-                    }
-                }
-                '"' => {
-                    if quoted {
-                        labels.push(std::mem::take(&mut cur));
-                    }
-                    quoted = !quoted;
-                }
-                ' ' | ')' if !quoted => {
-                    if !cur.is_empty() {
-                        labels.push(std::mem::take(&mut cur));
-                    }
-                    if c == ')' {
-                        break;
-                    }
-                }
-                _ => cur.push(c),
-            }
-        }
-        labels.retain(|l| !l.starts_with('\\'));
-        out.insert(uid, labels);
-    }
-    out
 }
 
 /// Stars or unstars messages (the \\Flagged flag).
@@ -1140,12 +1203,19 @@ pub fn send(account: &Account, mail: &Outgoing) -> Result<Vec<u8>> {
     } else {
         SmtpTransport::starttls_relay(&account.smtp_host)?
     };
+    use lettre::transport::smtp::authentication::Mechanism;
+    // Password, or (signed in with Google/Microsoft) a fresh access token.
+    let (secret, mechanisms) = match account.oauth {
+        Some(provider) => (
+            crate::oauth::access_token(provider, &account.email)?,
+            vec![Mechanism::Xoauth2],
+        ),
+        None => (account.password.clone(), vec![Mechanism::Plain, Mechanism::Login]),
+    };
     let mailer = relay
         .port(account.smtp_port)
-        .credentials(Credentials::new(
-            account.username.clone(),
-            account.password.clone(),
-        ))
+        .credentials(Credentials::new(account.username.clone(), secret))
+        .authentication(mechanisms)
         .timeout(Some(Duration::from_secs(60)))
         .build();
     mailer.send(&email).context(t("err_smtp"))?;
@@ -1378,14 +1448,11 @@ mod tests {
     }
 
     #[test]
-    fn gmail_labels_reply() {
-        let reply = "* 1 FETCH (X-GM-LABELS (\\Important \"Lavoro/Clienti 2026\" Personale) UID 41)\r\n\
-                     * 2 FETCH (UID 42 X-GM-LABELS ())\r\n\
-                     * 3 FETCH (X-GM-LABELS (\"Say \\\"hi\\\"\" \\Inbox) UID 43)\r\n";
-        let l = parse_gmail_labels(reply);
-        assert_eq!(l[&41], ["Lavoro/Clienti 2026", "Personale"]);
-        assert!(l[&42].is_empty());
-        assert_eq!(l[&43], ["Say \"hi\""]);
+    fn imap_quoting_and_categories() {
+        assert_eq!(imap_quote(r#"Say "hi" \ bye"#), r#""Say \"hi\" \\ bye""#);
+        for c in Category::ALL {
+            assert_eq!(Category::from_code(c.code()), c);
+        }
     }
 
     #[test]
@@ -1454,6 +1521,51 @@ mod tests {
 
     /// Bulk commands on messages whose subject starts with "Ferrowl bulk test":
     /// unread, read, archive, then permanent delete from the archive.
+    /// Read-only checks on a Gmail account of a profile's config (index in
+    /// FERROWL_TEST_ACCOUNT): folders, list, labels, unread counts and the
+    /// inbox categories. Prints counts only.
+    /// `FERROWL_TEST_CONFIG=… FERROWL_TEST_ACCOUNT=1 XDG_DATA_HOME=… FERROWL_NO_KEYCHAIN=1 cargo test -p ferrowl-core live_gmail -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn live_gmail() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let path = std::env::var("FERROWL_TEST_CONFIG").expect("FERROWL_TEST_CONFIG");
+        let index: usize = std::env::var("FERROWL_TEST_ACCOUNT")
+            .unwrap_or_default()
+            .parse()
+            .unwrap_or(0);
+        let table: toml::Table = toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let account: Account = table["accounts"].as_array().unwrap()[index]
+            .clone()
+            .try_into()
+            .unwrap();
+        let mut s = connect(&account).unwrap();
+        println!("gmail extension: {}", has_gmail_labels(&mut s));
+        let folders = list_folders(&mut s).unwrap();
+        println!("folders: {}", folders.len());
+        let page = fetch_headers(&mut s, "INBOX").unwrap();
+        println!("inbox page: {} messages", page.headers.len());
+        let uids: Vec<u32> = page.headers.iter().map(|h| h.uid).collect();
+        let names: Vec<String> = folders
+            .iter()
+            .filter(|f| f.kind == FolderKind::Other && f.selectable && !f.name.starts_with("[Gmail]"))
+            .map(|f| f.name.clone())
+            .collect();
+        let labels = fetch_labels(&mut s, "INBOX", &uids, &names).unwrap();
+        println!("labels: {} | labelled messages: {}", names.len(), labels.len());
+        let cats = fetch_categories(&mut s, "INBOX", &uids).unwrap();
+        for c in Category::ALL {
+            println!("category {:?}: {}", c, cats.values().filter(|x| **x == c).count());
+        }
+        for f in folders.iter().filter(|f| f.selectable) {
+            match s.status(&f.name, "(UNSEEN)") {
+                Ok(_) => {}
+                Err(e) => println!("STATUS {} failed: {e}", f.name),
+            }
+        }
+        let _ = s.logout();
+    }
+
     /// Spam and back: a message whose subject starts with "Ferrowl spam
     /// test" goes to Spam marked $Junk, then back to the inbox marked
     /// $NotJunk, and is finally deleted.
