@@ -42,11 +42,17 @@ class ComposeViewModel @Inject constructor(private val repo: MailRepository) : V
     val state: StateFlow<ComposeState> = _state.asStateFlow()
     private var started = false
 
-    /** Prepares a reply or forward from the original message (once). */
-    fun start(kind: ReplyKind?, folderId: String, uid: UInt) {
+    /**
+     * Prepares a reply or forward from the original message, or a new
+     * message to [to] (from the contacts). Runs once.
+     */
+    fun start(kind: ReplyKind?, folderId: String, uid: UInt, to: String = "") {
         if (started) return
         started = true
-        if (kind == null) return
+        if (kind == null) {
+            _state.update { it.copy(to = to) }
+            return
+        }
         _state.update { it.copy(loading = true) }
         viewModelScope.launch {
             try {

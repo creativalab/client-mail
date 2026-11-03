@@ -7,6 +7,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.ferrowl.app.ui.compose.ComposeScreen
+import com.ferrowl.app.ui.contacts.ContactsScreen
 import com.ferrowl.app.ui.conversation.ConversationScreen
 import com.ferrowl.app.ui.mailbox.MailboxScreen
 import com.ferrowl.app.ui.message.MessageScreen
@@ -23,13 +24,17 @@ import kotlinx.serialization.Serializable
 @Serializable object Setup
 @Serializable object Mailbox
 @Serializable object Settings
+@Serializable object Contacts
 @Serializable data class Read(val folderId: String, val uid: Long)
 
 /** A conversation; `uids` are comma-separated, oldest first. */
 @Serializable data class Thread(val folderId: String, val uids: String)
 
-/** Write a message; `kind` is a [ReplyKind] name, or null for a new one. */
-@Serializable data class Write(val kind: String? = null, val folderId: String = "", val uid: Long = 0)
+/**
+ * Write a message; `kind` is a [ReplyKind] name, or null for a new one.
+ * `to` fills in the recipient of a new message (from the contacts).
+ */
+@Serializable data class Write(val kind: String? = null, val folderId: String = "", val uid: Long = 0, val to: String = "")
 
 @Composable
 fun FerrowlNavHost() {
@@ -51,9 +56,16 @@ fun FerrowlNavHost() {
                 onOpenConversation = { folderId, uids -> nav.navigate(Thread(folderId, uids.joinToString(","))) },
                 onCompose = { nav.navigate(Write()) },
                 onSettings = { nav.navigate(Settings) },
+                onContacts = { nav.navigate(Contacts) },
             )
         }
         composable<Settings> { SettingsScreen(onBack = { nav.popBackStack() }) }
+        composable<Contacts> {
+            ContactsScreen(
+                onBack = { nav.popBackStack() },
+                onWrite = { recipient -> nav.navigate(Write(to = recipient)) },
+            )
+        }
         composable<Thread> { entry ->
             val route = entry.toRoute<Thread>()
             ConversationScreen(
@@ -78,6 +90,7 @@ fun FerrowlNavHost() {
                 kind = route.kind?.let(ReplyKind::valueOf),
                 folderId = route.folderId,
                 uid = route.uid.toUInt(),
+                to = route.to,
                 onClose = { nav.popBackStack() },
             )
         }

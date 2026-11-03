@@ -55,10 +55,11 @@ fun ComposeScreen(
     kind: ReplyKind?,
     folderId: String,
     uid: UInt,
+    to: String,
     onClose: () -> Unit,
     vm: ComposeViewModel = hiltViewModel(),
 ) {
-    LaunchedEffect(Unit) { vm.start(kind, folderId, uid) }
+    LaunchedEffect(Unit) { vm.start(kind, folderId, uid, to) }
     val s by vm.state.collectAsStateWithLifecycle()
     LaunchedEffect(s.sent) { if (s.sent) onClose() }
     var askDiscard by remember { mutableStateOf(false) }

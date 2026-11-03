@@ -2276,12 +2276,14 @@ dependencies = [
  "pgp",
  "pulldown-cmark",
  "rand 0.8.8",
+ "roxmltree 0.21.2",
  "rusqlite",
  "rustls",
  "serde",
  "sys-locale",
  "tokio",
  "toml",
+ "ureq",
  "webpki-roots",
 ]
 

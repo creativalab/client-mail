@@ -56,6 +56,21 @@ CREATE TABLE IF NOT EXISTS addresses (
     last_ts  INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (account, address)
 );
+-- Contacts synced from the account's CardDAV server.
+CREATE TABLE IF NOT EXISTS contacts (
+    account TEXT NOT NULL,
+    url     TEXT NOT NULL,
+    book    TEXT NOT NULL,
+    etag    TEXT NOT NULL,
+    uid     TEXT NOT NULL DEFAULT '',
+    name    TEXT NOT NULL,
+    emails  TEXT NOT NULL DEFAULT '',
+    phones  TEXT NOT NULL DEFAULT '',
+    org     TEXT NOT NULL DEFAULT '',
+    note    TEXT NOT NULL DEFAULT '',
+    vcard   TEXT NOT NULL,
+    PRIMARY KEY (account, url)
+);
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
     sender, subject, body,
     content = 'messages', content_rowid = 'id',
@@ -319,7 +334,17 @@ impl Cache {
         if q.is_empty() {
             return Ok(Vec::new());
         }
-        let like = |s: &str| s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        let like = like_escape;
+        // Saved contacts come first.
+        let mut out: Vec<(String, String)> = Vec::new();
+        for c in self.contacts(account, &q)? {
+            let name_hit = c.name.to_lowercase().contains(&q);
+            for addr in &c.emails {
+                if (name_hit || addr.to_lowercase().contains(&q)) && out.len() < limit as usize {
+                    out.push((c.name.clone(), addr.to_lowercase()));
+                }
+            }
+        }
         let conn = self.lock();
         let mut stmt = conn.prepare_cached(
             "SELECT name, address FROM addresses
@@ -336,15 +361,97 @@ impl Cache {
             ],
             |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
         )?;
-        let mut out = Vec::new();
         for row in rows {
             let (name, addr) = row?;
-            if !NO_REPLY.iter().any(|n| addr.contains(n)) {
+            if !NO_REPLY.iter().any(|n| addr.contains(n)) && !out.iter().any(|(_, a)| *a == addr) {
                 out.push((name, addr));
             }
         }
         out.truncate(limit as usize);
         Ok(out)
+    }
+
+    /// Card URL and ETag of every cached contact (to compare with the
+    /// server).
+    pub fn contact_etags(&self, account: &str) -> Result<Vec<(String, String)>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare_cached("SELECT url, etag FROM contacts WHERE account = ?1")?;
+        let rows = stmt.query_map(params![account], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Stores what a CardDAV sync changed. Contacts of address books that
+    /// no longer exist are removed too.
+    pub fn apply_contacts(&self, account: &str, changes: &crate::carddav::Changes) -> Result<()> {
+        let mut conn = self.lock();
+        let tx = conn.transaction()?;
+        {
+            let mut put = tx.prepare_cached(
+                "INSERT OR REPLACE INTO contacts
+                 (account, url, book, etag, uid, name, emails, phones, org, note, vcard)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            )?;
+            for (book, card) in &changes.cards {
+                let c = &card.contact;
+                put.execute(params![
+                    account,
+                    card.url,
+                    book,
+                    card.etag,
+                    c.uid,
+                    c.name,
+                    c.emails.join("\n"),
+                    c.phones.join("\n"),
+                    c.organization,
+                    c.note,
+                    card.vcard
+                ])?;
+            }
+            let mut del = tx.prepare_cached("DELETE FROM contacts WHERE account = ?1 AND url = ?2")?;
+            for url in &changes.gone {
+                del.execute(params![account, url])?;
+            }
+            let books: Vec<&str> = changes.books.iter().map(|b| b.url.as_str()).collect();
+            let mut stmt = tx.prepare_cached("SELECT DISTINCT book FROM contacts WHERE account = ?1")?;
+            let stored: Vec<String> = stmt
+                .query_map(params![account], |r| r.get(0))?
+                .collect::<rusqlite::Result<_>>()?;
+            for book in stored.iter().filter(|b| !books.contains(&b.as_str())) {
+                tx.execute(
+                    "DELETE FROM contacts WHERE account = ?1 AND book = ?2",
+                    params![account, book],
+                )?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Contacts whose name, address, organization or phone contains
+    /// `query` (all of them when empty), by name.
+    pub fn contacts(&self, account: &str, query: &str) -> Result<Vec<crate::vcard::Contact>> {
+        let q = format!("%{}%", like_escape(&query.trim().to_lowercase()));
+        let conn = self.lock();
+        let mut stmt = conn.prepare_cached(
+            "SELECT uid, name, emails, phones, org, note FROM contacts
+             WHERE account = ?1
+               AND (lower(name) LIKE ?2 ESCAPE '\\' OR lower(emails) LIKE ?2 ESCAPE '\\'
+                    OR lower(org) LIKE ?2 ESCAPE '\\' OR phones LIKE ?2 ESCAPE '\\')
+             ORDER BY name COLLATE NOCASE",
+        )?;
+        let lines =
+            |s: String| -> Vec<String> { s.lines().filter(|l| !l.is_empty()).map(str::to_owned).collect() };
+        let rows = stmt.query_map(params![account, q], |r| {
+            Ok(crate::vcard::Contact {
+                uid: r.get(0)?,
+                name: r.get(1)?,
+                emails: lines(r.get(2)?),
+                phones: lines(r.get(3)?),
+                organization: r.get(4)?,
+                note: r.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// Full-text search in one folder. Each word matches as a prefix,
@@ -410,6 +517,11 @@ fn harvest(conn: &Connection, account: &str, own: &str, h: &Header) -> Result<()
         stmt.execute(params![account, from, name, 1, 0, h.timestamp])?;
     }
     Ok(())
+}
+
+/// Escapes LIKE wildcards (used with `ESCAPE '\\'`).
+fn like_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }
 
 /// Automated senders are never suggested as recipients.
@@ -552,5 +664,69 @@ mod tests {
         // UIDVALIDITY change empties the folder.
         c.check_uidvalidity("a", "INBOX", 2).unwrap();
         assert!(c.headers("a", "INBOX", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn contacts_are_stored_searched_and_suggested_first() {
+        use crate::carddav::{Book, Card, Changes};
+        let c = Cache::in_memory();
+        let card = |url: &str, name: &str, email: &str| {
+            (
+                "https://d/book/".to_owned(),
+                Card {
+                    url: url.into(),
+                    etag: "1".into(),
+                    vcard: String::new(),
+                    contact: crate::vcard::Contact {
+                        name: name.into(),
+                        emails: vec![email.into()],
+                        ..Default::default()
+                    },
+                },
+            )
+        };
+        let books = vec![Book {
+            url: "https://d/book/".into(),
+            name: "B".into(),
+        }];
+        c.apply_contacts(
+            "acc",
+            &Changes {
+                books: books.clone(),
+                cards: vec![
+                    card("u1", "Marta Neri", "marta@x.it"),
+                    card("u2", "Luca Blu", "luca@y.it"),
+                ],
+                gone: vec![],
+            },
+        )
+        .unwrap();
+        // A frequent correspondent with the same prefix comes after the contact.
+        let h = Header {
+            from: "Mario".into(),
+            from_address: "mario@z.it".into(),
+            timestamp: 5,
+            ..Default::default()
+        };
+        c.store_address_book("acc", "me@x.it", &h).unwrap();
+        let s = c.suggest("acc", "mar", 8).unwrap();
+        assert_eq!(s[0], ("Marta Neri".into(), "marta@x.it".into()));
+        assert_eq!(s[1].1, "mario@z.it");
+        assert_eq!(c.contacts("acc", "y.it").unwrap()[0].name, "Luca Blu");
+        assert_eq!(c.contact_etags("acc").unwrap().len(), 2);
+
+        // Deleted card, then the whole book gone.
+        c.apply_contacts(
+            "acc",
+            &Changes {
+                books,
+                cards: vec![],
+                gone: vec!["u2".into()],
+            },
+        )
+        .unwrap();
+        assert_eq!(c.contacts("acc", "").unwrap().len(), 1);
+        c.apply_contacts("acc", &Changes::default()).unwrap();
+        assert!(c.contacts("acc", "").unwrap().is_empty());
     }
 }

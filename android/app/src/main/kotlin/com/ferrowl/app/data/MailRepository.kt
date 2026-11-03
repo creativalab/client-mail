@@ -2,6 +2,7 @@ package com.ferrowl.app.data
 
 import com.ferrowl.core.Account
 import com.ferrowl.core.AddressSuggestion
+import com.ferrowl.core.Contact
 import com.ferrowl.core.Engine
 import com.ferrowl.core.Folder
 import com.ferrowl.core.FolderKind
@@ -63,6 +64,7 @@ class MailRepository @Inject constructor(
             accounts.save(account)
         }
         learnFromSent()
+        syncContactsQuietly()
     }
 
     /** Connects the saved account once per process. */
@@ -73,7 +75,10 @@ class MailRepository @Inject constructor(
             _folders.value = engine.connect(account)
             true
         }
-        if (connected) learnFromSent()
+        if (connected) {
+            learnFromSent()
+            syncContactsQuietly()
+        }
         return connected
     }
 
@@ -85,6 +90,22 @@ class MailRepository @Inject constructor(
         val sent = folderOf(FolderKind.SENT) ?: return
         runCatching { engine.headers(sent.id) }
     }
+
+    /**
+     * Contacts from the account's CardDAV server, once per connection.
+     * Most mail accounts have no such server: failures are not shown here
+     * (the contacts screen shows them when the user syncs by hand).
+     */
+    private suspend fun syncContactsQuietly() {
+        runCatching { engine.syncContacts() }
+    }
+
+    /** Saved contacts matching [query] (all when empty), by name. */
+    suspend fun contacts(query: String): List<Contact> =
+        withContext(Dispatchers.IO) { engine.contacts(query) }
+
+    /** Updates the contacts from the server; returns how many are saved. */
+    suspend fun syncContacts(): Int = engine.syncContacts().toInt()
 
     /** Recipients matching what is being typed. */
     suspend fun suggest(query: String): List<AddressSuggestion> =

@@ -1,6 +1,7 @@
 //! Common UI building blocks: fonts, icons, styles, formats.
 
 pub mod compose;
+pub mod contacts;
 pub mod mail_view;
 pub mod settings;
 
@@ -71,6 +72,12 @@ macro_rules! icon_svg {
 }
 
 pub mod icons {
+    pub const CONTACTS: &str = icon_svg!(
+        r#"<circle cx="9" cy="8" r="4"/><path d="M2 21v-1a7 7 0 0 1 14 0v1"/><path d="M16 3.5a4 4 0 0 1 0 9"/><path d="M22 21v-1a7 7 0 0 0-4-6.3"/>"#
+    );
+    pub const PHONE: &str = icon_svg!(
+        r#"<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/>"#
+    );
     pub const SEARCH: &str = icon_svg!(r#"<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>"#);
     pub const SYNC: &str = icon_svg!(
         r#"<path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M3 21v-5h5"/>"#

@@ -29,6 +29,15 @@ pub enum Screen {
     Settings(Section),
 }
 
+/// Contacts sync with the CardDAV server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContactsSync {
+    Idle,
+    Running,
+    Done,
+    Failed(String),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Section {
     General,
@@ -289,6 +298,8 @@ pub struct AccountDraft {
     pub pop3_keep_days: Option<u32>,
     /// Carried through (see `config::Account::keyring`).
     pub keyring: bool,
+    /// Contacts server (empty = automatic).
+    pub carddav_url: String,
 }
 
 impl AccountDraft {
@@ -330,6 +341,7 @@ impl AccountDraft {
             protocol: a.protocol,
             pop3_keep_days: a.pop3_keep_days,
             keyring: a.keyring,
+            carddav_url: a.carddav_url.clone(),
         }
     }
 
@@ -347,6 +359,7 @@ impl AccountDraft {
             protocol: self.protocol,
             pop3_keep_days: self.pop3_keep_days,
             keyring: self.keyring,
+            carddav_url: self.carddav_url.trim().to_string(),
         };
         a.is_complete().then_some(a)
     }
@@ -362,6 +375,7 @@ pub enum Field {
     ImapPort,
     SmtpHost,
     SmtpPort,
+    CardDav,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -449,6 +463,13 @@ pub struct App {
     pub toast: Option<Toast>,
     toast_seq: u64,
     dev_shots: u32,
+    /// The contacts pane replaces the message list and reader.
+    pub contacts_open: bool,
+    /// Contacts matching `contacts_query`, by name.
+    pub contacts: Vec<ferrowl_core::vcard::Contact>,
+    pub contacts_query: String,
+    pub contact_selected: Option<usize>,
+    pub contacts_sync: ContactsSync,
 }
 
 // ---------------------------------------------------------------- messages
@@ -592,6 +613,14 @@ pub enum Message {
     /// From the sidebar: open settings on an empty account form.
     AddAccount,
     RemoveAccount(bool),
+    // contacts
+    OpenContacts,
+    ContactsQuery(String),
+    ContactSelect(usize),
+    SyncContacts,
+    ContactsSynced(Res<usize>),
+    /// New message to (name, address).
+    WriteTo(String, String),
     // compose
     ComposeNew,
     ComposeField(ComposeField, String),
@@ -697,6 +726,11 @@ impl App {
             toast: None,
             toast_seq: 0,
             dev_shots: 0,
+            contacts_open: false,
+            contacts: Vec::new(),
+            contacts_query: String::new(),
+            contact_selected: None,
+            contacts_sync: ContactsSync::Idle,
         };
         // Development: open a given view directly (used for screenshots).
         match std::env::var("FERROWL_DEV_VIEW").as_deref() {
@@ -717,6 +751,15 @@ impl App {
             Ok("general") => app.screen = Screen::Settings(Section::General),
             Ok("security") => app.screen = Screen::Settings(Section::Security),
             Ok("popover") => app.appearance_open = true,
+            Ok("contacts") => {
+                app.contacts_open = true;
+                app.reload_contacts();
+                let nth = std::env::var("FERROWL_DEV_OPEN_NTH")
+                    .ok()
+                    .and_then(|n| n.parse().ok())
+                    .unwrap_or(0);
+                app.contact_selected = (nth < app.contacts.len()).then_some(nth);
+            }
             Ok("compose") => {
                 let mut c = Compose::new(ComposeMode::New);
                 c.to = "giulia.ferri@example.com".into();
@@ -1199,6 +1242,11 @@ impl App {
         self.unseen.clear();
         self.confirm_delete = false;
         self.last_sync = None;
+        self.contacts_open = false;
+        self.contacts.clear();
+        self.contacts_query.clear();
+        self.contact_selected = None;
+        self.contacts_sync = ContactsSync::Idle;
     }
 
     /// Shows account `i` in the main window, with a fresh IMAP session.
@@ -1221,6 +1269,38 @@ impl App {
         self.conn = Conn::Connecting;
         let b = self.backend.clone();
         self.perform(async move { b.connect(acc).await }, Message::Connected)
+    }
+
+    /// Syncs the active account's contacts after `delay`.
+    fn sync_contacts(&mut self, delay: Duration) -> Task<Message> {
+        let Some(acc) = self.config.account().cloned() else {
+            return Task::none();
+        };
+        self.contacts_sync = ContactsSync::Running;
+        self.perform(
+            async move {
+                tokio::time::sleep(delay).await;
+                Backend::sync_contacts(acc).await
+            },
+            Message::ContactsSynced,
+        )
+    }
+
+    /// Reads the contacts list from the cache, keeping the open contact.
+    fn reload_contacts(&mut self) {
+        let Some(acc) = self.config.account() else {
+            return;
+        };
+        let open = self
+            .contact_selected
+            .and_then(|i| self.contacts.get(i))
+            .map(|c| (c.name.clone(), c.emails.clone()));
+        self.contacts = Backend::contacts(acc, &self.contacts_query);
+        self.contact_selected = open.and_then(|(name, emails)| {
+            self.contacts
+                .iter()
+                .position(|c| c.name == name && c.emails == emails)
+        });
     }
 
     fn load_folder(&mut self, folder: String, silent: bool) -> Task<Message> {
@@ -1507,7 +1587,14 @@ impl App {
                     }
                     _ => Task::none(),
                 };
-                Task::batch([load, self.refresh_unseen(), sent])
+                // Contacts from the CardDAV server, quietly: most mail
+                // accounts have none, and that is not an error to show.
+                let contacts = if self.contacts_sync == ContactsSync::Idle {
+                    self.sync_contacts(Duration::from_secs(8))
+                } else {
+                    Task::none()
+                };
+                Task::batch([load, self.refresh_unseen(), sent, contacts])
             }
             Message::Connected(Err(e)) => {
                 self.conn = Conn::Error(e.clone());
@@ -1587,6 +1674,7 @@ impl App {
                 Err(e) => self.toast(e, true),
             },
             Message::SelectFolder(name) => {
+                self.contacts_open = false;
                 self.checked.clear();
                 self.appearance_open = false;
                 self.screen = Screen::Mail;
@@ -2327,6 +2415,7 @@ impl App {
                     Field::ImapPort => &mut d.imap_port,
                     Field::SmtpHost => &mut d.smtp_host,
                     Field::SmtpPort => &mut d.smtp_port,
+                    Field::CardDav => &mut d.carddav_url,
                 };
                 *target = value;
                 // New account: recognise the provider from the address.
@@ -2482,6 +2571,49 @@ impl App {
                         save
                     }
                 }
+            }
+            Message::OpenContacts => {
+                self.contacts_open = true;
+                self.appearance_open = false;
+                self.screen = Screen::Mail;
+                self.reload_contacts();
+                Task::none()
+            }
+            Message::ContactsQuery(q) => {
+                self.contacts_query = q;
+                self.reload_contacts();
+                Task::none()
+            }
+            Message::ContactSelect(i) => {
+                self.contact_selected = (i < self.contacts.len()).then_some(i);
+                Task::none()
+            }
+            Message::SyncContacts => {
+                if self.contacts_sync == ContactsSync::Running {
+                    return Task::none();
+                }
+                self.sync_contacts(Duration::ZERO)
+            }
+            Message::ContactsSynced(r) => {
+                self.contacts_sync = match r {
+                    Ok(_) => ContactsSync::Done,
+                    Err(e) => ContactsSync::Failed(e),
+                };
+                self.reload_contacts();
+                Task::none()
+            }
+            Message::WriteTo(name, address) => {
+                if self.compose.is_none() && self.config.account().is_some() {
+                    let mut c = Compose::new(ComposeMode::New);
+                    c.rich = self.config.ui.rich_compose;
+                    c.to = if name.is_empty() || name == address {
+                        address
+                    } else {
+                        format!("{name} <{address}>")
+                    };
+                    self.compose = Some(c);
+                }
+                Task::none()
             }
             Message::ComposeNew => {
                 if self.compose.is_none() && self.config.account().is_some() {

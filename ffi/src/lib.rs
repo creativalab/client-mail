@@ -69,6 +69,9 @@ pub struct Account {
     pub pop3_keep_days: Option<u32>,
     /// Passphrase of the account's OpenPGP key (empty = none).
     pub pgp_passphrase: String,
+    /// Contacts server (CardDAV); empty = found from the address's domain.
+    #[uniffi(default = "")]
+    pub carddav_url: String,
 }
 
 impl From<Account> for config::Account {
@@ -89,6 +92,7 @@ impl From<Account> for config::Account {
             },
             pop3_keep_days: a.pop3_keep_days,
             keyring: false,
+            carddav_url: a.carddav_url,
         }
     }
 }
@@ -362,6 +366,17 @@ pub struct AddressSuggestion {
     pub address: String,
 }
 
+/// A contact from the account's contacts server.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct Contact {
+    pub name: String,
+    /// Preferred address first.
+    pub emails: Vec<String>,
+    pub phones: Vec<String>,
+    pub organization: String,
+    pub note: String,
+}
+
 /// A known mail provider, for the "add account" screen.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct Provider {
@@ -406,6 +421,12 @@ pub fn provider_for_email(email: String) -> Option<u32> {
 
 /// HTML to send alongside the text when the user wrote Markdown formatting
 /// (`None` for plain text, which is then sent as text only).
+/// Initials for an avatar: "Giulia Ferri" -> "GF", "anna@x.it" -> "A".
+#[uniffi::export]
+pub fn initials(name: String) -> String {
+    ferrowl_core::initials(&name)
+}
+
 #[uniffi::export]
 pub fn markdown_to_html(markdown: String) -> Option<String> {
     ferrowl_core::markdown::has_formatting(&markdown)
@@ -609,6 +630,34 @@ impl Engine {
         }
     }
 
+    /// Saved contacts whose name, address, organization or phone contains
+    /// `query` (all when empty), by name. Reads the local copy only.
+    pub fn contacts(&self, query: String) -> Vec<Contact> {
+        match lock(&self.account).as_ref() {
+            Some(a) => Backend::contacts(a, &query)
+                .into_iter()
+                .map(|c| Contact {
+                    name: c.name,
+                    emails: c.emails,
+                    phones: c.phones,
+                    organization: c.organization,
+                    note: c.note,
+                })
+                .collect(),
+            None => Vec::new(),
+        }
+    }
+
+    /// Brings the local copy of the contacts up to date with the account's
+    /// CardDAV server. Returns how many contacts are saved.
+    pub async fn sync_contacts(&self) -> Result<u32> {
+        // No account yet (the app connects first): nothing to sync.
+        let Some(account) = lock(&self.account).clone() else {
+            return Ok(0);
+        };
+        Ok(Backend::sync_contacts(account).await? as u32)
+    }
+
     /// Unread counts per folder id.
     pub async fn unread(&self, folder_ids: Vec<String>) -> Result<HashMap<String, u32>> {
         Ok(self.backend.unseen(folder_ids).await?)
@@ -758,6 +807,7 @@ mod tests {
             protocol: Protocol::Pop3,
             pop3_keep_days: Some(7),
             pgp_passphrase: String::new(),
+            carddav_url: String::new(),
         };
         let core: config::Account = a.into();
         assert!(core.is_pop3());
