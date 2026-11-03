@@ -184,6 +184,7 @@ view_toggle_tip = "이미지와 원격 콘텐츠는 불러오지 않습니다"
 
 # Multiple accounts
 add_account = "계정 추가"
+account_settings = "계정 설정"
 new_account = "새 계정"
 provider_label = "메일 서비스"
 provider_other = "기타"

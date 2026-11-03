@@ -184,6 +184,7 @@ view_toggle_tip = "Imagens e conteúdo remoto nunca são carregados"
 
 # Multiple accounts
 add_account = "Adicionar conta"
+account_settings = "Configurações da conta"
 new_account = "Nova conta"
 provider_label = "Provedor de e-mail"
 provider_other = "Outro"

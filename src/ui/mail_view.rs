@@ -226,7 +226,7 @@ fn sidebar<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             container(space().width(8).height(8))
                 .style(chip_box(color, color, 4.0))
                 .into(),
-            text(trunc(&acc.email, 24))
+            text(trunc(&acc.email, 21))
                 .size(14)
                 .font(if active && multi { medium() } else { INTER })
                 .color(if active { p.text } else { p.text2 })
@@ -235,36 +235,60 @@ fn sidebar<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         ])
         .spacing(10)
         .align_y(Alignment::Center);
+        // The active account opens its settings; another one becomes active.
+        let pick = if active {
+            Message::OpenAccountSettings(i)
+        } else {
+            Message::SwitchAccount(i)
+        };
+        let settings = tooltip(
+            button(icon(icons::GEAR, 15.0, p.muted))
+                .padding([5, 6])
+                .style(ghost(p, p.muted))
+                .on_press(Message::OpenAccountSettings(i)),
+            t("account_settings"),
+            p,
+        );
         accounts = accounts.push(
-            button(row_el)
-                .width(Fill)
-                .padding([7, 12])
-                .style(nav_item(p, active && multi))
-                .on_press_maybe((!active).then_some(Message::SwitchAccount(i))),
+            dir_row(vec![
+                button(row_el)
+                    .width(Fill)
+                    .padding([7, 12])
+                    .style(nav_item(p, active && multi))
+                    .on_press(pick)
+                    .into(),
+                settings,
+            ])
+            .spacing(2)
+            .align_y(Alignment::Center),
         );
     }
+    // "+" right after the section name, full size so it is easy to see.
     let add = tooltip(
-        button(text("+").size(16).color(p.muted))
-            .padding([0, 8])
-            .style(ghost(p, p.muted))
+        button(container(text("+").size(18).font(semibold()).color(p.text2)).center(22))
+            .padding(0)
+            .style(ghost(p, p.text2))
             .on_press(Message::AddAccount),
         t("add_account"),
         p,
     );
     let account = column![
-        dir_row(vec![
-            container(
-                text(t("section_account").to_uppercase())
-                    .size(12)
-                    .font(semibold())
-                    .color(p.muted)
-            )
-            .padding([0, 12])
-            .width(Fill)
-            .into(),
-            add,
-        ])
-        .align_y(Alignment::Center),
+        container(
+            dir_row(vec![
+                container(
+                    text(t("section_account").to_uppercase())
+                        .size(12)
+                        .font(semibold())
+                        .color(p.muted)
+                )
+                .into(),
+                add,
+                space::horizontal().into(),
+            ])
+            .spacing(6)
+            .align_y(Alignment::Center)
+        )
+        .padding([0, 12]),
         accounts,
     ]
     .spacing(4);

@@ -184,6 +184,7 @@ view_toggle_tip = "Images and remote content are never loaded"
 
 # Multiple accounts
 add_account = "Add account"
+account_settings = "Account settings"
 new_account = "New account"
 provider_label = "Email provider"
 provider_other = "Other"

@@ -184,6 +184,7 @@ view_toggle_tip = "从不加载图片和远程内容"
 
 # Multiple accounts
 add_account = "添加账户"
+account_settings = "账户设置"
 new_account = "新账户"
 provider_label = "邮件服务商"
 provider_other = "其他"
