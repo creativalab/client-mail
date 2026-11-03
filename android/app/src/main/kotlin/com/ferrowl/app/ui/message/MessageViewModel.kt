@@ -118,6 +118,29 @@ class MessageViewModel @Inject constructor(private val repo: MailRepository) : V
 
     fun markUnread() = act { repo.setSeen(folderId, uid, false) }
 
+    /** Whether the message is in Spam ("Not spam" instead of "Report spam"). */
+    val inSpam: Boolean get() = repo.isSpam(folderId)
+
+    /** Report spam, or in Spam "not spam" (which also allows the sender). */
+    fun spam() {
+        val toSpam = !inSpam
+        val from = (_state.value as? MessageState.Shown)?.message?.fromAddress.orEmpty()
+        act {
+            if (!toSpam && from.isNotBlank()) repo.setSenderRule(from, true)
+            repo.spam(folderId, listOf(uid), toSpam)
+        }
+    }
+
+    /** Blocks the sender: the address goes to the blocked list, the message to Spam. */
+    fun blockSender() {
+        val from = (_state.value as? MessageState.Shown)?.message?.fromAddress.orEmpty()
+        if (from.isBlank()) return
+        act {
+            repo.setSenderRule(from, false)
+            if (!inSpam) repo.spam(folderId, listOf(uid), true)
+        }
+    }
+
     /** Stars or unstars the message (the screen stays open). */
     fun toggleStar() {
         val on = !_starred.value

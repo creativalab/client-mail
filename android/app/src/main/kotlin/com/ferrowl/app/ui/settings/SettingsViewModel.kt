@@ -3,6 +3,7 @@ package com.ferrowl.app.ui.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.ferrowl.app.data.AccountStore
+import com.ferrowl.app.data.MailRepository
 import com.ferrowl.app.data.SettingsStore
 import com.ferrowl.app.push.PushRegistrar
 import com.ferrowl.app.push.PushStore
@@ -24,7 +25,46 @@ class SettingsViewModel @Inject constructor(
     private val push: PushRegistrar,
     pushStore: PushStore,
     accounts: AccountStore,
+    private val repo: MailRepository,
 ) : ViewModel() {
+    private val _blocked = MutableStateFlow<List<String>>(emptyList())
+
+    /** Senders whose mail goes to Spam ("name@domain" or "@domain"). */
+    val blocked: StateFlow<List<String>> = _blocked.asStateFlow()
+
+    private val _allowed = MutableStateFlow<List<String>>(emptyList())
+
+    /** Senders whose mail comes back from Spam. */
+    val allowed: StateFlow<List<String>> = _allowed.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            // The lists belong to the account: connect it first.
+            runCatching { repo.ensureConnected() }
+            reloadSenders()
+        }
+    }
+
+    private suspend fun reloadSenders() {
+        _blocked.value = repo.senderRules(false)
+        _allowed.value = repo.senderRules(true)
+    }
+
+    /** Adds a sender to the blocked (false) or allowed (true) list. */
+    fun addSender(address: String, allow: Boolean) {
+        if (!address.contains('@')) return
+        viewModelScope.launch {
+            runCatching { repo.setSenderRule(address.trim(), allow) }
+            reloadSenders()
+        }
+    }
+
+    fun removeSender(address: String) {
+        viewModelScope.launch {
+            repo.removeSenderRule(address)
+            reloadSenders()
+        }
+    }
     /** Conversations (true) or one row per message. */
     val threaded: StateFlow<Boolean> =
         settings.threaded.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)

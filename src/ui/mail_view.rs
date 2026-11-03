@@ -621,7 +621,7 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     let act = |ic: &'static str, tip: &'static str, msg: Message| {
         tooltip(
             button(icon(ic, 17.0, if any_checked { p.text2 } else { p.field }))
-                .padding([6, 7])
+                .padding([7, 8])
                 .style(ghost(p, p.text2))
                 .on_press_maybe(any_checked.then_some(msg)),
             tip,
@@ -630,7 +630,9 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     };
     let mut tools = vec![
         select_ctl.into(),
-        container(space().width(1).height(20)).style(panel(p.line)).into(),
+        container(container(space().width(1).height(22)).style(panel(p.line)))
+            .padding([0, 8])
+            .into(),
         act(icons::EYE, t("mark_read"), Message::Bulk(Bulk::Read)),
         act(icons::MAIL, t("mark_unread"), Message::Bulk(Bulk::Unread)),
         act(icons::STAR_FILLED, t("star_add"), Message::Bulk(Bulk::Star)),
@@ -654,11 +656,11 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                 .into(),
         );
     }
-    let toolbar = container(dir_row(tools).spacing(2).align_y(Alignment::Center)).padding(Padding {
-        top: 12.0,
-        right: 16.0,
-        bottom: 6.0,
-        left: 16.0,
+    let toolbar = container(dir_row(tools).spacing(6).align_y(Alignment::Center)).padding(Padding {
+        top: 14.0,
+        right: 20.0,
+        bottom: 10.0,
+        left: 20.0,
     });
 
     // Folder name, with the sort order on its right.
@@ -688,12 +690,12 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         .into(),
         sort_btn.into(),
     ])
-    .spacing(8)
+    .spacing(12)
     .align_y(Alignment::Center)
     .padding(Padding {
-        top: 4.0,
-        right: 16.0,
-        bottom: 8.0,
+        top: 8.0,
+        right: 20.0,
+        bottom: 12.0,
         left: 20.0,
     });
     // Pages: "1–20 of 200" and the arrows.
