@@ -3,14 +3,14 @@
 //! CardDAV server (see `ferrowl_core::carddav`).
 
 use super::*;
-use crate::app::{App, ContactsSync};
+use crate::app::{App, SyncState};
 use crate::i18n::{t, tf};
 use ferrowl_core::vcard::Contact;
 use iced::widget::{Column, column, row, scrollable, space};
 use iced::{Alignment, Length::Fill, Padding};
 
 pub fn list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
-    let syncing = app.contacts_sync == ContactsSync::Running;
+    let syncing = app.contacts_sync == SyncState::Running;
     let sync = tooltip(
         button(icon(icons::SYNC, 18.0, p.text2))
             .padding(8)
@@ -48,8 +48,8 @@ pub fn list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
 
     // What the last sync did: running, failed (why), or how many contacts.
     let status: Element<'a, Message> = match &app.contacts_sync {
-        ContactsSync::Running => text(t("contacts_syncing")).size(12).color(p.muted).into(),
-        ContactsSync::Failed(e) => text(e.as_str()).size(12).color(p.danger).into(),
+        SyncState::Running => text(t("contacts_syncing")).size(12).color(p.muted).into(),
+        SyncState::Failed(e) => text(e.as_str()).size(12).color(p.danger).into(),
         _ => text(tf("contacts_count", &[("n", &app.contacts.len().to_string())]))
             .size(12)
             .font(MONO)

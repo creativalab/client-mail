@@ -86,6 +86,7 @@ fun MailboxScreen(
     onCompose: () -> Unit,
     onSettings: () -> Unit,
     onContacts: () -> Unit,
+    onCalendar: () -> Unit,
     vm: MailboxViewModel = hiltViewModel(),
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
@@ -105,7 +106,7 @@ fun MailboxScreen(
             ModalDrawerSheet {
                 // Scrollable list inside the sheet: some accounts have dozens of folders.
                 Column(Modifier.verticalScroll(rememberScrollState())) {
-                    // Contacts on top: the folder list can be long.
+                    // Contacts and calendar on top: the folder list can be long.
                     Spacer(Modifier.height(12.dp))
                     NavigationDrawerItem(
                         label = { Text(stringResource(R.string.contacts)) },
@@ -113,6 +114,15 @@ fun MailboxScreen(
                         onClick = {
                             scope.launch { drawer.close() }
                             onContacts()
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                    NavigationDrawerItem(
+                        label = { Text(stringResource(R.string.calendar)) },
+                        selected = false,
+                        onClick = {
+                            scope.launch { drawer.close() }
+                            onCalendar()
                         },
                         modifier = Modifier.padding(horizontal = 12.dp),
                     )

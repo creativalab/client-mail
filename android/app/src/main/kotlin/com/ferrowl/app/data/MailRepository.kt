@@ -2,6 +2,7 @@ package com.ferrowl.app.data
 
 import com.ferrowl.core.Account
 import com.ferrowl.core.AddressSuggestion
+import com.ferrowl.core.CalendarEvent
 import com.ferrowl.core.Contact
 import com.ferrowl.core.Engine
 import com.ferrowl.core.Folder
@@ -92,12 +93,23 @@ class MailRepository @Inject constructor(
     }
 
     /**
-     * Contacts from the account's CardDAV server, once per connection.
+     * Contacts and calendars from the account's CardDAV/CalDAV servers,
+     * once per connection.
      * Most mail accounts have no such server: failures are not shown here
      * (the contacts screen shows them when the user syncs by hand).
      */
     private suspend fun syncContactsQuietly() {
         runCatching { engine.syncContacts() }
+        runCatching { engine.syncCalendar() }
+    }
+
+    /** Event occurrences between two instants (seconds since the epoch). */
+    suspend fun agenda(from: Long, to: Long): List<CalendarEvent> =
+        withContext(Dispatchers.IO) { engine.agenda(from, to) }
+
+    /** Updates the calendars from the server. */
+    suspend fun syncCalendar() {
+        engine.syncCalendar()
     }
 
     /** Saved contacts matching [query] (all when empty), by name. */

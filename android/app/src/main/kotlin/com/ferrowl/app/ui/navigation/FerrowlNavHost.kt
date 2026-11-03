@@ -6,6 +6,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
+import com.ferrowl.app.ui.calendar.CalendarScreen
 import com.ferrowl.app.ui.compose.ComposeScreen
 import com.ferrowl.app.ui.contacts.ContactsScreen
 import com.ferrowl.app.ui.conversation.ConversationScreen
@@ -25,6 +26,7 @@ import kotlinx.serialization.Serializable
 @Serializable object Mailbox
 @Serializable object Settings
 @Serializable object Contacts
+@Serializable object Agenda
 @Serializable data class Read(val folderId: String, val uid: Long)
 
 /** A conversation; `uids` are comma-separated, oldest first. */
@@ -57,9 +59,11 @@ fun FerrowlNavHost() {
                 onCompose = { nav.navigate(Write()) },
                 onSettings = { nav.navigate(Settings) },
                 onContacts = { nav.navigate(Contacts) },
+                onCalendar = { nav.navigate(Agenda) },
             )
         }
         composable<Settings> { SettingsScreen(onBack = { nav.popBackStack() }) }
+        composable<Agenda> { CalendarScreen(onBack = { nav.popBackStack() }) }
         composable<Contacts> {
             ContactsScreen(
                 onBack = { nav.popBackStack() },

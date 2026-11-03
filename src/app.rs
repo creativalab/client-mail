@@ -29,9 +29,17 @@ pub enum Screen {
     Settings(Section),
 }
 
-/// Contacts sync with the CardDAV server.
+/// What the main window shows beside the sidebar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pane {
+    Mail,
+    Contacts,
+    Calendar,
+}
+
+/// A sync with the contacts or calendar server.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ContactsSync {
+pub enum SyncState {
     Idle,
     Running,
     Done,
@@ -300,6 +308,8 @@ pub struct AccountDraft {
     pub keyring: bool,
     /// Contacts server (empty = automatic).
     pub carddav_url: String,
+    /// Calendar server (empty = automatic).
+    pub caldav_url: String,
 }
 
 impl AccountDraft {
@@ -342,6 +352,7 @@ impl AccountDraft {
             pop3_keep_days: a.pop3_keep_days,
             keyring: a.keyring,
             carddav_url: a.carddav_url.clone(),
+            caldav_url: a.caldav_url.clone(),
         }
     }
 
@@ -360,6 +371,7 @@ impl AccountDraft {
             pop3_keep_days: self.pop3_keep_days,
             keyring: self.keyring,
             carddav_url: self.carddav_url.trim().to_string(),
+            caldav_url: self.caldav_url.trim().to_string(),
         };
         a.is_complete().then_some(a)
     }
@@ -376,6 +388,7 @@ pub enum Field {
     SmtpHost,
     SmtpPort,
     CardDav,
+    CalDav,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -463,13 +476,19 @@ pub struct App {
     pub toast: Option<Toast>,
     toast_seq: u64,
     dev_shots: u32,
-    /// The contacts pane replaces the message list and reader.
-    pub contacts_open: bool,
+    /// Contacts or calendar in place of the message list and reader.
+    pub pane: Pane,
     /// Contacts matching `contacts_query`, by name.
     pub contacts: Vec<ferrowl_core::vcard::Contact>,
     pub contacts_query: String,
     pub contact_selected: Option<usize>,
-    pub contacts_sync: ContactsSync,
+    pub contacts_sync: SyncState,
+    /// First day of the month shown in the calendar.
+    pub cal_month: chrono::NaiveDate,
+    /// That month's events.
+    pub agenda: Vec<ferrowl_core::backend::AgendaEntry>,
+    pub agenda_selected: Option<usize>,
+    pub calendar_sync: SyncState,
 }
 
 // ---------------------------------------------------------------- messages
@@ -619,6 +638,12 @@ pub enum Message {
     ContactSelect(usize),
     SyncContacts,
     ContactsSynced(Res<usize>),
+    OpenCalendar,
+    /// Moves the calendar by months (0 = back to this month).
+    CalendarMonth(i32),
+    AgendaSelect(usize),
+    SyncCalendar,
+    CalendarSynced(Res<usize>),
     /// New message to (name, address).
     WriteTo(String, String),
     // compose
@@ -726,11 +751,15 @@ impl App {
             toast: None,
             toast_seq: 0,
             dev_shots: 0,
-            contacts_open: false,
+            pane: Pane::Mail,
             contacts: Vec::new(),
             contacts_query: String::new(),
             contact_selected: None,
-            contacts_sync: ContactsSync::Idle,
+            contacts_sync: SyncState::Idle,
+            cal_month: month_start(ferrowl_core::ical::today()),
+            agenda: Vec::new(),
+            agenda_selected: None,
+            calendar_sync: SyncState::Idle,
         };
         // Development: open a given view directly (used for screenshots).
         match std::env::var("FERROWL_DEV_VIEW").as_deref() {
@@ -751,8 +780,23 @@ impl App {
             Ok("general") => app.screen = Screen::Settings(Section::General),
             Ok("security") => app.screen = Screen::Settings(Section::Security),
             Ok("popover") => app.appearance_open = true,
+            Ok("calendar") => {
+                app.pane = Pane::Calendar;
+                if let Some(m) = std::env::var("FERROWL_DEV_MONTH")
+                    .ok()
+                    .and_then(|m| chrono::NaiveDate::parse_from_str(&format!("{m}-01"), "%Y-%m-%d").ok())
+                {
+                    app.cal_month = m;
+                }
+                app.reload_agenda();
+                let nth = std::env::var("FERROWL_DEV_OPEN_NTH")
+                    .ok()
+                    .and_then(|n| n.parse().ok())
+                    .unwrap_or(0);
+                app.agenda_selected = (nth < app.agenda.len()).then_some(nth);
+            }
             Ok("contacts") => {
-                app.contacts_open = true;
+                app.pane = Pane::Contacts;
                 app.reload_contacts();
                 let nth = std::env::var("FERROWL_DEV_OPEN_NTH")
                     .ok()
@@ -1242,11 +1286,14 @@ impl App {
         self.unseen.clear();
         self.confirm_delete = false;
         self.last_sync = None;
-        self.contacts_open = false;
+        self.pane = Pane::Mail;
         self.contacts.clear();
         self.contacts_query.clear();
         self.contact_selected = None;
-        self.contacts_sync = ContactsSync::Idle;
+        self.contacts_sync = SyncState::Idle;
+        self.agenda.clear();
+        self.agenda_selected = None;
+        self.calendar_sync = SyncState::Idle;
     }
 
     /// Shows account `i` in the main window, with a fresh IMAP session.
@@ -1276,7 +1323,7 @@ impl App {
         let Some(acc) = self.config.account().cloned() else {
             return Task::none();
         };
-        self.contacts_sync = ContactsSync::Running;
+        self.contacts_sync = SyncState::Running;
         self.perform(
             async move {
                 tokio::time::sleep(delay).await;
@@ -1284,6 +1331,40 @@ impl App {
             },
             Message::ContactsSynced,
         )
+    }
+
+    /// Syncs the active account's calendars after `delay`.
+    fn sync_calendar(&mut self, delay: Duration) -> Task<Message> {
+        let Some(acc) = self.config.account().cloned() else {
+            return Task::none();
+        };
+        self.calendar_sync = SyncState::Running;
+        self.perform(
+            async move {
+                tokio::time::sleep(delay).await;
+                Backend::sync_calendar(acc).await
+            },
+            Message::CalendarSynced,
+        )
+    }
+
+    /// Reads the shown month's events from the cache, keeping the open one.
+    fn reload_agenda(&mut self) {
+        let Some(acc) = self.config.account() else {
+            return;
+        };
+        let open = self
+            .agenda_selected
+            .and_then(|i| self.agenda.get(i))
+            .map(|e| (e.occurrence.uid.clone(), e.occurrence.start));
+        let from = ferrowl_core::ical::day_start(self.cal_month);
+        let to = ferrowl_core::ical::day_start(shift_month(self.cal_month, 1));
+        self.agenda = Backend::agenda(acc, from, to);
+        self.agenda_selected = open.and_then(|(uid, start)| {
+            self.agenda
+                .iter()
+                .position(|e| e.occurrence.uid == uid && e.occurrence.start == start)
+        });
     }
 
     /// Reads the contacts list from the cache, keeping the open contact.
@@ -1589,12 +1670,17 @@ impl App {
                 };
                 // Contacts from the CardDAV server, quietly: most mail
                 // accounts have none, and that is not an error to show.
-                let contacts = if self.contacts_sync == ContactsSync::Idle {
+                let contacts = if self.contacts_sync == SyncState::Idle {
                     self.sync_contacts(Duration::from_secs(8))
                 } else {
                     Task::none()
                 };
-                Task::batch([load, self.refresh_unseen(), sent, contacts])
+                let calendar = if self.calendar_sync == SyncState::Idle {
+                    self.sync_calendar(Duration::from_secs(10))
+                } else {
+                    Task::none()
+                };
+                Task::batch([load, self.refresh_unseen(), sent, contacts, calendar])
             }
             Message::Connected(Err(e)) => {
                 self.conn = Conn::Error(e.clone());
@@ -1674,7 +1760,7 @@ impl App {
                 Err(e) => self.toast(e, true),
             },
             Message::SelectFolder(name) => {
-                self.contacts_open = false;
+                self.pane = Pane::Mail;
                 self.checked.clear();
                 self.appearance_open = false;
                 self.screen = Screen::Mail;
@@ -2416,6 +2502,7 @@ impl App {
                     Field::SmtpHost => &mut d.smtp_host,
                     Field::SmtpPort => &mut d.smtp_port,
                     Field::CardDav => &mut d.carddav_url,
+                    Field::CalDav => &mut d.caldav_url,
                 };
                 *target = value;
                 // New account: recognise the provider from the address.
@@ -2573,7 +2660,7 @@ impl App {
                 }
             }
             Message::OpenContacts => {
-                self.contacts_open = true;
+                self.pane = Pane::Contacts;
                 self.appearance_open = false;
                 self.screen = Screen::Mail;
                 self.reload_contacts();
@@ -2589,17 +2676,52 @@ impl App {
                 Task::none()
             }
             Message::SyncContacts => {
-                if self.contacts_sync == ContactsSync::Running {
+                if self.contacts_sync == SyncState::Running {
                     return Task::none();
                 }
                 self.sync_contacts(Duration::ZERO)
             }
             Message::ContactsSynced(r) => {
                 self.contacts_sync = match r {
-                    Ok(_) => ContactsSync::Done,
-                    Err(e) => ContactsSync::Failed(e),
+                    Ok(_) => SyncState::Done,
+                    Err(e) => SyncState::Failed(e),
                 };
                 self.reload_contacts();
+                Task::none()
+            }
+            Message::OpenCalendar => {
+                self.pane = Pane::Calendar;
+                self.appearance_open = false;
+                self.screen = Screen::Mail;
+                self.reload_agenda();
+                Task::none()
+            }
+            Message::CalendarMonth(delta) => {
+                self.cal_month = if delta == 0 {
+                    month_start(ferrowl_core::ical::today())
+                } else {
+                    shift_month(self.cal_month, delta)
+                };
+                self.agenda_selected = None;
+                self.reload_agenda();
+                Task::none()
+            }
+            Message::AgendaSelect(i) => {
+                self.agenda_selected = (i < self.agenda.len()).then_some(i);
+                Task::none()
+            }
+            Message::SyncCalendar => {
+                if self.calendar_sync == SyncState::Running {
+                    return Task::none();
+                }
+                self.sync_calendar(Duration::ZERO)
+            }
+            Message::CalendarSynced(r) => {
+                self.calendar_sync = match r {
+                    Ok(_) => SyncState::Done,
+                    Err(e) => SyncState::Failed(e),
+                };
+                self.reload_agenda();
                 Task::none()
             }
             Message::WriteTo(name, address) => {
@@ -3053,4 +3175,17 @@ fn raise_requests() -> impl iced::futures::Stream<Item = Message> {
 
 fn quit<T>() -> Task<T> {
     std::process::exit(0)
+}
+
+/// First day of the month of `d`.
+fn month_start(d: chrono::NaiveDate) -> chrono::NaiveDate {
+    use chrono::Datelike;
+    d.with_day(1).unwrap_or(d)
+}
+
+/// First day of the month `delta` months after `d`'s.
+pub fn shift_month(d: chrono::NaiveDate, delta: i32) -> chrono::NaiveDate {
+    use chrono::Datelike;
+    let total = d.year() * 12 + d.month0() as i32 + delta;
+    chrono::NaiveDate::from_ymd_opt(total.div_euclid(12), total.rem_euclid(12) as u32 + 1, 1).unwrap_or(d)
 }

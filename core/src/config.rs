@@ -32,6 +32,9 @@ pub struct Account {
     /// Contacts server (CardDAV); empty = found from the address's domain.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub carddav_url: String,
+    /// Calendar server (CalDAV); empty = found from the address's domain.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub caldav_url: String,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,6 +61,7 @@ impl Default for Account {
             pop3_keep_days: None,
             keyring: false,
             carddav_url: String::new(),
+            caldav_url: String::new(),
         }
     }
 }
