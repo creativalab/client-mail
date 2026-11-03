@@ -165,6 +165,9 @@ pub struct Header {
     pub message_id: String,
     /// Ids this message replies to.
     pub parents: Vec<String>,
+    /// Starred (IMAP \\Flagged).
+    #[uniffi(default = false)]
+    pub flagged: bool,
 }
 
 impl From<mail::Header> for Header {
@@ -179,6 +182,7 @@ impl From<mail::Header> for Header {
             has_attachment: h.has_attachment,
             message_id: h.message_id,
             parents: h.parents,
+            flagged: h.flagged,
         }
     }
 }
@@ -195,6 +199,7 @@ impl From<&Header> for mail::Header {
             has_attachment: h.has_attachment,
             message_id: h.message_id.clone(),
             parents: h.parents.clone(),
+            flagged: h.flagged,
             ..Default::default()
         }
     }
@@ -991,6 +996,11 @@ impl Engine {
     }
 
     /// Marks several messages read or unread with one server command.
+    /// Stars or unstars messages (IMAP \\Flagged).
+    pub async fn set_flagged_many(&self, folder_id: String, uids: Vec<u32>, flagged: bool) -> Result<()> {
+        Ok(self.backend.set_flagged_many(folder_id, uids, flagged).await?)
+    }
+
     pub async fn set_seen_many(&self, folder_id: String, uids: Vec<u32>, seen: bool) -> Result<()> {
         Ok(self.backend.set_seen_many(folder_id, uids, seen).await?)
     }
@@ -1109,6 +1119,7 @@ mod tests {
             has_attachment: false,
             message_id: id.into(),
             parents: parent.iter().map(|p| p.to_string()).collect(),
+            flagged: false,
         };
         let c = group_conversations(vec![h(1, "a", &[]), h(2, "b", &["a"]), h(3, "x", &[])]);
         assert_eq!(c.len(), 2);

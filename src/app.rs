@@ -147,10 +147,17 @@ pub enum Select {
     None,
     Read,
     Unread,
+    Starred,
 }
 
 impl Select {
-    pub const ALL: [Select; 4] = [Select::All, Select::None, Select::Read, Select::Unread];
+    pub const ALL: [Select; 5] = [
+        Select::All,
+        Select::None,
+        Select::Read,
+        Select::Unread,
+        Select::Starred,
+    ];
 }
 
 impl std::fmt::Display for Select {
@@ -160,6 +167,7 @@ impl std::fmt::Display for Select {
             Select::None => "select_none",
             Select::Read => "select_read",
             Select::Unread => "select_unread",
+            Select::Starred => "select_starred",
         }))
     }
 }
@@ -169,6 +177,8 @@ impl std::fmt::Display for Select {
 pub enum Bulk {
     Read,
     Unread,
+    Star,
+    Unstar,
     Archive,
     Delete,
 }
@@ -190,6 +200,7 @@ impl std::fmt::Display for MoveTarget {
 pub enum ListFilter {
     All,
     Unread,
+    Starred,
     Attachments,
 }
 
@@ -577,6 +588,10 @@ pub struct App {
     pub calendar_sync: SyncState,
     pub invite: Option<InviteCard>,
     pub event_form: Option<EventForm>,
+    /// Keyboard modifiers held now (for Shift/Ctrl+click in the list).
+    pub modifiers: keyboard::Modifiers,
+    /// Row last clicked or checked: where a Shift+click range starts.
+    pub anchor: Option<u32>,
     /// Asking before deleting the open event.
     pub confirm_event_delete: bool,
 }
@@ -630,6 +645,9 @@ pub enum Message {
     SetFilter(ListFilter),
     /// Checkbox of a list row: its uids (a whole conversation when grouped).
     Check(Vec<u32>, bool),
+    /// Star (true) or unstar messages of the open folder.
+    ToggleStar(Vec<u32>, bool),
+    StarSaved(Res<()>),
     SelectBy(Select),
     Bulk(Bulk),
     /// Moves the checked messages to a folder.
@@ -872,6 +890,8 @@ impl App {
             calendar_sync: SyncState::Idle,
             invite: None,
             event_form: None,
+            modifiers: keyboard::Modifiers::default(),
+            anchor: None,
             confirm_event_delete: false,
         };
         // Development: open a given view directly (used for screenshots).
@@ -1130,6 +1150,52 @@ impl App {
     }
 
     /// An action on all checked messages, one server command each.
+    /// Stars or unstars messages in the lists right away (the server
+    /// follows; a failure reloads the folder).
+    fn set_stars(&mut self, uids: &[u32], on: bool) {
+        for h in self
+            .headers
+            .iter_mut()
+            .chain(self.search_results.iter_mut().flatten())
+        {
+            if uids.contains(&h.uid) {
+                h.flagged = on;
+            }
+        }
+    }
+
+    /// Rows of the message list as shown: the messages of each row
+    /// (one, or a whole conversation).
+    pub fn rows(&self) -> Vec<Vec<u32>> {
+        let visible = self.visible();
+        if self.config.ui.threaded {
+            ferrowl_core::threads::group(&visible)
+                .into_iter()
+                .map(|t| t.members.iter().map(|&i| visible[i].uid).collect())
+                .collect()
+        } else {
+            visible.iter().map(|h| vec![h.uid]).collect()
+        }
+    }
+
+    /// Shift+click: checks every row between the last clicked one and
+    /// this one (inclusive).
+    fn check_range(&mut self, uid: u32) {
+        let rows = self.rows();
+        let pos = |u: u32| rows.iter().position(|r| r.contains(&u));
+        let (Some(to), Some(from)) = (pos(uid), self.anchor.and_then(pos)) else {
+            if let Some(r) = pos(uid) {
+                self.checked.extend(rows[r].iter().copied());
+            }
+            self.anchor = Some(uid);
+            return;
+        };
+        let (a, b) = if from <= to { (from, to) } else { (to, from) };
+        for r in &rows[a..=b] {
+            self.checked.extend(r.iter().copied());
+        }
+    }
+
     fn bulk(&mut self, action: Bulk) -> Task<Message> {
         let Some(folder) = self.current_folder.clone() else {
             return Task::none();
@@ -1160,6 +1226,14 @@ impl App {
                 }
                 self.perform(
                     async move { b.set_seen_many(folder, uids, seen).await },
+                    Message::BulkSeen,
+                )
+            }
+            Bulk::Star | Bulk::Unstar => {
+                let on = action == Bulk::Star;
+                self.set_stars(&uids, on);
+                self.perform(
+                    async move { b.set_flagged_many(folder, uids, on).await },
                     Message::BulkSeen,
                 )
             }
@@ -1602,6 +1676,7 @@ impl App {
             .filter(|h| match self.filter {
                 ListFilter::All => true,
                 ListFilter::Unread => !h.seen,
+                ListFilter::Starred => h.flagged,
                 ListFilter::Attachments => h.has_attachment,
             })
             .filter(|h| {
@@ -1614,6 +1689,8 @@ impl App {
                         !h.seen
                     } else if tok == "is:read" {
                         h.seen
+                    } else if tok == "is:starred" {
+                        h.flagged
                     } else if indexed {
                         true
                     } else {
@@ -1827,6 +1904,13 @@ impl App {
             }
             Message::Unseen(Err(_)) => Task::none(),
             Message::Check(uids, on) => {
+                if self.modifiers.shift()
+                    && let Some(&first) = uids.first()
+                {
+                    self.check_range(first);
+                    return Task::none();
+                }
+                self.anchor = uids.first().copied();
                 for uid in uids {
                     if on {
                         self.checked.insert(uid);
@@ -1845,6 +1929,7 @@ impl App {
                         Select::None => false,
                         Select::Read => h.seen,
                         Select::Unread => !h.seen,
+                        Select::Starred => h.flagged,
                     })
                     .map(|h| h.uid)
                     .collect();
@@ -2141,7 +2226,52 @@ impl App {
                 self.filter = f;
                 Task::none()
             }
-            Message::Open(uid) => self.open(uid),
+            // Shift+click: select a range; Ctrl/Cmd+click: add or remove one
+            // row; plain click: open.
+            Message::Open(uid) if self.modifiers.shift() => {
+                self.check_range(uid);
+                Task::none()
+            }
+            Message::Open(uid) if self.modifiers.command() => {
+                let row = self
+                    .rows()
+                    .into_iter()
+                    .find(|r| r.contains(&uid))
+                    .unwrap_or(vec![uid]);
+                let on = !row.iter().all(|u| self.checked.contains(u));
+                for u in row {
+                    if on {
+                        self.checked.insert(u);
+                    } else {
+                        self.checked.remove(&u);
+                    }
+                }
+                self.anchor = Some(uid);
+                Task::none()
+            }
+            Message::Open(uid) => {
+                self.anchor = Some(uid);
+                self.open(uid)
+            }
+            Message::ToggleStar(uids, on) => {
+                let Some(folder) = self.current_folder.clone() else {
+                    return Task::none();
+                };
+                self.set_stars(&uids, on);
+                let b = self.backend.clone();
+                self.perform(
+                    async move { b.set_flagged_many(folder, uids, on).await },
+                    Message::StarSaved,
+                )
+            }
+            Message::StarSaved(Ok(())) => Task::none(),
+            Message::StarSaved(Err(e)) => {
+                let reload = match self.current_folder.clone() {
+                    Some(f) => self.load_folder(f, true),
+                    None => Task::none(),
+                };
+                Task::batch([self.toast(e, true), reload])
+            }
             Message::Loaded(Ok(msg)) => {
                 if Some(msg.uid) != self.selected {
                     return Task::none();
@@ -3289,6 +3419,14 @@ impl App {
                     let first: Vec<u32> = self.visible().iter().take(n).map(|h| h.uid).collect();
                     self.checked.extend(first);
                 }
+                // Development: star the newest message after the first shot.
+                if std::env::var_os("FERROWL_DEV_STAR").is_some()
+                    && self.dev_shots == 1
+                    && let Some(h) = self.visible().first().filter(|h| !h.flagged)
+                {
+                    let uid = h.uid;
+                    return self.update(Message::ToggleStar(vec![uid], true));
+                }
                 // Development: answer the open invitation after the first shot.
                 if let Some(reply) = std::env::var("FERROWL_DEV_INVITE")
                     .ok()
@@ -3338,9 +3476,15 @@ impl App {
 
     /// Keyboard shortcuts (only when no text field has focus).
     fn shortcut(&mut self, event: keyboard::Event) -> Task<Message> {
+        // Shift / Ctrl held while clicking the list selects ranges.
+        if let keyboard::Event::ModifiersChanged(m) = event {
+            self.modifiers = m;
+            return Task::none();
+        }
         let keyboard::Event::KeyPressed { key, modifiers, .. } = event else {
             return Task::none();
         };
+        self.modifiers = modifiers;
         // Delete dialog open: Enter confirms, Esc cancels, other keys do nothing.
         if self.confirm_delete {
             return match key {

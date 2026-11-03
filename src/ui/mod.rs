@@ -74,6 +74,14 @@ macro_rules! icon_svg {
 }
 
 pub mod icons {
+    pub const STAR: &str =
+        icon_svg!(r#"<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>"#);
+    /// Filled star (the svg color fills the shape too).
+    pub const STAR_FILLED: &str = concat!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="black" stroke="black" stroke-width="2" stroke-linejoin="round">"#,
+        r#"<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>"#,
+        "</svg>"
+    );
     pub const PLUS: &str = icon_svg!(r#"<path d="M12 5v14"/><path d="M5 12h14"/>"#);
     pub const CALENDAR: &str = icon_svg!(
         r#"<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>"#
@@ -367,6 +375,47 @@ pub fn input(p: Palette, r: f32) -> impl Fn(&Theme, text_input::Status) -> text_
 }
 
 /// Borderless field (used inside containers that already have a border).
+/// Drop-down lists in the theme's colors (the default iced look is grey
+/// and square): a field like the filter chips, and a menu like a card.
+pub fn pick_style(
+    p: Palette,
+) -> impl Fn(&Theme, iced::widget::pick_list::Status) -> iced::widget::pick_list::Style {
+    move |_, status| {
+        use iced::widget::pick_list::Status;
+        let active = matches!(status, Status::Hovered | Status::Opened { .. });
+        iced::widget::pick_list::Style {
+            text_color: p.text,
+            placeholder_color: p.text2,
+            handle_color: p.text2,
+            background: Background::Color(if active { mix(p.chip, p.soft, 0.6) } else { p.chip }),
+            border: Border {
+                color: if active { p.accent } else { p.line },
+                width: 1.0,
+                radius: radius(9.0),
+            },
+        }
+    }
+}
+
+pub fn menu_style(p: Palette) -> impl Fn(&Theme) -> iced::widget::overlay::menu::Style {
+    move |_| iced::widget::overlay::menu::Style {
+        background: Background::Color(p.bg),
+        border: Border {
+            color: p.line,
+            width: 1.0,
+            radius: radius(10.0),
+        },
+        text_color: p.text,
+        selected_text_color: p.active_text,
+        selected_background: Background::Color(p.soft),
+        shadow: Shadow {
+            color: Color::from_rgba(0.0, 0.0, 0.0, 0.18),
+            offset: Vector::new(0.0, 6.0),
+            blur_radius: 18.0,
+        },
+    }
+}
+
 pub fn bare_input(p: Palette) -> impl Fn(&Theme, text_input::Status) -> text_input::Style {
     move |_, _| text_input::Style {
         background: Background::Color(Color::TRANSPARENT),

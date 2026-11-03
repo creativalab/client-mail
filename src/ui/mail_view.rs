@@ -540,6 +540,7 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         row![
             seg(t("filter_all"), ListFilter::All),
             seg(t("filter_unread"), ListFilter::Unread),
+            seg(t("filter_starred"), ListFilter::Starred),
             seg(t("filter_attachments"), ListFilter::Attachments),
         ]
         .spacing(4),
@@ -547,9 +548,17 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     .padding(3)
     .style(chip_box(p.chip, p.text2, 9.0));
 
+    // Folder name with the Select menu on its right; the four filters
+    // have the line below to themselves.
+    let picker = iced::widget::pick_list(Select::ALL, None::<Select>, Message::SelectBy)
+        .placeholder(t("select"))
+        .text_size(13)
+        .padding([6, 10])
+        .style(pick_style(p))
+        .menu_style(menu_style(p));
     let header = dir_row(vec![
         container(
-            text(trunc(&title, 22))
+            text(trunc(&title, 30))
                 .size(20)
                 .font(INTER_BOLD)
                 .wrapping(Wrapping::None),
@@ -557,24 +566,20 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         .width(Fill)
         .clip(true)
         .into(),
-        filters.into(),
+        picker.into(),
     ])
     .spacing(12)
     .align_y(Alignment::Center)
     .padding(Padding {
         top: 16.0,
         right: 20.0,
-        bottom: 12.0,
+        bottom: 10.0,
         left: 20.0,
     });
 
-    let picker = iced::widget::pick_list(Select::ALL, None::<Select>, Message::SelectBy)
-        .placeholder(t("select"))
-        .text_size(12)
-        .padding([4, 8]);
     let bar: Element<'a, Message> = if app.checked.is_empty() {
         // Conversations or messages is chosen in Settings › Appearance.
-        dir_row(vec![space::horizontal().into(), picker.into()])
+        dir_row(vec![filters.into(), space::horizontal().into()])
             .align_y(Alignment::Center)
             .into()
     } else {
@@ -598,6 +603,8 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             space::horizontal().into(),
             act(icons::EYE, t("mark_read"), Message::Bulk(Bulk::Read)),
             act(icons::MAIL, t("mark_unread"), Message::Bulk(Bulk::Unread)),
+            act(icons::STAR_FILLED, t("star_add"), Message::Bulk(Bulk::Star)),
+            act(icons::STAR, t("star_remove"), Message::Bulk(Bulk::Unstar)),
             act(icons::ARCHIVE, t("archive"), Message::Bulk(Bulk::Archive)),
             {
                 // "Move to": every other selectable folder.
@@ -612,8 +619,10 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                     .collect();
                 iced::widget::pick_list(targets, None::<MoveTarget>, Message::BulkMove)
                     .placeholder(t("move_to"))
-                    .text_size(12)
-                    .padding([4, 8])
+                    .text_size(13)
+                    .padding([6, 10])
+                    .style(pick_style(p))
+                    .menu_style(menu_style(p))
                     .into()
             },
             act(icons::TRASH, t("delete"), Message::Bulk(Bulk::Delete)),
@@ -721,6 +730,26 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                     .color(p.muted)
                     .into(),
             );
+            // Star: on when any message of the row is starred; a click
+            // stars (or unstars) the whole row.
+            let starred = uids.iter().any(|u| {
+                app.headers
+                    .iter()
+                    .chain(app.search_results.iter().flatten())
+                    .any(|m| m.uid == *u && m.flagged)
+            });
+            top.push(tooltip(
+                button(icon(
+                    if starred { icons::STAR_FILLED } else { icons::STAR },
+                    15.0,
+                    if starred { theme::hex("#E2A400") } else { p.field },
+                ))
+                .padding(2)
+                .style(ghost(p, p.muted))
+                .on_press(Message::ToggleStar(uids.clone(), !starred)),
+                if starred { t("star_remove") } else { t("star_add") },
+                p,
+            ));
 
             let mut lines = column![
                 dir_row(top).spacing(8).align_y(Alignment::Center),
@@ -876,6 +905,27 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         t("mark_unread"),
         p,
     ));
+    let starred = app
+        .headers
+        .iter()
+        .chain(app.search_results.iter().flatten())
+        .any(|h| h.uid == msg.uid && h.flagged);
+    tools.push(tooltip(
+        button(
+            container(icon(
+                if starred { icons::STAR_FILLED } else { icons::STAR },
+                18.0,
+                if starred { theme::hex("#E2A400") } else { p.text2 },
+            ))
+            .center_y(Fill),
+        )
+        .height(44)
+        .padding([0, 13])
+        .style(ghost(p, p.text2))
+        .on_press(Message::ToggleStar(vec![msg.uid], !starred)),
+        if starred { t("star_remove") } else { t("star_add") },
+        p,
+    ));
     tools.push(space::horizontal().into());
     if msg.html.is_some() {
         let label = if show_html { t("view_text") } else { t("view_html") };
@@ -918,24 +968,6 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             }
             None => {}
         }
-    }
-    if msg.dkim_pass {
-        tools.push(
-            container(
-                row![
-                    icon(icons::LOCK, 14.0, p.sec_text),
-                    text(t("dkim_ok"))
-                        .size(12)
-                        .font(medium())
-                        .wrapping(Wrapping::None)
-                ]
-                .spacing(6)
-                .align_y(Alignment::Center),
-            )
-            .padding([6, 10])
-            .style(chip_box(p.sec_bg, p.sec_text, 8.0))
-            .into(),
-        );
     }
     let toolbar = container(dir_row(tools).spacing(4).align_y(Alignment::Center))
         .padding([10, 16])

@@ -47,10 +47,16 @@ class MessageViewModel @Inject constructor(private val repo: MailRepository) : V
     /** Results to show in a snackbar ("Reply sent…"). */
     val notices: SharedFlow<String> = _notices.asSharedFlow()
 
-    fun load(folderId: String, uid: UInt) {
+    private val _starred = MutableStateFlow(false)
+
+    /** The message's star (IMAP \\Flagged). */
+    val starred: StateFlow<Boolean> = _starred.asStateFlow()
+
+    fun load(folderId: String, uid: UInt, starred: Boolean = false) {
         if (this.folderId == folderId && this.uid == uid) return
         this.folderId = folderId
         this.uid = uid
+        _starred.value = starred
         viewModelScope.launch {
             _state.value = try {
                 MessageState.Shown(repo.message(folderId, uid))
@@ -111,6 +117,20 @@ class MessageViewModel @Inject constructor(private val repo: MailRepository) : V
     fun delete() = act { repo.delete(folderId, uid) }
 
     fun markUnread() = act { repo.setSeen(folderId, uid, false) }
+
+    /** Stars or unstars the message (the screen stays open). */
+    fun toggleStar() {
+        val on = !_starred.value
+        _starred.value = on
+        viewModelScope.launch {
+            try {
+                repo.setFlagged(folderId, listOf(uid), on)
+            } catch (e: FerrowlException) {
+                _starred.value = !on
+                _notices.emit(e.message.orEmpty())
+            }
+        }
+    }
 
     private fun act(action: suspend () -> Unit) {
         viewModelScope.launch {

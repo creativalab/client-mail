@@ -47,6 +47,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrowl.app.R
+import com.ferrowl.app.ui.mailbox.StarButton
 import com.ferrowl.core.Message
 
 /** What the user can do with an open message. */
@@ -57,11 +58,13 @@ enum class ReplyKind { REPLY, REPLY_ALL, FORWARD }
 fun MessageScreen(
     folderId: String,
     uid: UInt,
+    starred: Boolean,
     onBack: () -> Unit,
     onReply: (ReplyKind) -> Unit,
     vm: MessageViewModel = hiltViewModel(),
 ) {
-    LaunchedEffect(folderId, uid) { vm.load(folderId, uid) }
+    LaunchedEffect(folderId, uid) { vm.load(folderId, uid, starred) }
+    val star by vm.starred.collectAsStateWithLifecycle()
     val state by vm.state.collectAsStateWithLifecycle()
     LaunchedEffect(state) { if (state == MessageState.Gone) onBack() }
     val invite by vm.invite.collectAsStateWithLifecycle()
@@ -82,6 +85,7 @@ fun MessageScreen(
                 },
                 actions = {
                     if (state is MessageState.Shown) {
+                        StarButton(star, onClick = vm::toggleStar)
                         IconButton(onClick = { if (vm.deletesForever) confirmDelete = true else vm.delete() }) {
                             Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.delete))
                         }
