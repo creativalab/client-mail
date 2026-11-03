@@ -3842,6 +3842,15 @@ impl App {
             return Task::none();
         };
         self.modifiers = modifiers;
+        // Tab / Shift+Tab move between the fields of forms (account,
+        // compose, event, settings…); iced does not do it by itself.
+        if let Key::Named(Named::Tab) = key.as_ref() {
+            return if modifiers.shift() {
+                operation::focus_previous()
+            } else {
+                operation::focus_next()
+            };
+        }
         // Delete dialog open: Enter confirms, Esc cancels, other keys do nothing.
         if self.confirm_delete {
             return match key {
