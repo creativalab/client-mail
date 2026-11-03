@@ -210,7 +210,9 @@ fn general(app: &App, p: Palette) -> Element<'_, Message> {
     })
     .text_size(14)
     .padding([10, 12])
-    .width(220);
+    .width(220)
+    .style(pick_style(p))
+    .menu_style(menu_style(p));
 
     column![
         title(t("section_general"), t("general_desc"), p),
@@ -678,7 +680,9 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
                     })
                     .text_size(14)
                     .padding([10, 12])
-                    .width(280),
+                    .width(280)
+                    .style(pick_style(p))
+                    .menu_style(menu_style(p)),
                     text(t("pop3_local_note")).size(12).color(p.muted),
                 ]
                 .spacing(6),

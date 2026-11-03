@@ -375,6 +375,47 @@ pub fn input(p: Palette, r: f32) -> impl Fn(&Theme, text_input::Status) -> text_
 }
 
 /// Borderless field (used inside containers that already have a border).
+/// Drop-down lists in the theme's colors (the default iced look is grey
+/// and square): a field like the filter chips, and a menu like a card.
+pub fn pick_style(
+    p: Palette,
+) -> impl Fn(&Theme, iced::widget::pick_list::Status) -> iced::widget::pick_list::Style {
+    move |_, status| {
+        use iced::widget::pick_list::Status;
+        let active = matches!(status, Status::Hovered | Status::Opened { .. });
+        iced::widget::pick_list::Style {
+            text_color: p.text,
+            placeholder_color: p.text2,
+            handle_color: p.text2,
+            background: Background::Color(if active { mix(p.chip, p.soft, 0.6) } else { p.chip }),
+            border: Border {
+                color: if active { p.accent } else { p.line },
+                width: 1.0,
+                radius: radius(9.0),
+            },
+        }
+    }
+}
+
+pub fn menu_style(p: Palette) -> impl Fn(&Theme) -> iced::widget::overlay::menu::Style {
+    move |_| iced::widget::overlay::menu::Style {
+        background: Background::Color(p.bg),
+        border: Border {
+            color: p.line,
+            width: 1.0,
+            radius: radius(10.0),
+        },
+        text_color: p.text,
+        selected_text_color: p.active_text,
+        selected_background: Background::Color(p.soft),
+        shadow: Shadow {
+            color: Color::from_rgba(0.0, 0.0, 0.0, 0.18),
+            offset: Vector::new(0.0, 6.0),
+            blur_radius: 18.0,
+        },
+    }
+}
+
 pub fn bare_input(p: Palette) -> impl Fn(&Theme, text_input::Status) -> text_input::Style {
     move |_, _| text_input::Style {
         background: Background::Color(Color::TRANSPARENT),

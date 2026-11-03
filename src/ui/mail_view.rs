@@ -548,16 +548,28 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     .padding(3)
     .style(chip_box(p.chip, p.text2, 9.0));
 
-    // The folder name on its own line: the filters (four of them) and the
-    // Select menu share the line below.
-    let header = container(
-        text(trunc(&title, 34))
-            .size(20)
-            .font(INTER_BOLD)
-            .wrapping(Wrapping::None),
-    )
-    .width(Fill)
-    .clip(true)
+    // Folder name with the Select menu on its right; the four filters
+    // have the line below to themselves.
+    let picker = iced::widget::pick_list(Select::ALL, None::<Select>, Message::SelectBy)
+        .placeholder(t("select"))
+        .text_size(13)
+        .padding([6, 10])
+        .style(pick_style(p))
+        .menu_style(menu_style(p));
+    let header = dir_row(vec![
+        container(
+            text(trunc(&title, 30))
+                .size(20)
+                .font(INTER_BOLD)
+                .wrapping(Wrapping::None),
+        )
+        .width(Fill)
+        .clip(true)
+        .into(),
+        picker.into(),
+    ])
+    .spacing(12)
+    .align_y(Alignment::Center)
     .padding(Padding {
         top: 16.0,
         right: 20.0,
@@ -565,13 +577,9 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         left: 20.0,
     });
 
-    let picker = iced::widget::pick_list(Select::ALL, None::<Select>, Message::SelectBy)
-        .placeholder(t("select"))
-        .text_size(12)
-        .padding([4, 8]);
     let bar: Element<'a, Message> = if app.checked.is_empty() {
         // Conversations or messages is chosen in Settings › Appearance.
-        dir_row(vec![filters.into(), space::horizontal().into(), picker.into()])
+        dir_row(vec![filters.into(), space::horizontal().into()])
             .align_y(Alignment::Center)
             .into()
     } else {
@@ -611,8 +619,10 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                     .collect();
                 iced::widget::pick_list(targets, None::<MoveTarget>, Message::BulkMove)
                     .placeholder(t("move_to"))
-                    .text_size(12)
-                    .padding([4, 8])
+                    .text_size(13)
+                    .padding([6, 10])
+                    .style(pick_style(p))
+                    .menu_style(menu_style(p))
                     .into()
             },
             act(icons::TRASH, t("delete"), Message::Bulk(Bulk::Delete)),
@@ -958,24 +968,6 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             }
             None => {}
         }
-    }
-    if msg.dkim_pass {
-        tools.push(
-            container(
-                row![
-                    icon(icons::LOCK, 14.0, p.sec_text),
-                    text(t("dkim_ok"))
-                        .size(12)
-                        .font(medium())
-                        .wrapping(Wrapping::None)
-                ]
-                .spacing(6)
-                .align_y(Alignment::Center),
-            )
-            .padding([6, 10])
-            .style(chip_box(p.sec_bg, p.sec_text, 8.0))
-            .into(),
-        );
     }
     let toolbar = container(dir_row(tools).spacing(4).align_y(Alignment::Center))
         .padding([10, 16])

@@ -469,7 +469,9 @@ fn form<'a>(app: &'a App, f: &'a EventForm, p: Palette) -> Element<'a, Message> 
             })
             .text_size(14)
             .padding([8, 12])
-            .width(220),
+            .width(220)
+            .style(pick_style(p))
+            .menu_style(menu_style(p)),
         ]
         .spacing(6)
         .into(),
@@ -497,7 +499,9 @@ fn form<'a>(app: &'a App, f: &'a EventForm, p: Palette) -> Element<'a, Message> 
                     ))
                     .text_size(14)
                     .padding([8, 12])
-                    .width(220),
+                    .width(220)
+                    .style(pick_style(p))
+                    .menu_style(menu_style(p)),
                 ]
                 .spacing(6)
                 .into(),
