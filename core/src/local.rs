@@ -125,6 +125,10 @@ impl Store {
                 "flagged",
                 "ALTER TABLE local_messages ADD COLUMN flagged INTEGER NOT NULL DEFAULT 0",
             ),
+            (
+                "size",
+                "ALTER TABLE local_messages ADD COLUMN size INTEGER NOT NULL DEFAULT 0",
+            ),
         ] {
             if !crate::cache::has_column(&conn, "local_messages", column)? {
                 conn.execute_batch(ddl)?;
@@ -188,7 +192,7 @@ impl Store {
     pub fn headers(&self, account: &str, folder: &str, limit: u32) -> Result<Vec<Header>> {
         let conn = self.lock();
         let mut stmt = conn.prepare_cached(
-            "SELECT id, sender, subject, preview, ts, seen, attach, msgid, parents, flagged FROM local_messages
+            "SELECT id, sender, subject, preview, ts, seen, attach, msgid, parents, flagged, CASE WHEN size > 0 THEN size ELSE length(raw) END FROM local_messages
              WHERE account = ?1 AND folder = ?2 ORDER BY ts DESC, id DESC LIMIT ?3",
         )?;
         let rows = stmt.query_map(params![account, folder, limit], row_to_header)?;
@@ -199,7 +203,7 @@ impl Store {
     pub fn search(&self, account: &str, folder: &str, words: &[String], limit: u32) -> Result<Vec<Header>> {
         let conn = self.lock();
         let mut sql = String::from(
-            "SELECT id, sender, subject, preview, ts, seen, attach, msgid, parents, flagged FROM local_messages
+            "SELECT id, sender, subject, preview, ts, seen, attach, msgid, parents, flagged, CASE WHEN size > 0 THEN size ELSE length(raw) END FROM local_messages
              WHERE account = ?1 AND folder = ?2",
         );
         let patterns: Vec<String> = words
@@ -282,8 +286,8 @@ fn insert(conn: &Connection, account: &str, folder: &str, raw: &[u8], seen: bool
     // Messages without a Date header sort as "now".
     let ts = if h.timestamp > 0 { h.timestamp } else { now() };
     conn.execute(
-        "INSERT INTO local_messages (account, folder, sender, subject, preview, ts, seen, attach, text, raw, msgid, parents)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        "INSERT INTO local_messages (account, folder, sender, subject, preview, ts, seen, attach, text, raw, msgid, parents, size)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             account,
             folder,
@@ -296,7 +300,8 @@ fn insert(conn: &Connection, account: &str, folder: &str, raw: &[u8], seen: bool
             h.text,
             raw,
             h.message_id,
-            h.parents.join(" ")
+            h.parents.join(" "),
+            h.size
         ],
     )?;
     u32::try_from(conn.last_insert_rowid()).context("local mailbox is full")
@@ -319,6 +324,7 @@ fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<Header> {
             .map(str::to_owned)
             .collect(),
         flagged: r.get(9)?,
+        size: r.get(10)?,
         ..Default::default()
     })
 }

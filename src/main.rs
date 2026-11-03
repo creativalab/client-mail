@@ -6,6 +6,7 @@ mod app;
 mod desktop_entry;
 mod html_view;
 mod preview;
+mod print;
 mod push;
 mod single_instance;
 mod theme;

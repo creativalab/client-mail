@@ -178,6 +178,10 @@ impl Cache {
                 "flagged",
                 "ALTER TABLE messages ADD COLUMN flagged INTEGER NOT NULL DEFAULT 0",
             ),
+            (
+                "size",
+                "ALTER TABLE messages ADD COLUMN size INTEGER NOT NULL DEFAULT 0",
+            ),
         ] {
             if !has_column(&conn, "messages", column)? {
                 conn.execute_batch(ddl)?;
@@ -241,12 +245,13 @@ impl Cache {
         }
         {
             let mut stmt = tx.prepare_cached(
-                "INSERT INTO messages (account, folder, uid, sender, subject, preview, ts, seen, attach, body, msgid, parents, counted, flagged)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1, ?13)
+                "INSERT INTO messages (account, folder, uid, sender, subject, preview, ts, seen, attach, body, msgid, parents, counted, flagged, size)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1, ?13, ?14)
                  ON CONFLICT (account, folder, uid) DO UPDATE SET
                     counted = 1,
                     seen = excluded.seen,
                     flagged = excluded.flagged,
+                    size = CASE WHEN excluded.size > 0 THEN excluded.size ELSE messages.size END,
                     msgid = excluded.msgid,
                     parents = excluded.parents,
                     sender = excluded.sender,
@@ -269,7 +274,8 @@ impl Cache {
                     h.text,
                     h.message_id,
                     h.parents.join(" "),
-                    h.flagged
+                    h.flagged,
+                    h.size
                 ])?;
             }
         }
@@ -336,7 +342,7 @@ impl Cache {
     pub fn headers(&self, account: &str, folder: &str, limit: u32) -> Result<Vec<Header>> {
         let conn = self.lock();
         let mut stmt = conn.prepare_cached(
-            "SELECT uid, sender, subject, preview, ts, seen, attach, msgid, parents, flagged FROM messages
+            "SELECT uid, sender, subject, preview, ts, seen, attach, msgid, parents, flagged, size FROM messages
              WHERE account = ?1 AND folder = ?2 ORDER BY ts DESC, uid DESC LIMIT ?3",
         )?;
         let rows = stmt.query_map(params![account, folder, limit], row_to_header)?;
@@ -657,7 +663,7 @@ impl Cache {
         };
         let conn = self.lock();
         let mut stmt = conn.prepare_cached(
-            "SELECT m.uid, m.sender, m.subject, m.preview, m.ts, m.seen, m.attach, m.msgid, m.parents, m.flagged
+            "SELECT m.uid, m.sender, m.subject, m.preview, m.ts, m.seen, m.attach, m.msgid, m.parents, m.flagged, m.size
              FROM messages_fts f JOIN messages m ON m.id = f.rowid
              WHERE messages_fts MATCH ?3 AND m.account = ?1 AND m.folder = ?2
              ORDER BY m.ts DESC LIMIT ?4",
@@ -684,6 +690,7 @@ fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<Header> {
             .map(str::to_owned)
             .collect(),
         flagged: r.get(9)?,
+        size: r.get(10)?,
         ..Default::default()
     })
 }

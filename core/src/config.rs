@@ -117,6 +117,8 @@ pub struct Ui {
     pub load_remote_images: bool,
     /// Message lists grouped into conversations (false: one row per message).
     pub threaded: bool,
+    /// Order of message lists.
+    pub sort: crate::sort::SortOrder,
 }
 
 impl Default for Ui {
@@ -131,6 +133,7 @@ impl Default for Ui {
             notifications: true,
             load_remote_images: true,
             threaded: true,
+            sort: crate::sort::SortOrder::Newest,
         }
     }
 }

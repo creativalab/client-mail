@@ -115,6 +115,16 @@ pub enum EventField {
     EndTime,
 }
 
+/// The message list's drop-down menus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Popup {
+    /// Select all / read / unread / starred / none.
+    Select,
+    Sort,
+    /// Move the checked messages.
+    Move,
+}
+
 /// What the main window shows beside the sidebar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pane {
@@ -150,16 +160,6 @@ pub enum Select {
     Starred,
 }
 
-impl Select {
-    pub const ALL: [Select; 5] = [
-        Select::All,
-        Select::None,
-        Select::Read,
-        Select::Unread,
-        Select::Starred,
-    ];
-}
-
 impl std::fmt::Display for Select {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(t(match self {
@@ -178,7 +178,6 @@ pub enum Bulk {
     Read,
     Unread,
     Star,
-    Unstar,
     Archive,
     Delete,
 }
@@ -592,6 +591,8 @@ pub struct App {
     pub modifiers: keyboard::Modifiers,
     /// Row last clicked or checked: where a Shift+click range starts.
     pub anchor: Option<u32>,
+    /// Open drop-down menu of the list and where it was opened.
+    pub popup: Option<(Popup, iced::Point)>,
     /// Asking before deleting the open event.
     pub confirm_event_delete: bool,
 }
@@ -648,6 +649,13 @@ pub enum Message {
     /// Star (true) or unstar messages of the open folder.
     ToggleStar(Vec<u32>, bool),
     StarSaved(Res<()>),
+    OpenPopup(Popup),
+    ClosePopup,
+    SetSort(ferrowl_core::sort::SortOrder),
+    /// Close the open message (the list takes the whole width again).
+    CloseReader,
+    /// Print the open message (through the browser's print dialog).
+    Print,
     SelectBy(Select),
     Bulk(Bulk),
     /// Moves the checked messages to a folder.
@@ -892,6 +900,7 @@ impl App {
             event_form: None,
             modifiers: keyboard::Modifiers::default(),
             anchor: None,
+            popup: None,
             confirm_event_delete: false,
         };
         // Development: open a given view directly (used for screenshots).
@@ -1164,18 +1173,35 @@ impl App {
         }
     }
 
+    /// No message is open (or opening): the list uses the whole width.
+    pub fn list_is_wide(&self) -> bool {
+        self.selected.is_none() && !self.loading_message
+    }
+
     /// Rows of the message list as shown: the messages of each row
     /// (one, or a whole conversation).
     pub fn rows(&self) -> Vec<Vec<u32>> {
+        self.list_rows().into_iter().map(|(_, uids, _)| uids).collect()
+    }
+
+    /// The list as shown, in the chosen order: (row's message — the newest
+    /// of a conversation —, its messages, any unread).
+    pub fn list_rows(&self) -> Vec<(&Header, Vec<u32>, bool)> {
         let visible = self.visible();
-        if self.config.ui.threaded {
+        let order = self.config.ui.sort;
+        let mut rows: Vec<(&Header, Vec<u32>, bool)> = if self.config.ui.threaded {
             ferrowl_core::threads::group(&visible)
                 .into_iter()
-                .map(|t| t.members.iter().map(|&i| visible[i].uid).collect())
+                .map(|t| {
+                    let uids = t.members.iter().map(|&i| visible[i].uid).collect();
+                    (visible[t.latest()], uids, t.unread > 0)
+                })
                 .collect()
         } else {
-            visible.iter().map(|h| vec![h.uid]).collect()
-        }
+            visible.iter().map(|h| (*h, vec![h.uid], !h.seen)).collect()
+        };
+        rows.sort_by(|a, b| order.compare(a.0, b.0));
+        rows
     }
 
     /// Shift+click: checks every row between the last clicked one and
@@ -1229,8 +1255,14 @@ impl App {
                     Message::BulkSeen,
                 )
             }
-            Bulk::Star | Bulk::Unstar => {
-                let on = action == Bulk::Star;
+            Bulk::Star => {
+                // Stars all, or unstars all when they already are.
+                let on = !uids.iter().all(|u| {
+                    self.headers
+                        .iter()
+                        .chain(self.search_results.iter().flatten())
+                        .any(|h| h.uid == *u && h.flagged)
+                });
                 self.set_stars(&uids, on);
                 self.perform(
                     async move { b.set_flagged_many(folder, uids, on).await },
@@ -1921,6 +1953,7 @@ impl App {
                 Task::none()
             }
             Message::SelectBy(kind) => {
+                self.popup = None;
                 let pick: Vec<u32> = self
                     .visible()
                     .iter()
@@ -1938,6 +1971,7 @@ impl App {
             }
             Message::Bulk(action) => self.bulk(action),
             Message::BulkMove(target) => {
+                self.popup = None;
                 let Some(folder) = self.current_folder.clone().filter(|f| *f != target.name) else {
                     return Task::none();
                 };
@@ -2263,6 +2297,41 @@ impl App {
                     async move { b.set_flagged_many(folder, uids, on).await },
                     Message::StarSaved,
                 )
+            }
+            Message::OpenPopup(kind) => {
+                self.popup = Some((kind, self.cursor));
+                Task::none()
+            }
+            Message::ClosePopup => {
+                self.popup = None;
+                Task::none()
+            }
+            Message::SetSort(order) => {
+                self.popup = None;
+                self.config.ui.sort = order;
+                self.save_config()
+            }
+            Message::Print => {
+                let Some(msg) = &self.message else {
+                    return Task::none();
+                };
+                let labels = crate::print::Labels {
+                    from: t("from"),
+                    to: t("to"),
+                    date: t("date"),
+                    when: crate::ui::long_date(msg.timestamp),
+                };
+                match crate::print::open(msg, self.config.ui.load_remote_images, &labels) {
+                    Ok(()) => Task::none(),
+                    Err(e) => self.toast(e.to_string(), true),
+                }
+            }
+            Message::CloseReader => {
+                self.selected = None;
+                self.message = None;
+                self.html_render = None;
+                self.invite = None;
+                Task::none()
             }
             Message::StarSaved(Ok(())) => Task::none(),
             Message::StarSaved(Err(e)) => {
@@ -3502,6 +3571,11 @@ impl App {
                 self.drag = None;
             } else if self.appearance_open {
                 self.appearance_open = false;
+            } else if self.popup.is_some() {
+                self.popup = None;
+            } else if self.compose.is_none() && self.pane == Pane::Mail && self.selected.is_some() {
+                // Close the message: the list takes the whole width.
+                return self.update(Message::CloseReader);
             }
             return Task::none();
         }

@@ -1,7 +1,7 @@
 //! Main window: top bar · folders · list · reader (Main.dc.html).
 
 use super::*;
-use crate::app::{App, Bulk, Conn, ListFilter, MoveTarget, Pane, READER_ID, SEARCH_ID, Section, Select};
+use crate::app::{App, Bulk, Conn, ListFilter, Pane, Popup, READER_ID, SEARCH_ID, Section, Select};
 use crate::i18n::{self, SUPPORT_EMAIL, t, tf};
 use crate::mail::{Folder, FolderKind};
 use crate::theme;
@@ -18,7 +18,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
         Pane::Calendar => (super::calendar::list(app, p), super::calendar::detail(app, p)),
         Pane::Mail => (message_list(app, p), reader(app, p)),
     };
-    let body = dir_row(vec![sidebar(app, p), vline(p.line), list, vline(p.line), detail]).height(Fill);
+    // No message open: the list takes the whole width (no reading pane).
+    let body = if app.pane == Pane::Mail && app.list_is_wide() {
+        dir_row(vec![sidebar(app, p), vline(p.line), list]).height(Fill)
+    } else {
+        dir_row(vec![sidebar(app, p), vline(p.line), list, vline(p.line), detail]).height(Fill)
+    };
 
     let base = container(column![top_bar(app, p), hline(p.line), body])
         .width(Fill)
@@ -34,6 +39,9 @@ pub fn view(app: &App) -> Element<'_, Message> {
     }
     if let Some(m) = &app.menu {
         layers.push(context_menu(app, m, p));
+    }
+    if let Some((kind, at)) = &app.popup {
+        layers.push(popup_menu(app, *kind, *at, p));
     }
     if app.confirm_delete {
         layers.push(delete_dialog(app, p));
@@ -520,6 +528,7 @@ fn push_node<'a>(
 // ---------------------------------------------------------------- message list
 
 fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
+    let wide = app.list_is_wide();
     let title = app
         .current_folder
         .as_ref()
@@ -548,17 +557,123 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     .padding(3)
     .style(chip_box(p.chip, p.text2, 9.0));
 
-    // Folder name with the Select menu on its right; the four filters
-    // have the line below to themselves.
-    let picker = iced::widget::pick_list(Select::ALL, None::<Select>, Message::SelectBy)
-        .placeholder(t("select"))
-        .text_size(13)
-        .padding([6, 10])
-        .style(pick_style(p))
-        .menu_style(menu_style(p));
+    // Toolbar: the select box (with its menu) and the actions on the
+    // checked messages, enabled once something is checked.
+    let rows_now = app.list_rows();
+    let all_checked = !rows_now.is_empty()
+        && rows_now
+            .iter()
+            .all(|(_, uids, _)| uids.iter().all(|u| app.checked.contains(u)));
+    let any_checked = !app.checked.is_empty();
+    let select_box = button(
+        container(if all_checked {
+            text("✓").size(11).color(p.on_accent)
+        } else if any_checked {
+            text("–").size(12).font(semibold()).color(p.accent)
+        } else {
+            text("").size(11)
+        })
+        .center(16),
+    )
+    .padding(0)
+    .style(move |_, _| button::Style {
+        background: Some(Background::Color(if all_checked {
+            p.accent
+        } else {
+            Color::TRANSPARENT
+        })),
+        border: Border {
+            color: if any_checked { p.accent } else { p.text2 },
+            width: 1.5,
+            radius: radius(4.0),
+        },
+        ..Default::default()
+    })
+    .on_press(Message::SelectBy(if all_checked {
+        Select::None
+    } else {
+        Select::All
+    }));
+    let select_ctl = container(
+        row![
+            container(select_box).padding([0, 4]),
+            button(icon(icons::CHEVRON_DOWN, 14.0, p.text2))
+                .padding([4, 4])
+                .style(ghost(p, p.text2))
+                .on_press(Message::OpenPopup(Popup::Select)),
+        ]
+        .spacing(2)
+        .align_y(Alignment::Center),
+    )
+    .padding([3, 4])
+    .style(move |_| container::Style {
+        border: Border {
+            color: if app.popup.as_ref().is_some_and(|(k, _)| *k == Popup::Select) {
+                p.accent
+            } else {
+                p.line
+            },
+            width: 1.0,
+            radius: radius(8.0),
+        },
+        ..Default::default()
+    });
+    let act = |ic: &'static str, tip: &'static str, msg: Message| {
+        tooltip(
+            button(icon(ic, 17.0, if any_checked { p.text2 } else { p.field }))
+                .padding([6, 7])
+                .style(ghost(p, p.text2))
+                .on_press_maybe(any_checked.then_some(msg)),
+            tip,
+            p,
+        )
+    };
+    let mut tools = vec![
+        select_ctl.into(),
+        container(space().width(1).height(20)).style(panel(p.line)).into(),
+        act(icons::EYE, t("mark_read"), Message::Bulk(Bulk::Read)),
+        act(icons::MAIL, t("mark_unread"), Message::Bulk(Bulk::Unread)),
+        act(icons::STAR_FILLED, t("star_add"), Message::Bulk(Bulk::Star)),
+        act(icons::ARCHIVE, t("archive"), Message::Bulk(Bulk::Archive)),
+        act(icons::FOLDER, t("move_to"), Message::OpenPopup(Popup::Move)),
+        act(icons::TRASH, t("delete"), Message::Bulk(Bulk::Delete)),
+        space::horizontal().into(),
+    ];
+    if any_checked {
+        tools.push(
+            text(tf("selected_count", &[("n", &app.checked.len().to_string())]))
+                .size(12)
+                .font(semibold())
+                .color(p.text2)
+                .wrapping(Wrapping::None)
+                .into(),
+        );
+    }
+    let toolbar = container(dir_row(tools).spacing(2).align_y(Alignment::Center)).padding(Padding {
+        top: 12.0,
+        right: 16.0,
+        bottom: 6.0,
+        left: 16.0,
+    });
+
+    // Folder name, with the sort order on its right.
+    let sort_btn = button(
+        row![
+            icon(icons::SORT, 15.0, p.text2),
+            text(t(app.config.ui.sort.key()))
+                .size(13)
+                .color(p.text2)
+                .wrapping(Wrapping::None),
+        ]
+        .spacing(6)
+        .align_y(Alignment::Center),
+    )
+    .padding([5, 8])
+    .style(ghost(p, p.text2))
+    .on_press(Message::OpenPopup(Popup::Sort));
     let header = dir_row(vec![
         container(
-            text(trunc(&title, 30))
+            text(trunc(&title, 24))
                 .size(20)
                 .font(INTER_BOLD)
                 .wrapping(Wrapping::None),
@@ -566,73 +681,17 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         .width(Fill)
         .clip(true)
         .into(),
-        picker.into(),
+        sort_btn.into(),
     ])
-    .spacing(12)
+    .spacing(8)
     .align_y(Alignment::Center)
     .padding(Padding {
-        top: 16.0,
-        right: 20.0,
-        bottom: 10.0,
+        top: 4.0,
+        right: 16.0,
+        bottom: 8.0,
         left: 20.0,
     });
-
-    let bar: Element<'a, Message> = if app.checked.is_empty() {
-        // Conversations or messages is chosen in Settings › Appearance.
-        dir_row(vec![filters.into(), space::horizontal().into()])
-            .align_y(Alignment::Center)
-            .into()
-    } else {
-        // Actions on the checked messages.
-        let act = |ic: &'static str, tip: &'static str, msg: Message| {
-            tooltip(
-                button(icon(ic, 16.0, p.text2))
-                    .padding([6, 8])
-                    .style(ghost(p, p.text2))
-                    .on_press(msg),
-                tip,
-                p,
-            )
-        };
-        dir_row(vec![
-            text(tf("selected_count", &[("n", &app.checked.len().to_string())]))
-                .size(13)
-                .font(semibold())
-                .color(p.text)
-                .into(),
-            space::horizontal().into(),
-            act(icons::EYE, t("mark_read"), Message::Bulk(Bulk::Read)),
-            act(icons::MAIL, t("mark_unread"), Message::Bulk(Bulk::Unread)),
-            act(icons::STAR_FILLED, t("star_add"), Message::Bulk(Bulk::Star)),
-            act(icons::STAR, t("star_remove"), Message::Bulk(Bulk::Unstar)),
-            act(icons::ARCHIVE, t("archive"), Message::Bulk(Bulk::Archive)),
-            {
-                // "Move to": every other selectable folder.
-                let targets: Vec<MoveTarget> = app
-                    .folders
-                    .iter()
-                    .filter(|f| f.selectable && app.current_folder.as_deref() != Some(f.name.as_str()))
-                    .map(|f| MoveTarget {
-                        name: f.name.clone(),
-                        label: app.folder_label(&f.name),
-                    })
-                    .collect();
-                iced::widget::pick_list(targets, None::<MoveTarget>, Message::BulkMove)
-                    .placeholder(t("move_to"))
-                    .text_size(13)
-                    .padding([6, 10])
-                    .style(pick_style(p))
-                    .menu_style(menu_style(p))
-                    .into()
-            },
-            act(icons::TRASH, t("delete"), Message::Bulk(Bulk::Delete)),
-            act(icons::CLOSE, t("select_none"), Message::SelectBy(Select::None)),
-        ])
-        .spacing(2)
-        .align_y(Alignment::Center)
-        .into()
-    };
-    let view_mode = container(bar).padding(Padding {
+    let view_mode = container(dir_row(vec![filters.into(), space::horizontal().into()])).padding(Padding {
         top: 0.0,
         right: 20.0,
         bottom: 10.0,
@@ -653,18 +712,9 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     } else {
         let pad = app.density_padding();
         let preview = app.config.ui.show_preview;
-        // One row per conversation (its newest message) or per message.
-        let rows: Vec<(&crate::mail::Header, Vec<u32>, bool)> = if app.config.ui.threaded {
-            ferrowl_core::threads::group(&visible)
-                .into_iter()
-                .map(|t| {
-                    let uids = t.members.iter().map(|&i| visible[i].uid).collect();
-                    (visible[t.latest()], uids, t.unread > 0)
-                })
-                .collect()
-        } else {
-            visible.iter().map(|h| (*h, vec![h.uid], !h.seen)).collect()
-        };
+        // One row per conversation (its newest message) or per message, in
+        // the chosen order.
+        let rows = rows_now;
         let open_thread = app.selected.map(|uid| app.conversation(uid)).unwrap_or_default();
         let mut col = Column::new();
         for (h, uids, unread) in rows {
@@ -709,9 +759,35 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                     .size(14)
                     .font(if unread { INTER_BOLD } else { medium() })
                     .color(p.text)
-                    .width(Fill)
+                    .width(if wide { iced::Length::Fixed(230.0) } else { Fill })
                     .into(),
             ];
+            // Wide list: subject and preview on the same line as the sender.
+            if wide {
+                let mut line = vec![
+                    text(h.subject.as_str())
+                        .size(14)
+                        .font(if unread { semibold() } else { INTER })
+                        .color(p.text)
+                        .wrapping(Wrapping::None)
+                        .into(),
+                ];
+                if preview && !h.preview.is_empty() {
+                    line.push(
+                        text(format!("— {}", h.preview))
+                            .size(13)
+                            .color(p.muted)
+                            .wrapping(Wrapping::None)
+                            .into(),
+                    );
+                }
+                top.push(
+                    container(dir_row(line).spacing(8).align_y(Alignment::Center))
+                        .width(Fill)
+                        .clip(true)
+                        .into(),
+                );
+            }
             if h.has_attachment {
                 top.push(icon(icons::CLIP, 14.0, p.muted));
             }
@@ -751,21 +827,22 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                 p,
             ));
 
-            let mut lines = column![
-                dir_row(top).spacing(8).align_y(Alignment::Center),
-                container(
-                    text(trunc(&h.subject, 44))
-                        .size(14)
-                        .font(if unread { semibold() } else { INTER })
-                        .color(p.text)
-                        .wrapping(Wrapping::None)
-                )
-                .padding(indent(38.0))
-                .width(Fill)
-                .clip(true),
-            ]
-            .spacing(4);
-            if preview && !h.preview.is_empty() {
+            let mut lines = column![dir_row(top).spacing(8).align_y(Alignment::Center)].spacing(4);
+            if !wide {
+                lines = lines.push(
+                    container(
+                        text(trunc(&h.subject, 44))
+                            .size(14)
+                            .font(if unread { semibold() } else { INTER })
+                            .color(p.text)
+                            .wrapping(Wrapping::None),
+                    )
+                    .padding(indent(38.0))
+                    .width(Fill)
+                    .clip(true),
+                );
+            }
+            if !wide && preview && !h.preview.is_empty() {
                 lines = lines.push(
                     container(
                         text(trunc(&h.preview, 52))
@@ -816,8 +893,8 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         scrollable(col).height(Fill).style(scroll_style(p)).into()
     };
 
-    container(column![header, view_mode, content])
-        .width(410)
+    container(column![toolbar, header, view_mode, content])
+        .width(if wide { Fill } else { iced::Length::Fixed(410.0) })
         .height(Fill)
         .style(panel(p.bg))
         .into()
@@ -879,6 +956,11 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     let show_html = app.config.ui.prefer_html && msg.html.is_some();
     let kind = app.current_kind();
     let mut tools = vec![
+        tooltip(
+            tool_btn(p, icons::CLOSE, None, Message::CloseReader),
+            t("close"),
+            p,
+        ),
         tool_btn(p, icons::REPLY, Some(t("reply")), Message::Reply),
         tooltip(
             tool_btn(p, icons::REPLY_ALL, None, Message::ReplyAll),
@@ -903,6 +985,11 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     tools.push(tooltip(
         tool_btn(p, icons::MAIL, None, Message::ToggleRead),
         t("mark_unread"),
+        p,
+    ));
+    tools.push(tooltip(
+        tool_btn(p, icons::PRINTER, None, Message::Print),
+        t("print"),
         p,
     ));
     let starred = app
@@ -1771,6 +1858,123 @@ fn context_menu<'a>(app: &'a App, m: &'a crate::app::ContextMenu, p: Palette) ->
             .on_press(Message::CloseMenu)
             .on_right_press(Message::CloseMenu),
         placed,
+    ]
+    .width(Fill)
+    .height(Fill)
+    .into()
+}
+
+/// The list's drop-down menus (select, sort, move): opened at the click,
+/// closed by a click anywhere else.
+fn popup_menu<'a>(app: &'a App, kind: Popup, at: iced::Point, p: Palette) -> Element<'a, Message> {
+    use ferrowl_core::sort::SortOrder;
+    let item = |label: String, msg: Message, checked: bool, danger: bool| -> Element<'a, Message> {
+        let fg = if danger {
+            p.danger
+        } else if checked {
+            p.accent_text
+        } else {
+            p.text
+        };
+        button(
+            row![
+                text(label)
+                    .size(14)
+                    .color(fg)
+                    .width(Fill)
+                    .wrapping(Wrapping::None),
+                if checked {
+                    text("✓").size(14).color(p.accent_text)
+                } else {
+                    text("")
+                },
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
+        )
+        .width(Fill)
+        .padding([8, 14])
+        .style(ghost(p, fg))
+        .on_press(msg)
+        .into()
+    };
+    let mut items: Vec<Element<'a, Message>> = Vec::new();
+    match kind {
+        Popup::Select => {
+            for s in [Select::All, Select::Read, Select::Unread, Select::Starred] {
+                items.push(item(s.to_string(), Message::SelectBy(s), false, false));
+            }
+            items.push(item(
+                t("select_none").into(),
+                Message::SelectBy(Select::None),
+                false,
+                true,
+            ));
+        }
+        Popup::Sort => {
+            items.push(
+                container(text(t("sort_by")).size(13).font(semibold()).color(p.text))
+                    .padding([8, 14])
+                    .into(),
+            );
+            for o in SortOrder::ALL {
+                items.push(item(
+                    t(o.key()).into(),
+                    Message::SetSort(o),
+                    app.config.ui.sort == o,
+                    false,
+                ));
+            }
+        }
+        Popup::Move => {
+            for f in app
+                .folders
+                .iter()
+                .filter(|f| f.selectable && app.current_folder.as_deref() != Some(f.name.as_str()))
+            {
+                items.push(item(
+                    trunc(&app.folder_label(&f.name), 30),
+                    Message::BulkMove(crate::app::MoveTarget {
+                        name: f.name.clone(),
+                        label: app.folder_label(&f.name),
+                    }),
+                    false,
+                    false,
+                ));
+            }
+        }
+    }
+    let menu = container(scrollable(Column::with_children(items).spacing(1)).style(scroll_style(p)))
+        .width(240)
+        .max_height(420)
+        .padding(6)
+        .style(move |_| container::Style {
+            background: Some(Background::Color(p.bg)),
+            border: Border {
+                color: p.line,
+                width: 1.0,
+                radius: radius(10.0),
+            },
+            shadow: Shadow {
+                color: Color::from_rgba(0.0, 0.0, 0.0, 0.18),
+                offset: Vector::new(0.0, 8.0),
+                blur_radius: 24.0,
+            },
+            ..Default::default()
+        });
+    // Just below the click, kept inside the window.
+    let x = (at.x - 20.0).min(app.window_width - 250.0).max(0.0);
+    let y = (at.y + 14.0).min(app.window_height - 300.0).max(0.0);
+    stack![
+        mouse_area(container(space()).width(Fill).height(Fill))
+            .on_press(Message::ClosePopup)
+            .on_right_press(Message::ClosePopup),
+        container(opaque(menu)).padding(Padding {
+            top: y,
+            left: x,
+            right: 0.0,
+            bottom: 0.0,
+        }),
     ]
     .width(Fill)
     .height(Fill)
