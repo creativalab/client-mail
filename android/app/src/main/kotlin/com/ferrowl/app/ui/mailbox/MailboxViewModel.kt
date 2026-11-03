@@ -46,6 +46,10 @@ data class MailboxState(
     val confirmDelete: Boolean = false,
 ) {
     val selecting: Boolean get() = selected.isNotEmpty()
+
+    /** Gmail inbox: unread messages per tab (category index → count). */
+    val unreadByCategory: Map<Int, Int>
+        get() = if (!tabs) emptyMap() else messages.filter { !it.seen }.groupingBy { it.category.toInt() }.eachCount()
     val folder: Folder? get() = folders.firstOrNull { it.id == folderId }
     val shown: List<Header>
         get() = when {
@@ -83,6 +87,12 @@ class MailboxViewModel @Inject constructor(
         viewModelScope.launch { settings.threaded.collect { on -> _state.update { it.copy(threaded = on) } } }
         viewModelScope.launch { settings.sort.collect { o -> _state.update { it.copy(sort = o) } } }
         viewModelScope.launch {
+            // The saved inbox right away; connecting can take a while.
+            _state.update { it.copy(refreshing = true) }
+            val (early, gmail) = repo.cachedInbox()
+            if (early.isNotEmpty()) {
+                _state.update { if (it.folderId.isEmpty()) it.copy(folderId = "INBOX", messages = early, tabs = gmail) else it }
+            }
             try {
                 repo.ensureConnected()
                 _state.update {
@@ -90,7 +100,7 @@ class MailboxViewModel @Inject constructor(
                 }
                 refresh()
             } catch (e: FerrowlException) {
-                _state.update { it.copy(error = e.message) }
+                _state.update { it.copy(refreshing = false, error = e.message) }
             }
         }
         viewModelScope.launch {

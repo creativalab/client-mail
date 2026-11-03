@@ -1044,6 +1044,16 @@ impl Engine {
     }
 
     /// Messages already stored on the device, instantly (before `headers`).
+    /// The inbox as saved on the device for `account`, before connecting:
+    /// the app shows it at once while the connection is made.
+    pub fn cached_inbox(&self, account: Account) -> Vec<Header> {
+        let account: config::Account = account.into();
+        Backend::cached_headers(&account, "INBOX")
+            .into_iter()
+            .map(Header::from)
+            .collect()
+    }
+
     pub fn cached_headers(&self, folder_id: String) -> Vec<Header> {
         match lock(&self.account).as_ref() {
             Some(a) => Backend::cached_headers(a, &folder_id)

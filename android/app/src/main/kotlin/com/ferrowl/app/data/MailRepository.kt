@@ -214,6 +214,16 @@ class MailRepository @Inject constructor(
 
     fun inboxId(): String = folderOf(FolderKind.INBOX)?.id ?: "INBOX"
 
+    /**
+     * The active account's inbox as saved on the phone, before connecting
+     * (shown at once while the connection is made). Also says whether it is
+     * a Gmail account (its inbox has tabs).
+     */
+    suspend fun cachedInbox(): Pair<List<Header>, Boolean> = withContext(Dispatchers.IO) {
+        val account = accounts.account.first() ?: return@withContext emptyList<Header>() to false
+        engine.cachedInbox(account) to account.incomingHost.endsWith("gmail.com")
+    }
+
     /** Messages already on the phone (local database, off the main thread). */
     suspend fun cachedHeaders(folderId: String): List<Header> =
         withContext(Dispatchers.IO) { engine.cachedHeaders(folderId) }

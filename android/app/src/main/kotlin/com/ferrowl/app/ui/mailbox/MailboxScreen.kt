@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.DropdownMenu
@@ -253,11 +254,12 @@ fun MailboxScreen(
                     val rows = s.rows
                     when {
                         // (With Gmail tabs the list stays, so another tab can be picked.)
+                        rows.isEmpty() && s.refreshing && !s.searching -> Centered(stringResource(R.string.list_loading))
                         rows.isEmpty() && !s.refreshing && !s.searching && !s.tabs -> Centered(stringResource(R.string.list_empty))
                         else -> LazyColumn(Modifier.fillMaxSize()) {
                             // Gmail inbox tabs.
                             if (s.tabs && s.query.isBlank()) {
-                                item(key = "tabs") { CategoryTabs(s.category, vm::setCategory) }
+                                item(key = "tabs") { CategoryTabs(s.category, s.unreadByCategory, vm::setCategory) }
                             }
                             if (rows.isEmpty() && !s.refreshing) {
                                 item(key = "empty") {
@@ -430,7 +432,7 @@ private fun LabelDialog(choices: List<Folder>, s: MailboxState, onToggle: (Strin
 
 /** Gmail inbox tabs: Primary, Promotions, Social, Updates, Forums. */
 @Composable
-private fun CategoryTabs(current: Int, onPick: (Int) -> Unit) {
+private fun CategoryTabs(current: Int, unread: Map<Int, Int>, onPick: (Int) -> Unit) {
     val labels = listOf(
         R.string.gmail_primary,
         R.string.gmail_promotions,
@@ -440,7 +442,20 @@ private fun CategoryTabs(current: Int, onPick: (Int) -> Unit) {
     )
     PrimaryScrollableTabRow(selectedTabIndex = current, edgePadding = 8.dp) {
         labels.forEachIndexed { i, label ->
-            Tab(selected = i == current, onClick = { onPick(i) }, text = { Text(stringResource(label)) })
+            // Unread messages in each tab, as on the desktop: new mail in
+            // another tab is visible without opening it.
+            val count = unread[i] ?: 0
+            Tab(
+                selected = i == current,
+                onClick = { onPick(i) },
+                text = {
+                    // The count sits next to the name (as on the desktop), not over it.
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(stringResource(label))
+                        if (count > 0) Badge { Text(count.toString()) }
+                    }
+                },
+            )
         }
     }
 }
