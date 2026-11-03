@@ -662,49 +662,7 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                 .into(),
         );
     }
-    let toolbar = container(dir_row(tools).spacing(6).align_y(Alignment::Center)).padding(Padding {
-        top: 14.0,
-        right: 20.0,
-        bottom: 10.0,
-        left: 20.0,
-    });
-
-    // Folder name, with the sort order on its right.
-    let sort_btn = button(
-        row![
-            icon(icons::SORT, 15.0, p.text2),
-            text(t(app.config.ui.sort.key()))
-                .size(13)
-                .color(p.text2)
-                .wrapping(Wrapping::None),
-        ]
-        .spacing(6)
-        .align_y(Alignment::Center),
-    )
-    .padding([5, 8])
-    .style(ghost(p, p.text2))
-    .on_press(Message::OpenPopup(Popup::Sort));
-    let header = dir_row(vec![
-        container(
-            text(trunc(&title, 24))
-                .size(20)
-                .font(INTER_BOLD)
-                .wrapping(Wrapping::None),
-        )
-        .width(Fill)
-        .clip(true)
-        .into(),
-        sort_btn.into(),
-    ])
-    .spacing(12)
-    .align_y(Alignment::Center)
-    .padding(Padding {
-        top: 8.0,
-        right: 20.0,
-        bottom: 12.0,
-        left: 20.0,
-    });
-    // Pages: "1–20 of 200" and the arrows.
+    // Pages, at the far end of the toolbar: "Page [n▾] of M" and the arrows.
     let size = app.config.ui.page_size.max(1) as usize;
     let total = rows_now.len();
     let from = (app.page * size).min(total);
@@ -752,10 +710,53 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     ])
     .spacing(6)
     .align_y(Alignment::Center);
-    let view_mode = container(
-        dir_row(vec![filters.into(), space::horizontal().into(), pager.into()]).align_y(Alignment::Center),
+    if any_checked {
+        tools.push(space().width(12).into());
+    }
+    tools.push(pager.into());
+    let toolbar = container(dir_row(tools).spacing(6).align_y(Alignment::Center)).padding(Padding {
+        top: 14.0,
+        right: 20.0,
+        bottom: 10.0,
+        left: 20.0,
+    });
+
+    // Folder name, with the sort order on its right.
+    let sort_btn = button(
+        row![
+            icon(icons::SORT, 15.0, p.text2),
+            text(t(app.config.ui.sort.key()))
+                .size(13)
+                .color(p.text2)
+                .wrapping(Wrapping::None),
+        ]
+        .spacing(6)
+        .align_y(Alignment::Center),
     )
+    .padding([5, 8])
+    .style(ghost(p, p.text2))
+    .on_press(Message::OpenPopup(Popup::Sort));
+    let header = dir_row(vec![
+        container(
+            text(trunc(&title, 24))
+                .size(20)
+                .font(INTER_BOLD)
+                .wrapping(Wrapping::None),
+        )
+        .width(Fill)
+        .clip(true)
+        .into(),
+        sort_btn.into(),
+    ])
+    .spacing(12)
+    .align_y(Alignment::Center)
     .padding(Padding {
+        top: 8.0,
+        right: 20.0,
+        bottom: 12.0,
+        left: 20.0,
+    });
+    let view_mode = container(dir_row(vec![filters.into()]).align_y(Alignment::Center)).padding(Padding {
         top: 0.0,
         right: 20.0,
         bottom: 10.0,
