@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher icon for themed icons (Android 13+): one colour, so the eyes
+     and the beak are holes in the envelope (even-odd fill). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- A little smaller than the safe zone, so the ears keep clear of round masks. -->
+    <group android:pivotX="54" android:pivotY="54" android:scaleX="0.93" android:scaleY="0.93">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M26.45,29.35 L39.69,38.41 L68.31,38.41 L81.55,29.35 L81.55,72.85 A5.80,5.80 0 0 1 75.75,78.65 L32.25,78.65 A5.80,5.80 0 0 1 26.45,72.85 Z M42.04,55.45 L48.32,59.08 L48.32,66.33 L42.04,69.95 L35.76,66.33 L35.76,59.08 Z M65.96,55.45 L72.24,59.08 L72.24,66.33 L65.96,69.95 L59.68,66.33 L59.68,59.08 Z M51.1,62.7 L56.9,62.7 L54.0,67.78 Z" />
+    </group>
+</vector>
