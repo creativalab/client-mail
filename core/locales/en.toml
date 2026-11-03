@@ -435,3 +435,11 @@ err_h_quota = "The mailbox is full. Delete some messages and try again."
 err_h_rejected = "The message was refused: check the recipient's address."
 err_h_generic_detail = "Something went wrong. Try again; if it happens again, write to support@ferrowl.com. Details: {detail}"
 err_google_signin = "Sign-in with Google did not work. Try again."
+
+# Ferrowl Pro (Android, Google Play Billing)
+pro_title = "Ferrowl Pro"
+pro_text = "With Ferrowl Pro you can use more than one mail account. Yearly subscription: {price}. You manage and cancel it whenever you like in Google Play."
+pro_subscribe = "Subscribe"
+pro_not_now = "Not now"
+pro_unavailable = "The subscription is not available right now. Try again later."
+pro_thanks = "Thank you! Ferrowl Pro is active."

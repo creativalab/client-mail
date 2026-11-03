@@ -72,6 +72,9 @@ class Notices @Inject constructor() {
     }
 }
 
+/** Google Play Billing for composables (provided once, in MainActivity). */
+val LocalBilling = staticCompositionLocalOf<com.ferrowl.app.data.Billing> { error("Billing not provided") }
+
 /** The notices for composables (provided once, in MainActivity). */
 val LocalNotices = staticCompositionLocalOf<Notices> { error("Notices not provided") }
 

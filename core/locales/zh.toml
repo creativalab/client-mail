@@ -435,3 +435,11 @@ err_h_quota = "邮箱已满。请删除一些邮件后重试。"
 err_h_rejected = "邮件被拒收：请检查收件人地址。"
 err_h_generic_detail = "出现了问题。请重试；如果再次发生，请写信至 support@ferrowl.com。详情：{detail}"
 err_google_signin = "使用 Google 登录失败。请重试。"
+
+# Ferrowl Pro (Android, Google Play Billing)
+pro_title = "Ferrowl Pro"
+pro_text = "使用 Ferrowl Pro 可以添加多个邮箱账户。年度订阅：{price}。你可以随时在 Google Play 中管理或取消。"
+pro_subscribe = "订阅"
+pro_not_now = "以后再说"
+pro_unavailable = "订阅暂时不可用。请稍后再试。"
+pro_thanks = "谢谢！Ferrowl Pro 已启用。"

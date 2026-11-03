@@ -435,3 +435,11 @@ err_h_quota = "El buzón está lleno. Elimina algunos mensajes y vuelve a intent
 err_h_rejected = "El mensaje fue rechazado: revisa la dirección del destinatario."
 err_h_generic_detail = "Algo no ha funcionado. Vuelve a intentarlo; si vuelve a pasar, escribe a support@ferrowl.com. Detalles: {detail}"
 err_google_signin = "No se pudo iniciar sesión con Google. Vuelve a intentarlo."
+
+# Ferrowl Pro (Android, Google Play Billing)
+pro_title = "Ferrowl Pro"
+pro_text = "Con Ferrowl Pro usas más de una cuenta de correo. Suscripción anual: {price}. La gestionas y la cancelas cuando quieras en Google Play."
+pro_subscribe = "Suscribirse"
+pro_not_now = "Ahora no"
+pro_unavailable = "La suscripción no está disponible en este momento. Inténtalo más tarde."
+pro_thanks = "¡Gracias! Ferrowl Pro está activo."

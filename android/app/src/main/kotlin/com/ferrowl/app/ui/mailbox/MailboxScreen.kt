@@ -2,6 +2,7 @@ package com.ferrowl.app.ui.mailbox
 
 import android.text.format.DateUtils
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -86,6 +87,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrowl.app.R
 import com.ferrowl.app.ui.fill
+import com.ferrowl.app.ui.notice.LocalBilling
 import com.ferrowl.app.ui.notice.ReportError
 import com.ferrowl.core.Folder
 import com.ferrowl.core.FolderKind
@@ -119,6 +121,7 @@ fun MailboxScreen(
     // A failed refresh is reported at the top, like every notice.
     ReportError(s.error, vm::errorShown)
     if (s.confirmDelete) ConfirmBulkDelete(vm)
+    if (s.showPro) ProOffer(s.proPrice, vm)
 
     ModalNavigationDrawer(
         drawerState = drawer,
@@ -149,7 +152,7 @@ fun MailboxScreen(
                         selected = false,
                         onClick = {
                             scope.launch { drawer.close() }
-                            onAddAccount()
+                            if (vm.mayAddAccount()) onAddAccount()
                         },
                         modifier = Modifier.padding(horizontal = 12.dp),
                     )
@@ -689,4 +692,22 @@ private fun kindRank(kind: FolderKind): Int = when (kind) {
     FolderKind.SPAM -> 4
     FolderKind.TRASH -> 5
     FolderKind.OTHER -> 6
+}
+
+/** Ferrowl Pro: more than one account, yearly subscription through Google Play. */
+@Composable
+private fun ProOffer(price: String?, vm: MailboxViewModel) {
+    val activity = LocalActivity.current
+    val billing = LocalBilling.current
+    AlertDialog(
+        onDismissRequest = vm::dismissPro,
+        title = { Text(stringResource(R.string.pro_title)) },
+        text = { Text(fill(stringResource(R.string.pro_text), "price" to (price ?: "…"))) },
+        confirmButton = {
+            TextButton(onClick = {
+                if (activity == null || !billing.buy(activity)) vm.proUnavailable() else vm.dismissPro()
+            }) { Text(stringResource(R.string.pro_subscribe)) }
+        },
+        dismissButton = { TextButton(onClick = vm::dismissPro) { Text(stringResource(R.string.pro_not_now)) } },
+    )
 }
