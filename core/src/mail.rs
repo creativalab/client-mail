@@ -201,6 +201,9 @@ pub struct Header {
     pub flagged: bool,
     /// Size of the whole message in bytes (0 = unknown).
     pub size: u32,
+    /// Gmail labels (raw IMAP names, as the folders'; Gmail's own system
+    /// labels like \\Inbox left out). Empty on other servers.
+    pub labels: Vec<String>,
 }
 
 /// A slice of a folder's message list, by sequence number.
@@ -662,6 +665,7 @@ pub fn header_from_raw(uid: u32, raw: &[u8], seen: bool) -> Header {
         // The whole message (POP3, local mailbox); IMAP lists set the
         // server's size instead.
         size: u32::try_from(raw.len()).unwrap_or(u32::MAX),
+        labels: Vec::new(),
     }
 }
 
@@ -924,6 +928,99 @@ pub fn set_keywords(session: &mut ImapSession, folder: &str, uids: &[u32], add: 
     if !remove.is_empty() {
         let _ = session.uid_store(uid_set(uids), format!("-FLAGS ({})", remove.join(" ")));
     }
+}
+
+/// Whether the server is Gmail (labels through the X-GM-EXT-1 extension).
+pub fn has_gmail_labels(session: &mut ImapSession) -> bool {
+    session
+        .capabilities()
+        .map(|c| c.has_str("X-GM-EXT-1"))
+        .unwrap_or(false)
+}
+
+/// Gmail labels of messages, by UID. The IMAP library does not know this
+/// extension, so the command is sent and its reply read as text.
+pub fn fetch_labels(
+    session: &mut ImapSession,
+    folder: &str,
+    uids: &[u32],
+) -> Result<HashMap<u32, Vec<String>>> {
+    if uids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    session.select(folder)?;
+    let raw =
+        session.run_command_and_read_response(format!("UID FETCH {} (UID X-GM-LABELS)", uid_set(uids)))?;
+    Ok(parse_gmail_labels(&String::from_utf8_lossy(&raw)))
+}
+
+/// Adds or removes a Gmail label (its raw IMAP name) on messages.
+pub fn set_gmail_label(
+    session: &mut ImapSession,
+    folder: &str,
+    uids: &[u32],
+    label: &str,
+    on: bool,
+) -> Result<()> {
+    if uids.is_empty() {
+        return Ok(());
+    }
+    session.select(folder)?;
+    let quoted = format!("\"{}\"", label.replace('\\', "\\\\").replace('"', "\\\""));
+    let op = if on { '+' } else { '-' };
+    session.run_command_and_check_ok(format!("UID STORE {} {op}X-GM-LABELS ({quoted})", uid_set(uids)))?;
+    Ok(())
+}
+
+/// Reads `* n FETCH (X-GM-LABELS (...) UID u)` lines. System labels (those
+/// starting with a backslash) are left out.
+fn parse_gmail_labels(reply: &str) -> HashMap<u32, Vec<String>> {
+    let mut out = HashMap::new();
+    for line in reply.lines() {
+        let Some(at) = line.find("X-GM-LABELS (") else {
+            continue;
+        };
+        let Some(uid) = line
+            .split("UID ")
+            .nth(1)
+            .and_then(|r| r.split(|c: char| !c.is_ascii_digit()).next())
+            .and_then(|n| n.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        // The parenthesized list: atoms and quoted strings.
+        let mut labels = Vec::new();
+        let mut chars = line[at + "X-GM-LABELS (".len()..].chars().peekable();
+        let mut cur = String::new();
+        let mut quoted = false;
+        while let Some(c) = chars.next() {
+            match c {
+                '\\' if quoted => {
+                    if let Some(n) = chars.next() {
+                        cur.push(n);
+                    }
+                }
+                '"' => {
+                    if quoted {
+                        labels.push(std::mem::take(&mut cur));
+                    }
+                    quoted = !quoted;
+                }
+                ' ' | ')' if !quoted => {
+                    if !cur.is_empty() {
+                        labels.push(std::mem::take(&mut cur));
+                    }
+                    if c == ')' {
+                        break;
+                    }
+                }
+                _ => cur.push(c),
+            }
+        }
+        labels.retain(|l| !l.starts_with('\\'));
+        out.insert(uid, labels);
+    }
+    out
 }
 
 /// Stars or unstars messages (the \\Flagged flag).
@@ -1278,6 +1375,17 @@ mod tests {
             "{raw}"
         );
         assert!(raw.contains("METHOD:REPLY"));
+    }
+
+    #[test]
+    fn gmail_labels_reply() {
+        let reply = "* 1 FETCH (X-GM-LABELS (\\Important \"Lavoro/Clienti 2026\" Personale) UID 41)\r\n\
+                     * 2 FETCH (UID 42 X-GM-LABELS ())\r\n\
+                     * 3 FETCH (X-GM-LABELS (\"Say \\\"hi\\\"\" \\Inbox) UID 43)\r\n";
+        let l = parse_gmail_labels(reply);
+        assert_eq!(l[&41], ["Lavoro/Clienti 2026", "Personale"]);
+        assert!(l[&42].is_empty());
+        assert_eq!(l[&43], ["Say \"hi\""]);
     }
 
     #[test]

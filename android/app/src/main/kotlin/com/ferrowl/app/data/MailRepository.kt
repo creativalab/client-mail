@@ -209,6 +209,19 @@ class MailRepository @Inject constructor(
         }
     }
 
+    /** Whether the account is Gmail (messages have labels). */
+    fun isGmail(): Boolean = engine.isGmail()
+
+    /** Gmail labels that can be put on messages of [folderId]: the user's own. */
+    fun labelChoices(folderId: String): List<Folder> = _folders.value.filter {
+        it.kind == FolderKind.OTHER && it.selectable && it.id != folderId &&
+            !it.id.startsWith("[Gmail]") && !it.id.startsWith("[Google Mail]")
+    }
+
+    /** Adds or removes a Gmail label (a folder id) on messages. */
+    suspend fun setLabel(folderId: String, uids: List<UInt>, label: String, on: Boolean) =
+        engine.setLabelMany(folderId, uids, label, on)
+
     /** Moves messages to Spam, or back to the inbox ([toSpam] false). */
     suspend fun spam(folderId: String, uids: List<UInt>, toSpam: Boolean) {
         if (toSpam) engine.reportSpam(folderId, uids) else engine.notSpam(folderId, uids)

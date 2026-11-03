@@ -644,8 +644,14 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         },
         act(icons::FOLDER, t("move_to"), Message::OpenPopup(Popup::Move)),
         act(icons::TRASH, t("delete"), Message::Bulk(Bulk::Delete)),
-        space::horizontal().into(),
     ];
+    if app.gmail {
+        tools.insert(
+            tools.len() - 1,
+            act(icons::TAG, t("labels"), Message::OpenPopup(Popup::Labels)),
+        );
+    }
+    tools.push(space::horizontal().into());
     if any_checked {
         tools.push(
             text(tf("selected_count", &[("n", &app.checked.len().to_string())]))
@@ -843,6 +849,35 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                     container(dir_row(line).spacing(8).align_y(Alignment::Center))
                         .width(Fill)
                         .clip(true)
+                        .into(),
+                );
+            }
+            // Gmail labels as small chips (at most two, then "+n").
+            let names: Vec<String> = h
+                .labels
+                .iter()
+                .filter(|l| app.current_folder.as_deref() != Some(l.as_str()))
+                .map(|l| app.folder_label(l))
+                .collect();
+            for name in names.iter().take(2) {
+                top.push(
+                    container(
+                        text(trunc(name, 16))
+                            .size(11)
+                            .font(medium())
+                            .color(p.text2)
+                            .wrapping(Wrapping::None),
+                    )
+                    .padding([2, 8])
+                    .style(chip_box(p.chip, p.text2, 999.0))
+                    .into(),
+                );
+            }
+            if names.len() > 2 {
+                top.push(
+                    text(format!("+{}", names.len() - 2))
+                        .size(11)
+                        .color(p.muted)
                         .into(),
                 );
             }
@@ -2015,6 +2050,35 @@ fn popup_menu<'a>(app: &'a App, kind: Popup, at: iced::Point, p: Palette) -> Ele
                     (n + 1).to_string(),
                     Message::GoPage(n),
                     app.page == n,
+                    false,
+                ));
+            }
+        }
+        Popup::Labels => {
+            let targets = app.label_targets();
+            let has = |name: &str| {
+                !targets.is_empty()
+                    && targets.iter().all(|u| {
+                        app.headers
+                            .iter()
+                            .chain(app.search_results.iter().flatten())
+                            .any(|h| h.uid == *u && h.labels.iter().any(|l| l == name))
+                    })
+            };
+            let choices = app.label_choices();
+            if choices.is_empty() {
+                items.push(
+                    container(text(t("labels_none")).size(13).color(p.muted))
+                        .padding([8, 14])
+                        .into(),
+                );
+            }
+            for f in choices {
+                let on = has(&f.name);
+                items.push(item(
+                    trunc(&app.folder_label(&f.name), 30),
+                    Message::ToggleLabel(f.name.clone(), !on),
+                    on,
                     false,
                 ));
             }

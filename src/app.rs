@@ -127,6 +127,8 @@ pub enum Popup {
     Move,
     /// Jump to a page of the list.
     Page,
+    /// Gmail labels of the checked (or open) messages.
+    Labels,
 }
 
 /// What the main window shows beside the sidebar.
@@ -603,6 +605,8 @@ pub struct App {
     pub sender_input: (String, String),
     /// Page of the message list shown (0 = newest).
     pub page: usize,
+    /// The account is Gmail: messages have labels.
+    pub gmail: bool,
     /// Asking before deleting the open event.
     pub confirm_event_delete: bool,
 }
@@ -676,6 +680,10 @@ pub enum Message {
     Page(i32),
     /// Jump to a page (0 = first).
     GoPage(usize),
+    /// Add (true) or remove a Gmail label (raw name) on the checked or open
+    /// messages.
+    ToggleLabel(String, bool),
+    LabelSaved(Res<()>),
     SetPageSize(u32),
     /// Close the open message (the list takes the whole width again).
     CloseReader,
@@ -928,6 +936,7 @@ impl App {
             popup: None,
             sender_input: (String::new(), String::new()),
             page: 0,
+            gmail: false,
             confirm_event_delete: false,
         };
         // Development: open a given view directly (used for screenshots).
@@ -1198,6 +1207,31 @@ impl App {
                 h.flagged = on;
             }
         }
+    }
+
+    /// The messages a label change applies to: the checked ones, else the
+    /// open one.
+    pub fn label_targets(&self) -> Vec<u32> {
+        if self.checked.is_empty() {
+            self.selected.into_iter().collect()
+        } else {
+            self.checked.iter().copied().collect()
+        }
+    }
+
+    /// Gmail labels that can be put on messages: the user's own (Gmail's
+    /// system folders and the open folder left out).
+    pub fn label_choices(&self) -> Vec<&Folder> {
+        self.folders
+            .iter()
+            .filter(|f| {
+                f.kind == FolderKind::Other
+                    && f.selectable
+                    && !f.name.starts_with("[Gmail]")
+                    && !f.name.starts_with("[Google Mail]")
+                    && self.current_folder.as_deref() != Some(f.name.as_str())
+            })
+            .collect()
     }
 
     /// No message is open (or opening): the list uses the whole width.
@@ -1968,6 +2002,7 @@ impl App {
             }
             Message::Connected(Ok(folders)) => {
                 self.conn = Conn::Online;
+                self.gmail = self.backend.is_gmail();
                 self.folders = folders;
                 let start = self
                     .folder_by_kind(FolderKind::Inbox)
@@ -2429,6 +2464,37 @@ impl App {
                     self.page = next;
                 }
                 operation::snap_to(LIST_ID, iced::widget::scrollable::RelativeOffset::START)
+            }
+            Message::ToggleLabel(label, on) => {
+                self.popup = None;
+                let Some(folder) = self.current_folder.clone() else {
+                    return Task::none();
+                };
+                let uids = self.label_targets();
+                for h in self
+                    .headers
+                    .iter_mut()
+                    .chain(self.search_results.iter_mut().flatten())
+                    .filter(|h| uids.contains(&h.uid))
+                {
+                    h.labels.retain(|l| *l != label);
+                    if on {
+                        h.labels.push(label.clone());
+                    }
+                }
+                let b = self.backend.clone();
+                self.perform(
+                    async move { b.set_label_many(folder, uids, label, on).await },
+                    Message::LabelSaved,
+                )
+            }
+            Message::LabelSaved(Ok(())) => Task::none(),
+            Message::LabelSaved(Err(e)) => {
+                let reload = match self.current_folder.clone() {
+                    Some(f) => self.load_folder(f, true),
+                    None => Task::none(),
+                };
+                Task::batch([self.toast(e, true), reload])
             }
             Message::GoPage(n) => {
                 self.popup = None;
@@ -3776,6 +3842,15 @@ impl App {
             return Task::none();
         };
         self.modifiers = modifiers;
+        // Tab / Shift+Tab move between the fields of forms (account,
+        // compose, event, settings…); iced does not do it by itself.
+        if let Key::Named(Named::Tab) = key.as_ref() {
+            return if modifiers.shift() {
+                operation::focus_previous()
+            } else {
+                operation::focus_next()
+            };
+        }
         // Delete dialog open: Enter confirms, Esc cancels, other keys do nothing.
         if self.confirm_delete {
             return match key {

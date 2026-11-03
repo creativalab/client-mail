@@ -14,6 +14,8 @@ use std::sync::{Arc, Mutex, MutexGuard};
 struct Inner {
     account: Option<Account>,
     session: Option<ImapSession>,
+    /// The server is Gmail: messages carry labels (X-GM-EXT-1).
+    gmail: bool,
 }
 
 #[derive(Clone, Default)]
@@ -410,7 +412,9 @@ impl Backend {
             }
             let mut session = mail::connect(&account).map_err(text)?;
             let folders = mail::list_folders(&mut session).map_err(text)?;
+            let gmail = mail::has_gmail_labels(&mut session);
             let mut g = b.lock();
+            g.gmail = gmail;
             if let Some(mut old) = g.session.take() {
                 let _ = old.logout();
             }
@@ -464,7 +468,16 @@ impl Backend {
                 let left = pop3_sync(&account, POP3_FIRST_BATCH).map_err(text)?;
                 return Ok((local_headers(&account, &folder), if left > 0 { 2 } else { 0 }));
             }
-            let page = b.with_session_sync(|s| mail::fetch_headers(s, &folder))?;
+            let mut page = b.with_session_sync(|s| mail::fetch_headers(s, &folder))?;
+            // Gmail: the labels of the listed messages, in one command.
+            if b.lock().gmail {
+                let uids: Vec<u32> = page.headers.iter().map(|h| h.uid).collect();
+                if let Ok(mut labels) = b.with_session_sync(|s| mail::fetch_labels(s, &folder, &uids)) {
+                    for h in page.headers.iter_mut() {
+                        h.labels = labels.remove(&h.uid).unwrap_or_default();
+                    }
+                }
+            }
             let own = b.own_address();
             b.cache(|c, key| {
                 if let Some(v) = page.uidvalidity {
@@ -598,6 +611,24 @@ impl Backend {
             }
             b.with_session_sync(|s| mail::set_seen(s, &folder, &uids, seen))?;
             b.cache(|c, key| uids.iter().try_for_each(|&u| c.set_seen(key, &folder, u, seen)));
+            Ok(())
+        })
+        .await
+    }
+
+    /// Whether the connected account is Gmail (messages have labels).
+    pub fn is_gmail(&self) -> bool {
+        self.lock().gmail
+    }
+
+    /// Adds or removes a Gmail label (raw IMAP name) on messages.
+    pub async fn set_label_many(&self, folder: String, uids: Vec<u32>, label: String, on: bool) -> Res<()> {
+        self.blocking(move |b| {
+            b.with_session_sync(|s| mail::set_gmail_label(s, &folder, &uids, &label, on))?;
+            b.cache(|c, key| {
+                uids.iter()
+                    .try_for_each(|&u| c.set_label(key, &folder, u, &label, on))
+            });
             Ok(())
         })
         .await
