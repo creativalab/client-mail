@@ -5,59 +5,69 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
-import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrowl.app.R
+import com.ferrowl.core.translate
 
 /** App settings (for now: how the message list is grouped). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel()) {
+fun SettingsScreen(onBack: () -> Unit, onNoAccount: () -> Unit, vm: SettingsViewModel = hiltViewModel()) {
     val threaded by vm.threaded.collectAsStateWithLifecycle()
     val pushOn by vm.pushEnabled.collectAsStateWithLifecycle()
-    val pushAvailable by vm.pushAvailable.collectAsStateWithLifecycle()
+    val pushUnavailable by vm.pushUnavailable.collectAsStateWithLifecycle()
+    val pushAvailable = pushUnavailable == null
+    val activeEmail by vm.activeEmail.collectAsStateWithLifecycle()
+    val noAccount by vm.noAccount.collectAsStateWithLifecycle()
+    var confirmRemove by remember { mutableStateOf(false) }
+    LaunchedEffect(noAccount) { if (noAccount) onNoAccount() }
     val pushBusy by vm.pushBusy.collectAsStateWithLifecycle()
     val pushError by vm.pushError.collectAsStateWithLifecycle()
     // Android 13+ asks the user before an app may show notifications.
@@ -103,7 +113,7 @@ fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel()) 
             ListItem(
                 headlineContent = { Text(stringResource(R.string.push_title)) },
                 supportingContent = {
-                    Text(stringResource(if (pushAvailable) R.string.push_desc else R.string.push_pop3))
+                    Text(pushUnavailable?.let { translate(it) } ?: stringResource(R.string.push_desc))
                 },
                 trailingContent = {
                     Switch(
@@ -126,8 +136,28 @@ fun SettingsScreen(onBack: () -> Unit, vm: SettingsViewModel = hiltViewModel()) 
             )
             SenderList(stringResource(R.string.senders_blocked), blocked, onAdd = { vm.addSender(it, false) }, onRemove = vm::removeSender)
             SenderList(stringResource(R.string.senders_allowed), allowed, onAdd = { vm.addSender(it, true) }, onRemove = vm::removeSender)
+            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.remove_account)) },
+                supportingContent = { Text(activeEmail) },
+                modifier = Modifier.clickable { confirmRemove = true },
+            )
             Spacer(Modifier.height(24.dp))
         }
+    }
+    if (confirmRemove) {
+        AlertDialog(
+            onDismissRequest = { confirmRemove = false },
+            title = { Text(stringResource(R.string.remove_account)) },
+            text = { Text(stringResource(R.string.confirm_remove_account)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmRemove = false
+                    vm.removeActiveAccount()
+                }) { Text(stringResource(R.string.remove_account), color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text(stringResource(R.string.cancel)) } },
+        )
     }
 }
 

@@ -1,29 +1,33 @@
 package com.ferrowl.app.data
 
+import com.ferrowl.app.push.PushRegistrar
 import com.ferrowl.core.Account
 import com.ferrowl.core.AddressSuggestion
 import com.ferrowl.core.CalendarEvent
 import com.ferrowl.core.CalendarInfo
-import com.ferrowl.core.EventDraft
 import com.ferrowl.core.Contact
 import com.ferrowl.core.Engine
+import com.ferrowl.core.EventDraft
 import com.ferrowl.core.Folder
 import com.ferrowl.core.FolderKind
 import com.ferrowl.core.Header
 import com.ferrowl.core.InviteReply
 import com.ferrowl.core.Message
 import com.ferrowl.core.Outgoing
-import com.ferrowl.app.push.PushRegistrar
 import com.ferrowl.core.markdownToHtml
+import com.ferrowl.core.oauthForget
 import com.ferrowl.core.translate
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -59,6 +63,49 @@ class MailRepository @Inject constructor(
     val notices: SharedFlow<String> = _notices.asSharedFlow()
 
     suspend fun savedAccount(): Account? = accounts.account.first()
+
+    /** Every account on the phone, in the order they were added. */
+    val accountList: Flow<List<Account>> = accounts.accounts
+
+    /** The active account's address (null with no account). */
+    val activeEmail: Flow<String?> = accounts.account.map { it?.email }.distinctUntilChanged()
+
+    private val _switched = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
+
+    /** Emits after another account became the active one: screens start over. */
+    val switched: SharedFlow<Unit> = _switched.asSharedFlow()
+
+    /** Makes another account the active one and connects it. */
+    suspend fun switchTo(email: String) {
+        connectLock.withLock {
+            val account = accounts.accounts.first().firstOrNull { it.email.equals(email, ignoreCase = true) } ?: return
+            _folders.value = engine.connect(account)
+            accounts.setActive(account.email)
+        }
+        _switched.tryEmit(Unit)
+        learnFromSent()
+        syncContactsQuietly()
+        // Notifications follow the active account.
+        runCatching { push.accountChanged() }
+    }
+
+    /**
+     * Removes an account from the phone (its sign-in too); another one, if
+     * any, becomes active. Returns false when no account is left.
+     */
+    suspend fun removeAccount(email: String): Boolean {
+        val removed = accounts.accounts.first().firstOrNull { it.email.equals(email, ignoreCase = true) } ?: return true
+        removed.oauth?.let { oauthForget(it, removed.email) }
+        val next = accounts.remove(removed.email)
+        runCatching { push.accountChanged() }
+        if (next == null) {
+            _folders.value = emptyList()
+            return false
+        }
+        connectLock.withLock { _folders.value = engine.connect(next) }
+        _switched.tryEmit(Unit)
+        return true
+    }
 
     /** Checks settings without saving them. Returns a confirmation text. */
     suspend fun test(account: Account): String = engine.test(account)

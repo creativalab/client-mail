@@ -22,6 +22,9 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class MailboxState(
+    /** Addresses of every account on the phone, and the active one. */
+    val accounts: List<String> = emptyList(),
+    val active: String = "",
     val folders: List<Folder> = emptyList(),
     val unread: Map<String, UInt> = emptyMap(),
     val folderId: String = "",
@@ -91,12 +94,49 @@ class MailboxViewModel @Inject constructor(
                 _state.update { it.copy(error = e.message) }
             }
         }
+        viewModelScope.launch {
+            repo.accountList.collect { list -> _state.update { it.copy(accounts = list.map { a -> a.email }) } }
+        }
+        viewModelScope.launch { repo.activeEmail.collect { e -> _state.update { it.copy(active = e.orEmpty()) } } }
+        // Another account became active: start over with its inbox.
+        viewModelScope.launch {
+            repo.switched.collect {
+                _state.update {
+                    it.copy(
+                        folders = repo.folders.value,
+                        folderId = repo.inboxId(),
+                        tabs = repo.isGmail(),
+                        unread = emptyMap(),
+                        messages = emptyList(),
+                        query = "",
+                        results = emptyList(),
+                        selected = emptySet(),
+                        category = 0,
+                        error = null,
+                    )
+                }
+                refresh()
+            }
+        }
         // Something was moved, deleted or sent: reload from the local copy.
         viewModelScope.launch {
             repo.changes.collect {
                 val id = _state.value.folderId
                 if (id.isNotEmpty()) _state.update { it.copy(messages = repo.cachedHeaders(id)) }
                 loadUnread()
+            }
+        }
+    }
+
+    /** Shows another account (connects it first). */
+    fun switchAccount(email: String) {
+        if (email.equals(_state.value.active, ignoreCase = true)) return
+        _state.update { it.copy(refreshing = true, error = null) }
+        viewModelScope.launch {
+            try {
+                repo.switchTo(email)
+            } catch (e: FerrowlException) {
+                _state.update { it.copy(refreshing = false, error = e.message) }
             }
         }
     }
