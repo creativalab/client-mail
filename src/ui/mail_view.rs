@@ -1,7 +1,7 @@
 //! Main window: top bar · folders · list · reader (Main.dc.html).
 
 use super::*;
-use crate::app::{App, Bulk, Conn, ListFilter, Pane, Popup, READER_ID, SEARCH_ID, Section, Select};
+use crate::app::{App, Bulk, Conn, LIST_ID, ListFilter, Pane, Popup, READER_ID, SEARCH_ID, Section, Select};
 use crate::i18n::{self, SUPPORT_EMAIL, t, tf};
 use crate::mail::{Folder, FolderKind};
 use crate::theme;
@@ -635,6 +635,11 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         act(icons::MAIL, t("mark_unread"), Message::Bulk(Bulk::Unread)),
         act(icons::STAR_FILLED, t("star_add"), Message::Bulk(Bulk::Star)),
         act(icons::ARCHIVE, t("archive"), Message::Bulk(Bulk::Archive)),
+        if app.current_kind() == crate::mail::FolderKind::Spam {
+            act(icons::INBOX, t("spam_not"), Message::Bulk(Bulk::Spam))
+        } else {
+            act(icons::SPAM, t("spam_report"), Message::Bulk(Bulk::Spam))
+        },
         act(icons::FOLDER, t("move_to"), Message::OpenPopup(Popup::Move)),
         act(icons::TRASH, t("delete"), Message::Bulk(Bulk::Delete)),
         space::horizontal().into(),
@@ -691,7 +696,60 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         bottom: 8.0,
         left: 20.0,
     });
-    let view_mode = container(dir_row(vec![filters.into(), space::horizontal().into()])).padding(Padding {
+    // Pages: "1–20 of 200" and the arrows.
+    let size = app.config.ui.page_size.max(1) as usize;
+    let total = rows_now.len();
+    let from = (app.page * size).min(total);
+    let to = (from + size).min(total);
+    let (back, forward) = if i18n::is_rtl() {
+        (icons::CHEVRON_RIGHT, icons::CHEVRON_LEFT)
+    } else {
+        (icons::CHEVRON_LEFT, icons::CHEVRON_RIGHT)
+    };
+    let pager = dir_row(vec![
+        // Opens the list of pages, to jump to one.
+        button(
+            row![
+                text(tf(
+                    "page_range",
+                    &[
+                        ("from", &(from + 1).min(to).to_string()),
+                        ("to", &to.to_string()),
+                        ("n", &total.to_string())
+                    ],
+                ))
+                .size(12)
+                .font(MONO)
+                .color(p.text2)
+                .wrapping(Wrapping::None),
+                icon(icons::CHEVRON_DOWN, 12.0, p.text2),
+            ]
+            .spacing(4)
+            .align_y(Alignment::Center),
+        )
+        .padding([4, 6])
+        .style(ghost(p, p.text2))
+        .on_press(Message::OpenPopup(Popup::Page))
+        .into(),
+        button(icon(back, 16.0, if app.page > 0 { p.text2 } else { p.field }))
+            .padding(5)
+            .style(ghost(p, p.text2))
+            .on_press_maybe((app.page > 0).then_some(Message::Page(-1)))
+            .into(),
+        // Forward also past the loaded messages: older ones come from the
+        // local copy.
+        button(icon(forward, 16.0, p.text2))
+            .padding(5)
+            .style(ghost(p, p.text2))
+            .on_press(Message::Page(1))
+            .into(),
+    ])
+    .spacing(2)
+    .align_y(Alignment::Center);
+    let view_mode = container(
+        dir_row(vec![filters.into(), space::horizontal().into(), pager.into()]).align_y(Alignment::Center),
+    )
+    .padding(Padding {
         top: 0.0,
         right: 20.0,
         bottom: 10.0,
@@ -714,7 +772,7 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         let preview = app.config.ui.show_preview;
         // One row per conversation (its newest message) or per message, in
         // the chosen order.
-        let rows = rows_now;
+        let rows: Vec<_> = rows_now.into_iter().skip(from).take(size).collect();
         let open_thread = app.selected.map(|uid| app.conversation(uid)).unwrap_or_default();
         let mut col = Column::new();
         for (h, uids, unread) in rows {
@@ -890,7 +948,11 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                 .on_right_press(Message::OpenMenu(uid));
             col = col.push(item).push(hline(p.line_soft));
         }
-        scrollable(col).height(Fill).style(scroll_style(p)).into()
+        scrollable(col)
+            .id(LIST_ID)
+            .height(Fill)
+            .style(scroll_style(p))
+            .into()
     };
 
     container(column![toolbar, header, view_mode, content])
@@ -987,6 +1049,24 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         t("mark_unread"),
         p,
     ));
+    if kind == FolderKind::Spam {
+        tools.push(tooltip(
+            tool_btn(p, icons::INBOX, None, Message::SpamOpen),
+            t("spam_not"),
+            p,
+        ));
+    } else {
+        tools.push(tooltip(
+            tool_btn(p, icons::SPAM, None, Message::SpamOpen),
+            t("spam_report"),
+            p,
+        ));
+        tools.push(tooltip(
+            tool_btn(p, icons::BLOCK, None, Message::BlockSender),
+            t("block_sender"),
+            p,
+        ));
+    }
     tools.push(tooltip(
         tool_btn(p, icons::PRINTER, None, Message::Print),
         t("print"),
@@ -1922,6 +2002,28 @@ fn popup_menu<'a>(app: &'a App, kind: Popup, at: iced::Point, p: Palette) -> Ele
                     t(o.key()).into(),
                     Message::SetSort(o),
                     app.config.ui.sort == o,
+                    false,
+                ));
+            }
+        }
+        Popup::Page => {
+            let size = app.config.ui.page_size.max(1) as usize;
+            let total = app.list_rows().len();
+            let pages = total.div_ceil(size).max(1);
+            for n in 0..pages {
+                let from = n * size + 1;
+                let to = ((n + 1) * size).min(total);
+                items.push(item(
+                    tf(
+                        "page_range",
+                        &[
+                            ("from", &from.to_string()),
+                            ("to", &to.to_string()),
+                            ("n", &total.to_string()),
+                        ],
+                    ),
+                    Message::GoPage(n),
+                    app.page == n,
                     false,
                 ));
             }

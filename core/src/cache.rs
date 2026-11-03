@@ -92,6 +92,14 @@ CREATE TABLE IF NOT EXISTS events (
     PRIMARY KEY (account, url)
 );
 CREATE INDEX IF NOT EXISTS events_span ON events (account, first_ts);
+-- Senders the user blocked (their mail goes to Spam) or allowed (their
+-- mail comes back from Spam). An address, or '@domain' for a whole domain.
+CREATE TABLE IF NOT EXISTS sender_rules (
+    account TEXT NOT NULL,
+    address TEXT NOT NULL,
+    allow   INTEGER NOT NULL,
+    PRIMARY KEY (account, address)
+);
 -- Our answers to invitations, by event UID (shown on the invitation even
 -- without a calendar server).
 CREATE TABLE IF NOT EXISTS invite_replies (
@@ -608,6 +616,56 @@ impl Cache {
             .optional()?)
     }
 
+    /// Blocks (`allow` false) or allows a sender ("name@domain" or
+    /// "@domain"). A sender is in one list at a time.
+    pub fn set_sender_rule(&self, account: &str, address: &str, allow: bool) -> Result<()> {
+        let address = normalize_sender(address);
+        if address.is_empty() {
+            return Ok(());
+        }
+        self.lock().execute(
+            "INSERT OR REPLACE INTO sender_rules (account, address, allow) VALUES (?1, ?2, ?3)",
+            params![account, address, allow],
+        )?;
+        Ok(())
+    }
+
+    pub fn remove_sender_rule(&self, account: &str, address: &str) -> Result<()> {
+        self.lock().execute(
+            "DELETE FROM sender_rules WHERE account = ?1 AND address = ?2",
+            params![account, normalize_sender(address)],
+        )?;
+        Ok(())
+    }
+
+    /// The blocked (`allow` false) or allowed senders, sorted.
+    pub fn sender_rules(&self, account: &str, allow: bool) -> Result<Vec<String>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare_cached(
+            "SELECT address FROM sender_rules WHERE account = ?1 AND allow = ?2 ORDER BY address",
+        )?;
+        let rows = stmt.query_map(params![account, allow], |r| r.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The rule for a sender's address: Some(true) allowed, Some(false)
+    /// blocked, None neither. The address wins over its domain.
+    pub fn sender_rule(&self, account: &str, address: &str) -> Result<Option<bool>> {
+        let address = normalize_sender(address);
+        let Some((_, domain)) = address.rsplit_once('@') else {
+            return Ok(None);
+        };
+        let conn = self.lock();
+        let mut stmt =
+            conn.prepare_cached("SELECT allow FROM sender_rules WHERE account = ?1 AND address = ?2")?;
+        for key in [address.clone(), format!("@{domain}")] {
+            if let Some(allow) = stmt.query_row(params![account, key], |r| r.get(0)).optional()? {
+                return Ok(Some(allow));
+            }
+        }
+        Ok(None)
+    }
+
     /// The account's calendars.
     pub fn calendars(&self, account: &str) -> Result<Vec<crate::dav::Collection>> {
         let conn = self.lock();
@@ -722,6 +780,11 @@ fn harvest(conn: &Connection, account: &str, own: &str, h: &Header) -> Result<()
     Ok(())
 }
 
+/// Lower case, without spaces or angle brackets.
+fn normalize_sender(s: &str) -> String {
+    s.trim().trim_matches(['<', '>']).trim().to_lowercase()
+}
+
 /// Escapes LIKE wildcards (used with `ESCAPE '\\'`).
 fn like_escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
@@ -781,6 +844,31 @@ mod tests {
             text: text.into(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn sender_rules() {
+        let c = Cache::in_memory();
+        c.set_sender_rule("a", " <Spam@Bad.example> ", false).unwrap();
+        c.set_sender_rule("a", "@friends.example", true).unwrap();
+        assert_eq!(c.sender_rule("a", "spam@bad.example").unwrap(), Some(false));
+        assert_eq!(c.sender_rule("a", "anyone@friends.example").unwrap(), Some(true));
+        assert_eq!(c.sender_rule("a", "other@bad.example").unwrap(), None);
+        // The address wins over its domain; one list at a time.
+        c.set_sender_rule("a", "@bad.example", false).unwrap();
+        c.set_sender_rule("a", "spam@bad.example", true).unwrap();
+        assert_eq!(c.sender_rule("a", "spam@bad.example").unwrap(), Some(true));
+        assert_eq!(c.sender_rules("a", false).unwrap(), ["@bad.example"]);
+        assert_eq!(
+            c.sender_rules("a", true).unwrap(),
+            ["@friends.example", "spam@bad.example"]
+        );
+        c.remove_sender_rule("a", "SPAM@bad.example").unwrap();
+        assert_eq!(
+            c.sender_rule("a", "spam@bad.example").unwrap(),
+            Some(false),
+            "domain rule again"
+        );
     }
 
     #[test]

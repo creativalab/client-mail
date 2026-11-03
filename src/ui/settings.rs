@@ -236,6 +236,80 @@ fn general(app: &App, p: Palette) -> Element<'_, Message> {
 
 // ---------------------------------------------------------------- Security
 
+/// Blocked and allowed senders: two lists, each with a box to add one.
+fn senders<'a>(app: &'a App, acc: &crate::config::Account, p: Palette) -> Element<'a, Message> {
+    let list = |allow: bool| -> Element<'a, Message> {
+        let entries = crate::backend::Backend::sender_rules(acc, allow);
+        let typed = if allow {
+            &app.sender_input.1
+        } else {
+            &app.sender_input.0
+        };
+        let mut col = Column::new().spacing(6).push(
+            text(if allow {
+                t("senders_allowed")
+            } else {
+                t("senders_blocked")
+            })
+            .size(14)
+            .font(semibold())
+            .color(p.text),
+        );
+        if entries.is_empty() {
+            col = col.push(text(t("senders_none")).size(13).color(p.muted));
+        }
+        for e in entries {
+            col = col.push(
+                dir_row(vec![
+                    text(e.clone())
+                        .size(14)
+                        .font(MONO)
+                        .color(p.text)
+                        .width(Fill)
+                        .into(),
+                    button(text(t("senders_remove")).size(12).color(p.danger))
+                        .padding([4, 10])
+                        .style(ghost(p, p.danger))
+                        .on_press(Message::RemoveSender(e))
+                        .into(),
+                ])
+                .align_y(Alignment::Center),
+            );
+        }
+        col = col.push(
+            dir_row(vec![
+                text_input(t("senders_placeholder"), typed)
+                    .on_input(move |v| Message::SenderInput(allow, v))
+                    .on_submit(Message::AddSender(allow))
+                    .size(14)
+                    .padding([8, 10])
+                    .style(input(p, 8.0))
+                    .into(),
+                button(text(t("senders_add")).size(13).font(medium()))
+                    .padding([8, 14])
+                    .style(outline_btn(p, p.text))
+                    .on_press_maybe(typed.contains('@').then_some(Message::AddSender(allow)))
+                    .into(),
+            ])
+            .spacing(8)
+            .align_y(Alignment::Center),
+        );
+        col.width(Fill).into()
+    };
+    container(
+        column![
+            text(t("senders_title")).size(16).font(INTER_BOLD).color(p.text),
+            text(t("senders_desc")).size(14).color(p.text2),
+            dir_row(vec![list(false), list(true)]).spacing(24),
+        ]
+        .spacing(14),
+    )
+    .padding(20)
+    .width(Fill)
+    .style(card(p, p.line, 14.0))
+    .into()
+}
+
 fn security(app: &App, p: Palette) -> Element<'_, Message> {
     let Some(acc) = app.config.account() else {
         return title(t("section_security"), t("security_desc"), p);
@@ -332,6 +406,7 @@ fn security(app: &App, p: Palette) -> Element<'_, Message> {
     column![
         title(t("section_security"), t("security_desc"), p),
         privacy,
+        senders(app, acc, p),
         own,
         contacts
     ]
@@ -815,6 +890,20 @@ fn appearance(app: &App, p: Palette) -> Element<'_, Message> {
         container(row![mode(true, t("view_threads")), mode(false, t("view_messages"))].spacing(4))
             .padding(3)
             .style(chip_box(p.chip, p.text2, 9.0));
+    let page = |n: u32| {
+        let selected = app.config.ui.page_size == n;
+        button(
+            text(n.to_string())
+                .size(13)
+                .font(if selected { semibold() } else { INTER }),
+        )
+        .padding([6, 12])
+        .style(segment(p, selected))
+        .on_press(Message::SetPageSize(n))
+    };
+    let page_size = container(row![page(20), page(50), page(100)].spacing(4))
+        .padding(3)
+        .style(chip_box(p.chip, p.text2, 9.0));
 
     let preview = toggler(app.config.ui.show_preview)
         .on_toggle(Message::TogglePreview)
@@ -849,6 +938,7 @@ fn appearance(app: &App, p: Palette) -> Element<'_, Message> {
             vec![
                 setting_row(t("density"), t("density_desc"), density.into(), p, false),
                 setting_row(t("list_view"), t("list_view_desc"), view_mode.into(), p, false),
+                setting_row(t("page_size"), t("page_size_desc"), page_size.into(), p, false),
                 setting_row(t("preview"), t("preview_desc"), preview.into(), p, true),
             ],
             p
