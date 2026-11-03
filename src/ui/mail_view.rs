@@ -746,7 +746,6 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         .width(Fill)
         .clip(true)
         .into(),
-        sort_btn.into(),
     ])
     .spacing(12)
     .align_y(Alignment::Center)
@@ -756,7 +755,11 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         bottom: 12.0,
         left: 20.0,
     });
-    let view_mode = container(dir_row(vec![filters.into()]).align_y(Alignment::Center)).padding(Padding {
+    // Filters on the start side, the sort order on the end side.
+    let view_mode = container(
+        dir_row(vec![filters.into(), space::horizontal().into(), sort_btn.into()]).align_y(Alignment::Center),
+    )
+    .padding(Padding {
         top: 0.0,
         right: 20.0,
         bottom: 10.0,
