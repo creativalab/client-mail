@@ -10,7 +10,7 @@
 //! engine never reads a config file on mobile.
 
 use ferrowl_core::backend::Backend;
-use ferrowl_core::{config, i18n, mail, paths, providers};
+use ferrowl_core::{config, i18n, invite, mail, paths, providers};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -276,6 +276,96 @@ pub struct Message {
     pub attachments: Vec<Attachment>,
     pub dkim_pass: bool,
     pub pgp: Option<PgpInfo>,
+    /// The calendar object of an invitation (or of a cancellation or
+    /// reply), to pass back to `respond_invitation`.
+    pub calendar: Option<String>,
+    /// What that calendar object says, for the invitation card.
+    pub invitation: Option<Invitation>,
+}
+
+/// An answer to an invitation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum InviteReply {
+    Accepted,
+    Tentative,
+    Declined,
+}
+
+impl From<InviteReply> for invite::Reply {
+    fn from(r: InviteReply) -> Self {
+        match r {
+            InviteReply::Accepted => invite::Reply::Accepted,
+            InviteReply::Tentative => invite::Reply::Tentative,
+            InviteReply::Declined => invite::Reply::Declined,
+        }
+    }
+}
+
+impl From<invite::Reply> for InviteReply {
+    fn from(r: invite::Reply) -> Self {
+        match r {
+            invite::Reply::Accepted => InviteReply::Accepted,
+            invite::Reply::Tentative => InviteReply::Tentative,
+            invite::Reply::Declined => InviteReply::Declined,
+        }
+    }
+}
+
+/// Someone's answer, in a reply to our invitation.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct InviteAnswer {
+    pub name: String,
+    pub email: String,
+    /// ACCEPTED, TENTATIVE, DECLINED…
+    pub status: String,
+}
+
+/// A meeting invitation, cancellation or reply found in a message.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct Invitation {
+    /// REQUEST (invitation), CANCEL (called off), REPLY (answer to ours).
+    pub method: String,
+    pub uid: String,
+    pub summary: String,
+    pub location: String,
+    pub start: i64,
+    pub end: i64,
+    pub all_day: bool,
+    /// All-day: first and last day (inclusive), "YYYY-MM-DD".
+    pub first_day: Option<String>,
+    pub last_day: Option<String>,
+    pub recurring: bool,
+    pub organizer: String,
+    pub organizer_name: String,
+    pub answers: Vec<InviteAnswer>,
+}
+
+impl From<invite::Invitation> for Invitation {
+    fn from(i: invite::Invitation) -> Self {
+        Invitation {
+            method: i.method,
+            uid: i.uid,
+            summary: i.summary,
+            location: i.location,
+            start: i.when.start,
+            end: i.when.end,
+            all_day: i.when.all_day,
+            first_day: i.when.first_day.map(|d| d.to_string()),
+            last_day: i.when.last_day.map(|d| d.to_string()),
+            recurring: i.when.recurring,
+            organizer: i.organizer,
+            organizer_name: i.organizer_name,
+            answers: i
+                .replies
+                .into_iter()
+                .map(|a| InviteAnswer {
+                    name: a.name,
+                    email: a.email,
+                    status: a.partstat,
+                })
+                .collect(),
+        }
+    }
 }
 
 impl From<mail::FullMessage> for Message {
@@ -303,6 +393,8 @@ impl From<mail::FullMessage> for Message {
                     data: a.data,
                 })
                 .collect(),
+            invitation: m.calendar.as_deref().and_then(invite::read).map(Invitation::from),
+            calendar: m.calendar,
             dkim_pass: m.dkim_pass,
             pgp: m.pgp.map(|p| PgpInfo {
                 encrypted: p.encrypted,
@@ -351,6 +443,7 @@ impl From<Outgoing> for mail::Outgoing {
             attachments: o.attachments.into_iter().map(PathBuf::from).collect(),
             sign: o.sign,
             encrypt: o.encrypt,
+            calendar: None,
         }
     }
 }
@@ -772,6 +865,42 @@ impl Engine {
 
     /// Sends and stores a copy in Sent. Returns a warning if the message
     /// went out but the copy could not be saved.
+    /// Answers an invitation (`calendar` from the message): mails the reply
+    /// to the organizer and updates the calendar if the account has one.
+    /// Returns the text to show.
+    pub async fn respond_invitation(&self, calendar: String, reply: InviteReply) -> Result<String> {
+        let sent = lock(&self.folders)
+            .iter()
+            .find(|f| f.kind == mail::FolderKind::Sent)
+            .map(|f| f.name.clone());
+        Ok(self
+            .backend
+            .respond_invitation(calendar, reply.into(), sent)
+            .await?)
+    }
+
+    /// Our earlier answer to the invitation with this event UID, if any.
+    pub fn invitation_reply(&self, uid: String) -> Option<InviteReply> {
+        let a = lock(&self.account).clone()?;
+        Backend::invitation_reply(&a, &uid).map(InviteReply::from)
+    }
+
+    /// Whether the event is in the calendar (to offer removing it when
+    /// cancelled).
+    pub fn in_calendar(&self, uid: String) -> bool {
+        lock(&self.account)
+            .as_ref()
+            .is_some_and(|a| Backend::in_calendar(a, &uid))
+    }
+
+    /// Removes a cancelled event from the calendar. Returns the text to show.
+    pub async fn remove_cancelled(&self, uid: String) -> Result<String> {
+        let Some(account) = lock(&self.account).clone() else {
+            return Ok(String::new());
+        };
+        Ok(Backend::remove_cancelled(account, uid).await?)
+    }
+
     pub async fn send(&self, message: Outgoing) -> Result<Option<String>> {
         let sent = lock(&self.folders)
             .iter()
@@ -817,6 +946,8 @@ mod tests {
             attachments: Vec::new(),
             dkim_pass: false,
             pgp: None,
+            calendar: None,
+            invitation: None,
         }
     }
 

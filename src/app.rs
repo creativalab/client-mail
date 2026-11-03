@@ -29,6 +29,19 @@ pub enum Screen {
     Settings(Section),
 }
 
+/// The invitation in the open message, with our answer so far.
+#[derive(Debug, Clone)]
+pub struct InviteCard {
+    /// The message it belongs to.
+    pub uid: u32,
+    pub ics: String,
+    pub invitation: ferrowl_core::invite::Invitation,
+    pub reply: Option<ferrowl_core::invite::Reply>,
+    /// Cancelled event still in our calendar (can be removed).
+    pub in_calendar: bool,
+    pub busy: bool,
+}
+
 /// What the main window shows beside the sidebar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pane {
@@ -489,6 +502,7 @@ pub struct App {
     pub agenda: Vec<ferrowl_core::backend::AgendaEntry>,
     pub agenda_selected: Option<usize>,
     pub calendar_sync: SyncState,
+    pub invite: Option<InviteCard>,
 }
 
 // ---------------------------------------------------------------- messages
@@ -644,6 +658,12 @@ pub enum Message {
     AgendaSelect(usize),
     SyncCalendar,
     CalendarSynced(Res<usize>),
+    /// Answer to the open message's invitation.
+    InviteRespond(ferrowl_core::invite::Reply),
+    InviteResponded(Res<String>),
+    /// Remove the cancelled event from the calendar.
+    InviteRemove,
+    InviteRemoved(Res<String>),
     /// New message to (name, address).
     WriteTo(String, String),
     // compose
@@ -760,6 +780,7 @@ impl App {
             agenda: Vec::new(),
             agenda_selected: None,
             calendar_sync: SyncState::Idle,
+            invite: None,
         };
         // Development: open a given view directly (used for screenshots).
         match std::env::var("FERROWL_DEV_VIEW").as_deref() {
@@ -1331,6 +1352,21 @@ impl App {
             },
             Message::ContactsSynced,
         )
+    }
+
+    /// The invitation card for a message with a calendar part.
+    fn invite_card(&self, msg: &FullMessage) -> Option<InviteCard> {
+        let ics = msg.calendar.clone()?;
+        let invitation = ferrowl_core::invite::read(&ics)?;
+        let acc = self.config.account()?;
+        Some(InviteCard {
+            uid: msg.uid,
+            reply: Backend::invitation_reply(acc, &invitation.uid),
+            in_calendar: invitation.method == "CANCEL" && Backend::in_calendar(acc, &invitation.uid),
+            ics,
+            invitation,
+            busy: false,
+        })
     }
 
     /// Syncs the active account's calendars after `delay`.
@@ -2029,6 +2065,7 @@ impl App {
                     *n = n.saturating_sub(1);
                 }
                 self.body = text_editor::Content::with_text(&msg.body);
+                self.invite = self.invite_card(&msg);
                 self.message = Some(msg);
                 self.html_render = None;
                 self.hover_link = None;
@@ -2724,6 +2761,49 @@ impl App {
                 self.reload_agenda();
                 Task::none()
             }
+            Message::InviteRespond(reply) => {
+                let sent = self.folder_by_kind(FolderKind::Sent).map(|f| f.name.clone());
+                let Some(card) = self.invite.as_mut().filter(|c| !c.busy) else {
+                    return Task::none();
+                };
+                card.busy = true;
+                let ics = card.ics.clone();
+                let b = self.backend.clone();
+                self.perform(
+                    async move { b.respond_invitation(ics, reply, sent).await },
+                    Message::InviteResponded,
+                )
+            }
+            Message::InviteResponded(result) => {
+                let toast = match result {
+                    Ok(note) => self.toast(note, false),
+                    Err(e) => self.toast(e, true),
+                };
+                if let Some(msg) = self.message.clone() {
+                    self.invite = self.invite_card(&msg);
+                }
+                self.reload_agenda();
+                toast
+            }
+            Message::InviteRemove => {
+                let (Some(card), Some(acc)) = (self.invite.as_mut(), self.config.account().cloned()) else {
+                    return Task::none();
+                };
+                card.busy = true;
+                let uid = card.invitation.uid.clone();
+                self.perform(Backend::remove_cancelled(acc, uid), Message::InviteRemoved)
+            }
+            Message::InviteRemoved(result) => {
+                let toast = match result {
+                    Ok(note) => self.toast(note, false),
+                    Err(e) => self.toast(e, true),
+                };
+                if let Some(msg) = self.message.clone() {
+                    self.invite = self.invite_card(&msg);
+                }
+                self.reload_agenda();
+                toast
+            }
             Message::WriteTo(name, address) => {
                 if self.compose.is_none() && self.config.account().is_some() {
                     let mut c = Compose::new(ComposeMode::New);
@@ -2903,6 +2983,7 @@ impl App {
                     attachments: c.attachments.clone(),
                     sign: c.sign,
                     encrypt: c.encrypt,
+                    calendar: None,
                 };
                 let b = self.backend.clone();
                 Task::perform(async move { b.send(out, sent).await }, Message::ComposeSent)
@@ -2967,6 +3048,15 @@ impl App {
                 {
                     let first: Vec<u32> = self.visible().iter().take(n).map(|h| h.uid).collect();
                     self.checked.extend(first);
+                }
+                // Development: answer the open invitation after the first shot.
+                if let Some(reply) = std::env::var("FERROWL_DEV_INVITE")
+                    .ok()
+                    .and_then(|r| ferrowl_core::invite::Reply::from_partstat(&r))
+                    && self.dev_shots >= 1
+                    && self.invite.as_ref().is_some_and(|c| c.reply.is_none() && !c.busy)
+                {
+                    return self.update(Message::InviteRespond(reply));
                 }
                 if std::env::var_os("FERROWL_SCREENSHOT_OPEN").is_some() && self.selected.is_none() {
                     let nth = std::env::var("FERROWL_DEV_OPEN_NTH")

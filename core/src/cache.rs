@@ -92,6 +92,14 @@ CREATE TABLE IF NOT EXISTS events (
     PRIMARY KEY (account, url)
 );
 CREATE INDEX IF NOT EXISTS events_span ON events (account, first_ts);
+-- Our answers to invitations, by event UID (shown on the invitation even
+-- without a calendar server).
+CREATE TABLE IF NOT EXISTS invite_replies (
+    account  TEXT NOT NULL,
+    uid      TEXT NOT NULL,
+    partstat TEXT NOT NULL,
+    PRIMARY KEY (account, uid)
+);
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
     sender, subject, body,
     content = 'messages', content_rowid = 'id',
@@ -521,6 +529,51 @@ impl Cache {
         )?;
         tx.commit()?;
         Ok(())
+    }
+
+    /// URL and ETag of the stored event with this UID, if any.
+    pub fn event_by_uid(&self, account: &str, uid: &str) -> Result<Option<(String, String)>> {
+        if uid.is_empty() {
+            return Ok(None);
+        }
+        let conn = self.lock();
+        let mut stmt = conn
+            .prepare_cached("SELECT url, etag, ics FROM events WHERE account = ?1 AND instr(ics, ?2) > 0")?;
+        let rows = stmt.query_map(params![account, uid], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })?;
+        for row in rows {
+            let (url, etag, ics) = row?;
+            // The text matched somewhere: make sure it is the UID.
+            if crate::ical::parse(&ics).events.iter().any(|e| e.uid == uid) {
+                return Ok(Some((url, etag)));
+            }
+        }
+        Ok(None)
+    }
+
+    pub fn note_invite_reply(&self, account: &str, uid: &str, partstat: &str) -> Result<()> {
+        self.lock().execute(
+            "INSERT OR REPLACE INTO invite_replies (account, uid, partstat) VALUES (?1, ?2, ?3)",
+            params![account, uid, partstat],
+        )?;
+        Ok(())
+    }
+
+    /// Our answer to the invitation with this UID, if we gave one.
+    pub fn invite_reply(&self, account: &str, uid: &str) -> Result<Option<String>> {
+        Ok(self
+            .lock()
+            .query_row(
+                "SELECT partstat FROM invite_replies WHERE account = ?1 AND uid = ?2",
+                params![account, uid],
+                |r| r.get(0),
+            )
+            .optional()?)
     }
 
     /// The account's calendars.

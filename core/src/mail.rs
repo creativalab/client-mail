@@ -239,6 +239,9 @@ pub struct FullMessage {
     pub dkim_pass: bool,
     /// OpenPGP status, if the message is encrypted or signed.
     pub pgp: Option<PgpStatus>,
+    /// iCalendar object of an invitation or a reply to one (the message's
+    /// text/calendar part), if any.
+    pub calendar: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -378,6 +381,9 @@ pub struct Outgoing {
     pub sign: bool,
     /// OpenPGP: encrypt to all recipients (and to ourselves, for Sent).
     pub encrypt: bool,
+    /// iCalendar object sent as a text/calendar alternative of the body
+    /// (invitation replies, RFC 6047).
+    pub calendar: Option<String>,
 }
 
 // ---------------------------------------------------------------- connection
@@ -759,6 +765,15 @@ pub fn parse_full(uid: u32, raw: &[u8], keys: &PgpKeys) -> Result<FullMessage> {
         .collect();
     let attachments = msg
         .attachments()
+        // An unnamed calendar part is the invitation itself, shown as a
+        // card: not listed as "attachment-1".
+        .filter(|part| {
+            part.attachment_name().is_some()
+                || !part.content_type().is_some_and(|ct| {
+                    ct.ctype().eq_ignore_ascii_case("text")
+                        && ct.subtype().is_some_and(|s| s.eq_ignore_ascii_case("calendar"))
+                })
+        })
         .enumerate()
         .map(|(i, part)| Attachment {
             name: part
@@ -768,6 +783,16 @@ pub fn parse_full(uid: u32, raw: &[u8], keys: &PgpKeys) -> Result<FullMessage> {
             data: part.decoded().into_owned(),
         })
         .collect();
+    // Invitations: the first text/calendar part (inline or attached).
+    let calendar = msg
+        .parts()
+        .find(|part| {
+            part.content_type().is_some_and(|ct| {
+                ct.ctype().eq_ignore_ascii_case("text")
+                    && ct.subtype().is_some_and(|s| s.eq_ignore_ascii_case("calendar"))
+            })
+        })
+        .map(|part| String::from_utf8_lossy(&part.decoded()).into_owned());
     let dkim_pass = raw_header_values(raw, "authentication-results")
         .iter()
         .any(|v| v.to_lowercase().contains("dkim=pass"));
@@ -794,6 +819,7 @@ pub fn parse_full(uid: u32, raw: &[u8], keys: &PgpKeys) -> Result<FullMessage> {
         attachments,
         dkim_pass,
         pgp,
+        calendar,
     })
 }
 
@@ -1053,10 +1079,29 @@ fn build_content(mail: &Outgoing) -> Result<Part> {
     let text = SinglePart::builder()
         .header(header::ContentType::TEXT_PLAIN)
         .body(mail.body.clone());
-    let alternative = mail
-        .html
-        .as_ref()
-        .map(|html| MultiPart::alternative_plain_html(mail.body.clone(), html.clone()));
+    let alternative = match &mail.calendar {
+        // Invitation reply: plain text and the calendar object, which
+        // calendar programs read (RFC 6047). Its METHOD goes in the type.
+        Some(ics) => {
+            let method = crate::ical::parse(ics).method;
+            let method = if method.is_empty() {
+                "PUBLISH".into()
+            } else {
+                method
+            };
+            let ct = header::ContentType::parse(&format!("text/calendar; charset=utf-8; method={method}"))
+                .map_err(|e| anyhow!("{e}"))?;
+            Some(
+                MultiPart::alternative()
+                    .singlepart(text.clone())
+                    .singlepart(SinglePart::builder().header(ct).body(ics.clone())),
+            )
+        }
+        None => mail
+            .html
+            .as_ref()
+            .map(|html| MultiPart::alternative_plain_html(mail.body.clone(), html.clone())),
+    };
     if mail.attachments.is_empty() {
         return Ok(match alternative {
             Some(alt) => Part::Multi(alt),
@@ -1179,6 +1224,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn invitation_reply_carries_the_calendar_part() {
+        let mail = Outgoing {
+            to: "giulia@example.com".into(),
+            body: "Fabio has accepted the invitation.".into(),
+            calendar: Some("BEGIN:VCALENDAR\r\nMETHOD:REPLY\r\nEND:VCALENDAR\r\n".into()),
+            ..Default::default()
+        };
+        let Part::Multi(m) = build_content(&mail).unwrap() else {
+            panic!("expected multipart/alternative");
+        };
+        let raw = String::from_utf8_lossy(&m.formatted()).into_owned();
+        assert!(raw.contains("multipart/alternative"));
+        assert!(
+            raw.contains("text/calendar; charset=utf-8; method=REPLY"),
+            "{raw}"
+        );
+        assert!(raw.contains("METHOD:REPLY"));
+    }
+
+    #[test]
     fn utf7_imap() {
         assert_eq!(decode_utf7_imap("INBOX"), "INBOX");
         assert_eq!(decode_utf7_imap("Posta &AOg- qui"), "Posta è qui");
@@ -1233,6 +1298,7 @@ mod tests {
                 attachments: Vec::new(),
                 sign: false,
                 encrypt: false,
+                calendar: None,
             },
         )
         .unwrap();

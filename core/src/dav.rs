@@ -222,6 +222,40 @@ impl Client {
         depth: Option<&str>,
         body: &str,
     ) -> Result<(String, StatusCode, String)> {
+        self.request(method, url, depth, body, "application/xml; charset=utf-8", None)
+    }
+
+    /// Stores an item (PUT). `etag` = the version being replaced, so a
+    /// change made meanwhile elsewhere is not overwritten; `None` = new item
+    /// (refused if one already exists at that URL).
+    pub fn put(&self, url: &str, data: &str, content_type: &str, etag: Option<&str>) -> Result<()> {
+        let (_, status, _) = self.request("PUT", url, None, data, content_type, Some(etag.unwrap_or("*")))?;
+        if !status.is_success() {
+            bail!("PUT: HTTP {status}");
+        }
+        Ok(())
+    }
+
+    /// Deletes an item (a missing one counts as deleted).
+    pub fn delete(&self, url: &str, etag: Option<&str>) -> Result<()> {
+        let (_, status, _) = self.request("DELETE", url, None, "", "text/plain", etag.or(Some("")))?;
+        if !status.is_success() && status != StatusCode::NOT_FOUND {
+            bail!("DELETE: HTTP {status}");
+        }
+        Ok(())
+    }
+
+    /// `condition`: `Some("*")` = If-None-Match: * (create only), `Some(etag)`
+    /// = If-Match, `Some("")` or `None` = unconditional.
+    fn request(
+        &self,
+        method: &str,
+        url: &str,
+        depth: Option<&str>,
+        body: &str,
+        content_type: &str,
+        condition: Option<&str>,
+    ) -> Result<(String, StatusCode, String)> {
         let mut url = url.to_owned();
         for _ in 0..=MAX_REDIRECTS {
             if !url.starts_with("https://") && !(self.allow_http && url.starts_with("http://")) {
@@ -231,7 +265,12 @@ impl Client {
             let mut req = Request::builder()
                 .method(method)
                 .uri(&url)
-                .header("Content-Type", "application/xml; charset=utf-8");
+                .header("Content-Type", content_type);
+            match condition {
+                Some("*") => req = req.header("If-None-Match", "*"),
+                Some(etag) if !etag.is_empty() => req = req.header("If-Match", etag),
+                _ => {}
+            }
             if authenticated {
                 req = req.header("Authorization", &self.auth);
             }
@@ -606,7 +645,7 @@ fn child<'a, 'i>(n: roxmltree::Node<'a, 'i>, ns: &str, name: &str) -> Option<rox
 
 /// Resolves `href` (absolute URL, absolute path or relative path) against
 /// `base`.
-fn join(base: &str, href: &str) -> String {
+pub(crate) fn join(base: &str, href: &str) -> String {
     if href.starts_with("http://") || href.starts_with("https://") {
         return href.to_owned();
     }

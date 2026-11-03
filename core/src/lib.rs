@@ -12,6 +12,7 @@ pub mod dav;
 pub mod html;
 pub mod i18n;
 pub mod ical;
+pub mod invite;
 pub mod local;
 pub mod mail;
 pub mod markdown;

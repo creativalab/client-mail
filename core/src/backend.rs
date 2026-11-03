@@ -167,6 +167,86 @@ impl Backend {
             .collect()
     }
 
+    /// Our earlier answer to an invitation (by event UID), if any.
+    pub fn invitation_reply(account: &Account, uid: &str) -> Option<crate::invite::Reply> {
+        cache::get()
+            .and_then(|c| c.invite_reply(&cache::account_key(account), uid).ok().flatten())
+            .and_then(|p| crate::invite::Reply::from_partstat(&p))
+    }
+
+    /// Whether the event is in the cached calendar (to offer removing it
+    /// when cancelled).
+    pub fn in_calendar(account: &Account, uid: &str) -> bool {
+        cache::get()
+            .and_then(|c| c.event_by_uid(&cache::account_key(account), uid).ok().flatten())
+            .is_some()
+    }
+
+    /// Answers an invitation: mails the reply to the organizer (copy in
+    /// Sent), remembers it, and stores the event in the calendar (removes
+    /// it when declined) if the account has a calendar server. Returns the
+    /// text to show.
+    pub async fn respond_invitation(
+        &self,
+        ics: String,
+        reply: crate::invite::Reply,
+        sent_folder: Option<String>,
+    ) -> Res<String> {
+        let account = self
+            .lock()
+            .account
+            .clone()
+            .ok_or_else(|| t("err_no_account").to_string())?;
+        let mail = crate::invite::reply_mail(&account, &ics, reply).map_err(text)?;
+        let warning = self.send(mail, sent_folder).await?;
+        let uid = crate::invite::read(&ics).map(|i| i.uid).unwrap_or_default();
+        self.cache(|c, key| c.note_invite_reply(key, &uid, reply.partstat()));
+        let saved = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+            let cache = cache::get().ok_or_else(|| anyhow::anyhow!(generic_error()))?;
+            let key = cache::account_key(&account);
+            let existing = cache.event_by_uid(&key, &uid)?;
+            crate::invite::save_to_calendar(&account, &ics, reply, existing)?;
+            // Refresh the local copy so the calendar shows the change.
+            let known = cache.event_etags(&key)?;
+            let changes =
+                crate::dav::Client::new(&account, crate::dav::Kind::Calendar).sync(&account, &known)?;
+            cache.apply_events(&key, &changes)
+        })
+        .await
+        .map_err(|e| format!("{}\n({e})", generic_error()))?;
+        let mut notice = match saved {
+            Ok(()) if reply != crate::invite::Reply::Declined => t("invite_saved").to_string(),
+            Ok(()) => t("invite_sent").to_string(),
+            // No calendar server: the reply is all there is to do.
+            Err(e) if e.to_string() == t("err_caldav_none") => t("invite_sent").to_string(),
+            Err(e) => crate::i18n::tf("invite_not_saved", &[("err", &text(e))]),
+        };
+        if let Some(w) = warning {
+            notice = format!("{notice}\n{}", crate::i18n::tf("sent_no_copy", &[("err", &w)]));
+        }
+        Ok(notice)
+    }
+
+    /// Removes a cancelled event from the calendar.
+    pub async fn remove_cancelled(account: Account, uid: String) -> Res<String> {
+        tokio::task::spawn_blocking(move || {
+            let cache = cache::get().ok_or_else(generic_error)?;
+            let key = cache::account_key(&account);
+            if let Some((url, etag)) = cache.event_by_uid(&key, &uid).map_err(text)? {
+                crate::invite::remove_from_calendar(&account, &url, &etag).map_err(text)?;
+                let changes = crate::dav::Changes {
+                    collections: cache.calendars(&key).map_err(text)?,
+                    gone: vec![url],
+                    ..Default::default()
+                };
+                cache.apply_events(&key, &changes).map_err(text)?;
+            }
+            Ok(t("invite_removed").to_string())
+        })
+        .await
+        .map_err(|e| format!("{}\n({e})", generic_error()))?
+    }
+
     /// The connected account, if it reads mail with POP3.
     fn pop3_account(&self) -> Option<Account> {
         self.lock().account.clone().filter(Account::is_pop3)
