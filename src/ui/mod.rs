@@ -82,6 +82,12 @@ pub mod icons {
         r#"<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>"#,
         "</svg>"
     );
+    pub const SORT: &str = icon_svg!(
+        r#"<path d="M7 4v16"/><path d="M3 8l4-4 4 4"/><path d="M17 20V4"/><path d="M13 16l4 4 4-4"/>"#
+    );
+    pub const PRINTER: &str = icon_svg!(
+        r#"<path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/>"#
+    );
     pub const PLUS: &str = icon_svg!(r#"<path d="M12 5v14"/><path d="M5 12h14"/>"#);
     pub const CALENDAR: &str = icon_svg!(
         r#"<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>"#

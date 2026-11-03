@@ -199,6 +199,8 @@ pub struct Header {
     pub recipients: Vec<(String, String)>,
     /// Starred (the IMAP \\Flagged flag, shown as a star by every client).
     pub flagged: bool,
+    /// Size of the whole message in bytes (0 = unknown).
+    pub size: u32,
 }
 
 /// A slice of a folder's message list, by sequence number.
@@ -591,7 +593,7 @@ fn fetch_range(
         return Ok(page);
     }
     let range = format!("{first}:{last}");
-    let query = format!("(UID FLAGS BODY.PEEK[HEADER] BODY.PEEK[TEXT]<0.{PREVIEW_BYTES}>)");
+    let query = format!("(UID FLAGS RFC822.SIZE BODY.PEEK[HEADER] BODY.PEEK[TEXT]<0.{PREVIEW_BYTES}>)");
     let fetches = session.fetch(range, query)?;
 
     let mut headers: Vec<Header> = fetches
@@ -603,6 +605,7 @@ fn fetch_range(
             raw.extend_from_slice(f.text().unwrap_or_default());
             let mut h = header_from_raw(uid, &raw, f.flags().contains(&imap::types::Flag::Seen));
             h.flagged = f.flags().contains(&imap::types::Flag::Flagged);
+            h.size = f.size.unwrap_or(0);
             Some(h)
         })
         .collect();
@@ -656,6 +659,9 @@ pub fn header_from_raw(uid: u32, raw: &[u8], seen: bool) -> Header {
         from_address,
         recipients,
         flagged: false,
+        // The whole message (POP3, local mailbox); IMAP lists set the
+        // server's size instead.
+        size: u32::try_from(raw.len()).unwrap_or(u32::MAX),
     }
 }
 
