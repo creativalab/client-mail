@@ -435,3 +435,12 @@ err_h_quota = "صندوق البريد ممتلئ. احذف بعض الرسائ�
 err_h_rejected = "رُفضت الرسالة: تحقّق من عنوان المستلم."
 err_h_generic_detail = "حدث خطأ ما. أعد المحاولة؛ وإذا تكرّر ذلك فراسلنا على support@ferrowl.com. التفاصيل: {detail}"
 err_google_signin = "تعذّر تسجيل الدخول باستخدام Google. أعد المحاولة."
+
+# Ferrowl Pro (Android, Google Play Billing)
+pro_title = "Ferrowl Pro"
+pro_text = "مع Ferrowl Pro يمكنك استخدام أكثر من حساب بريد. الاشتراك السنوي: {price}. يمكنك إدارته وإلغاؤه متى شئت من Google Play."
+pro_subscribe = "اشترك"
+pro_not_now = "ليس الآن"
+pro_unavailable = "الاشتراك غير متاح حاليًا. أعد المحاولة لاحقًا."
+pro_thanks = "شكرًا! تم تفعيل Ferrowl Pro."
+pro_manage = "إدارة الاشتراك أو إلغاؤه في Google Play"

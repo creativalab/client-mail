@@ -435,3 +435,12 @@ err_h_quota = "메일함이 가득 찼습니다. 메시지를 몇 개 삭제한 
 err_h_rejected = "메시지가 거부되었습니다. 받는 사람 주소를 확인하세요."
 err_h_generic_detail = "문제가 발생했습니다. 다시 시도하세요. 계속되면 support@ferrowl.com으로 문의하세요. 자세한 내용: {detail}"
 err_google_signin = "Google 로그인에 실패했습니다. 다시 시도하세요."
+
+# Ferrowl Pro (Android, Google Play Billing)
+pro_title = "Ferrowl Pro"
+pro_text = "Ferrowl Pro를 사용하면 메일 계정을 여러 개 쓸 수 있습니다. 연간 구독: {price}. Google Play에서 언제든지 관리하고 해지할 수 있습니다."
+pro_subscribe = "구독하기"
+pro_not_now = "나중에"
+pro_unavailable = "지금은 구독을 이용할 수 없습니다. 나중에 다시 시도하세요."
+pro_thanks = "감사합니다! Ferrowl Pro가 활성화되었습니다."
+pro_manage = "Google Play에서 구독 관리 또는 취소"

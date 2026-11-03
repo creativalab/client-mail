@@ -10,8 +10,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.ferrowl.app.data.Billing
 import com.ferrowl.app.data.MicrosoftSignIn
 import com.ferrowl.app.ui.navigation.FerrowlNavHost
+import com.ferrowl.app.ui.notice.LocalBilling
 import com.ferrowl.app.ui.notice.LocalNotices
 import com.ferrowl.app.ui.notice.Notices
 import com.ferrowl.app.ui.notice.TopNoticeHost
@@ -30,13 +32,15 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var notices: Notices
 
+    @Inject lateinit var billing: Billing
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (savedInstanceState == null) handle(intent)
         setContent {
             FerrowlTheme {
-                CompositionLocalProvider(LocalNotices provides notices) {
+                CompositionLocalProvider(LocalNotices provides notices, LocalBilling provides billing) {
                     // Notices (confirmations and errors) over every screen, at the top.
                     Box(Modifier.fillMaxSize()) {
                         FerrowlNavHost()
@@ -45,6 +49,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Ferrowl Pro: ask Google Play each time (bought or cancelled elsewhere meanwhile).
+        billing.start()
     }
 
     override fun onNewIntent(intent: Intent) {

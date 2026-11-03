@@ -33,6 +33,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     lint {
@@ -55,6 +56,7 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.browser)
     implementation(libs.play.services.auth)
+    implementation(libs.billing.ktx)
     implementation(libs.kotlinx.serialization.json)
 
     implementation(platform(libs.compose.bom))

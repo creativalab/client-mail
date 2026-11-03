@@ -2,6 +2,7 @@ package com.ferrowl.app.ui.mailbox
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ferrowl.app.data.Billing
 import com.ferrowl.app.data.MailRepository
 import com.ferrowl.app.data.SettingsStore
 import com.ferrowl.app.ui.notice.Notices
@@ -19,6 +20,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -27,6 +30,13 @@ data class MailboxState(
     /** Addresses of every account on the phone, and the active one. */
     val accounts: List<String> = emptyList(),
     val active: String = "",
+    /** Ferrowl Pro (more than one account) and its yearly price, once known. */
+    val pro: Boolean = false,
+    val proPrice: String? = null,
+    /** The Ferrowl Pro offer is on screen. */
+    val showPro: Boolean = false,
+    /** Ferrowl Pro was just bought from "Add account": open that screen once. */
+    val openAddAccount: Boolean = false,
     val folders: List<Folder> = emptyList(),
     val unread: Map<String, UInt> = emptyMap(),
     val folderId: String = "",
@@ -78,6 +88,7 @@ class MailboxViewModel @Inject constructor(
     private val repo: MailRepository,
     private val settings: SettingsStore,
     private val notices: Notices,
+    private val billing: Billing,
 ) : ViewModel() {
     private val _state = MutableStateFlow(MailboxState())
     val state: StateFlow<MailboxState> = _state.asStateFlow()
@@ -111,6 +122,34 @@ class MailboxViewModel @Inject constructor(
             repo.accountList.collect { list -> _state.update { it.copy(accounts = list.map { a -> a.email }) } }
         }
         viewModelScope.launch { repo.activeEmail.collect { e -> _state.update { it.copy(active = e.orEmpty()) } } }
+        viewModelScope.launch { billing.price.collect { p -> _state.update { it.copy(proPrice = p) } } }
+        viewModelScope.launch {
+            billing.pro.collect { on ->
+                _state.update { it.copy(pro = on, showPro = if (on) false else it.showPro) }
+                val wanted = buying
+                if (on && wanted != null) {
+                    buying = null
+                    notices.info(translate("pro_thanks"))
+                    // Carry on with what the user wanted to do.
+                    if (wanted == ADD) _state.update { it.copy(openAddAccount = true) } else switchAccount(wanted)
+                }
+            }
+        }
+        // Without Ferrowl Pro only the first account (the free one) may stay
+        // active: checked whenever Pro, the accounts or the active one change,
+        // once the account list is known.
+        viewModelScope.launch {
+            combine(billing.pro, repo.accountList, repo.activeEmail) { on, list, active ->
+                if (on) null else list.firstOrNull()?.email?.takeIf { first -> active != null && !active.equals(first, ignoreCase = true) }
+            }.distinctUntilChanged().collect { first ->
+                if (first == null) return@collect
+                try {
+                    repo.backToFirst(first)
+                } catch (e: FerrowlException) {
+                    _state.update { it.copy(refreshing = false, error = e.message) }
+                }
+            }
+        }
         // Another account became active: start over with its inbox.
         viewModelScope.launch {
             repo.switched.collect {
@@ -141,9 +180,53 @@ class MailboxViewModel @Inject constructor(
         }
     }
 
-    /** Shows another account (connects it first). */
+    /**
+     * Whether another account may be added; without Ferrowl Pro only the
+     * first one is free, and the offer is shown instead.
+     */
+    fun mayAddAccount(): Boolean {
+        val s = _state.value
+        if (s.pro || s.accounts.isEmpty()) return true
+        offerPro(ADD)
+        return false
+    }
+
+    /** What the user wanted when the offer appeared: [ADD] or an account's address. */
+    private var offeredFor: String? = null
+
+    /** Purchase sheet open for this wish; done once Pro arrives. */
+    private var buying: String? = null
+
+    private fun offerPro(wanted: String) {
+        offeredFor = wanted
+        billing.start() // fresh price, and maybe the user is Pro already
+        _state.update { it.copy(showPro = true) }
+    }
+
+    fun dismissPro() = _state.update { it.copy(showPro = false) }
+
+    /** Google Play's purchase sheet opened. */
+    fun purchaseStarted() {
+        buying = offeredFor
+        _state.update { it.copy(showPro = false) }
+    }
+
+    fun addAccountOpened() = _state.update { it.copy(openAddAccount = false) }
+
+    /** The subscription could not be offered (not set up in Google Play yet, offline). */
+    fun proUnavailable() {
+        _state.update { it.copy(showPro = false) }
+        notices.error(translate("pro_unavailable"))
+    }
+
+    /** Shows another account (connects it first). Accounts after the first need Ferrowl Pro. */
     fun switchAccount(email: String) {
         if (email.equals(_state.value.active, ignoreCase = true)) return
+        val first = _state.value.accounts.firstOrNull()
+        if (!_state.value.pro && first != null && !email.equals(first, ignoreCase = true)) {
+            offerPro(email)
+            return
+        }
         _state.update { it.copy(refreshing = true, error = null) }
         viewModelScope.launch {
             try {
@@ -372,6 +455,9 @@ class MailboxViewModel @Inject constructor(
     }
 
     private companion object {
+        /** [offeredFor] value: the user wanted to add an account. */
+        private const val ADD = "\u0000add"
+
         /** How long "Undo" is offered after a swipe (the notice shows this long). */
         const val UNDO_MS = 6_000L
     }

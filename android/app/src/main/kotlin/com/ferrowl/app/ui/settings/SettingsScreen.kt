@@ -54,6 +54,7 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrowl.app.R
+import com.ferrowl.app.ui.notice.LocalBilling
 import com.ferrowl.app.ui.notice.ReportError
 import com.ferrowl.core.translate
 
@@ -135,6 +136,17 @@ fun SettingsScreen(onBack: () -> Unit, onNoAccount: () -> Unit, vm: SettingsView
             )
             SenderList(stringResource(R.string.senders_blocked), blocked, onAdd = { vm.addSender(it, false) }, onRemove = vm::removeSender)
             SenderList(stringResource(R.string.senders_allowed), allowed, onAdd = { vm.addSender(it, true) }, onRemove = vm::removeSender)
+            val billing = LocalBilling.current
+            val subscribed by billing.subscribed.collectAsStateWithLifecycle()
+            if (subscribed) {
+                val context = LocalContext.current
+                HorizontalDivider(Modifier.padding(vertical = 16.dp))
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.pro_title)) },
+                    supportingContent = { Text(stringResource(R.string.pro_manage)) },
+                    modifier = Modifier.clickable { billing.manage(context) },
+                )
+            }
             HorizontalDivider(Modifier.padding(vertical = 16.dp))
             ListItem(
                 headlineContent = { Text(stringResource(R.string.remove_account)) },
