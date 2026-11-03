@@ -509,6 +509,17 @@ impl Backend {
     }
 
     /// Cached list of a folder (instant, before the server answers).
+    /// Up to `limit` messages of a folder from the local copy (which the
+    /// background indexing fills with older messages), newest first.
+    pub fn cached_headers_up_to(account: &Account, folder: &str, limit: u32) -> Vec<Header> {
+        if account.is_pop3() {
+            return local_headers(account, folder);
+        }
+        cache::get()
+            .and_then(|c| c.headers(&cache::account_key(account), folder, limit).ok())
+            .unwrap_or_default()
+    }
+
     pub fn cached_headers(account: &Account, folder: &str) -> Vec<Header> {
         if account.is_pop3() {
             return local_headers(account, folder);
@@ -654,6 +665,117 @@ impl Backend {
             .inspect(|_| b.cache(|c, key| uids.iter().try_for_each(|&u| c.remove(key, &folder, u))))
         })
         .await
+    }
+
+    /// Moves messages to Spam (created if missing) and marks them `$Junk`
+    /// for the server's filter. Returns the Spam folder's name.
+    pub async fn report_spam(&self, folder: String, uids: Vec<u32>, folders: Vec<Folder>) -> Res<String> {
+        self.junk(folder, uids, folders, true).await
+    }
+
+    /// Moves messages back from Spam to the inbox, marked `$NotJunk`.
+    pub async fn not_spam(&self, folder: String, uids: Vec<u32>, folders: Vec<Folder>) -> Res<String> {
+        self.junk(folder, uids, folders, false).await
+    }
+
+    async fn junk(&self, folder: String, uids: Vec<u32>, folders: Vec<Folder>, spam: bool) -> Res<String> {
+        self.blocking(move |b| {
+            if let Some(account) = b.pop3_account() {
+                let to = if spam { local::SPAM } else { local::INBOX };
+                return local_op(&account, |s, key| {
+                    uids.iter().try_for_each(|&u| s.move_to(key, u, to))
+                })
+                .map(|_| to.to_string());
+            }
+            b.with_session_sync(|s| {
+                let target = if spam {
+                    match folders.iter().find(|f| f.kind == FolderKind::Spam) {
+                        Some(f) => f.name.clone(),
+                        None => mail::create_folder(s, &folders, "Spam")?,
+                    }
+                } else {
+                    folders
+                        .iter()
+                        .find(|f| f.kind == FolderKind::Inbox)
+                        .map_or_else(|| "INBOX".to_string(), |f| f.name.clone())
+                };
+                let (add, remove) = if spam {
+                    (["$Junk"], ["$NotJunk"])
+                } else {
+                    (["$NotJunk"], ["$Junk"])
+                };
+                mail::set_keywords(s, &folder, &uids, &add, &remove);
+                mail::move_message(s, &folder, &uids, &target)?;
+                Ok(target)
+            })
+            .inspect(|_| b.cache(|c, key| uids.iter().try_for_each(|&u| c.remove(key, &folder, u))))
+        })
+        .await
+    }
+
+    /// Blocks (`allow` false) or allows a sender: an address, or "@domain".
+    pub fn set_sender_rule(account: &Account, address: &str, allow: bool) -> Res<()> {
+        cache::get()
+            .ok_or_else(generic_error)?
+            .set_sender_rule(&cache::account_key(account), address, allow)
+            .map_err(text)
+    }
+
+    pub fn remove_sender_rule(account: &Account, address: &str) {
+        if let Some(c) = cache::get() {
+            let _ = c.remove_sender_rule(&cache::account_key(account), address);
+        }
+    }
+
+    /// The blocked (`allow` false) or allowed senders.
+    pub fn sender_rules(account: &Account, allow: bool) -> Vec<String> {
+        cache::get()
+            .and_then(|c| c.sender_rules(&cache::account_key(account), allow).ok())
+            .unwrap_or_default()
+    }
+
+    /// Messages a sender list moves: from blocked senders (`to_spam`), or
+    /// from allowed ones (out of Spam).
+    pub fn ruled(account: &Account, headers: &[Header], to_spam: bool) -> Vec<u32> {
+        let Some(c) = cache::get() else {
+            return Vec::new();
+        };
+        let key = cache::account_key(account);
+        headers
+            .iter()
+            .filter(|h| c.sender_rule(&key, &h.from_address).ok().flatten() == Some(!to_spam))
+            .map(|h| h.uid)
+            .collect()
+    }
+
+    /// Applies the sender lists to a freshly loaded folder: in the inbox,
+    /// mail from blocked senders goes to Spam; in Spam, mail from allowed
+    /// senders comes back to the inbox. Returns the moved messages (to
+    /// take out of the list on screen).
+    pub async fn apply_sender_rules(
+        &self,
+        folder: String,
+        headers: Vec<Header>,
+        folders: Vec<Folder>,
+    ) -> Res<Vec<u32>> {
+        let kind = folders
+            .iter()
+            .find(|f| f.name == folder)
+            .map_or(FolderKind::Other, |f| f.kind);
+        let to_spam = match kind {
+            FolderKind::Inbox => true,
+            FolderKind::Spam => false,
+            _ => return Ok(Vec::new()),
+        };
+        let Some(account) = self.lock().account.clone() else {
+            return Ok(Vec::new());
+        };
+        let uids = Self::ruled(&account, &headers, to_spam);
+        if uids.is_empty() {
+            return Ok(uids);
+        }
+        self.junk(folder, uids.clone(), folders, to_spam).await?;
+        Ok(uids)
     }
 
     pub async fn delete_forever(&self, folder: String, uid: u32) -> Res<()> {

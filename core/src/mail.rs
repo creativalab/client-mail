@@ -911,6 +911,21 @@ pub fn set_seen(session: &mut ImapSession, folder: &str, uids: &[u32], seen: boo
     Ok(())
 }
 
+/// Adds and removes keywords such as `$Junk` / `$NotJunk`, which servers
+/// and other clients use to learn what is spam. Best effort: servers that
+/// do not accept new keywords refuse it, and that is fine.
+pub fn set_keywords(session: &mut ImapSession, folder: &str, uids: &[u32], add: &[&str], remove: &[&str]) {
+    if uids.is_empty() || session.select(folder).is_err() {
+        return;
+    }
+    if !add.is_empty() {
+        let _ = session.uid_store(uid_set(uids), format!("+FLAGS ({})", add.join(" ")));
+    }
+    if !remove.is_empty() {
+        let _ = session.uid_store(uid_set(uids), format!("-FLAGS ({})", remove.join(" ")));
+    }
+}
+
 /// Stars or unstars messages (the \\Flagged flag).
 pub fn set_flagged(session: &mut ImapSession, folder: &str, uids: &[u32], flagged: bool) -> Result<()> {
     if uids.is_empty() {
@@ -1331,6 +1346,49 @@ mod tests {
 
     /// Bulk commands on messages whose subject starts with "Ferrowl bulk test":
     /// unread, read, archive, then permanent delete from the archive.
+    /// Spam and back: a message whose subject starts with "Ferrowl spam
+    /// test" goes to Spam marked $Junk, then back to the inbox marked
+    /// $NotJunk, and is finally deleted.
+    /// `FERROWL_TEST_CONFIG=<config.toml with [account]> cargo test -p ferrowl-core live_spam -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn live_spam() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let path = std::env::var("FERROWL_TEST_CONFIG").expect("FERROWL_TEST_CONFIG");
+        let table: toml::Table = toml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let account: Account = table["account"].clone().try_into().unwrap();
+        let mut s = connect(&account).unwrap();
+        let folders = list_folders(&mut s).unwrap();
+        let spam = folders
+            .iter()
+            .find(|f| f.kind == FolderKind::Spam)
+            .map(|f| f.name.clone())
+            .expect("spam folder");
+        let find = |s: &mut ImapSession, folder: &str| -> Vec<u32> {
+            fetch_headers(s, folder)
+                .unwrap()
+                .headers
+                .iter()
+                .filter(|h| h.subject.starts_with("Ferrowl spam test"))
+                .map(|h| h.uid)
+                .collect()
+        };
+        let uids = find(&mut s, "INBOX");
+        assert_eq!(uids.len(), 1, "send one test message first");
+        set_keywords(&mut s, "INBOX", &uids, &["$Junk"], &["$NotJunk"]);
+        move_message(&mut s, "INBOX", &uids, &spam).unwrap();
+        let in_spam = find(&mut s, &spam);
+        assert_eq!(in_spam.len(), 1, "moved to {spam}");
+        println!("in {spam}: uid {:?}", in_spam);
+        set_keywords(&mut s, &spam, &in_spam, &["$NotJunk"], &["$Junk"]);
+        move_message(&mut s, &spam, &in_spam, "INBOX").unwrap();
+        let back = find(&mut s, "INBOX");
+        assert_eq!(back.len(), 1, "back in the inbox");
+        assert!(find(&mut s, &spam).is_empty());
+        delete_permanently(&mut s, "INBOX", &back).unwrap();
+        let _ = s.logout();
+    }
+
     /// `FERROWL_TEST_CONFIG=<config.toml with [account]> cargo test -p ferrowl-core live_bulk_ops -- --ignored --nocapture`
     #[test]
     #[ignore]

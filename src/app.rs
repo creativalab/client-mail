@@ -19,6 +19,8 @@ const INDEX_FIRST_PAUSE: Duration = Duration::from_secs(3);
 const INDEX_PAUSE: Duration = Duration::from_millis(1500);
 /// Scrollable of the reading pane.
 pub const READER_ID: &str = "reader";
+/// Scrollable of the message list.
+pub const LIST_ID: &str = "message-list";
 const AUTO_REFRESH: Duration = Duration::from_secs(120);
 
 // ---------------------------------------------------------------- state
@@ -123,6 +125,8 @@ pub enum Popup {
     Sort,
     /// Move the checked messages.
     Move,
+    /// Jump to a page of the list.
+    Page,
 }
 
 /// What the main window shows beside the sidebar.
@@ -178,6 +182,8 @@ pub enum Bulk {
     Read,
     Unread,
     Star,
+    /// Report spam, or (in Spam) not spam.
+    Spam,
     Archive,
     Delete,
 }
@@ -593,6 +599,10 @@ pub struct App {
     pub anchor: Option<u32>,
     /// Open drop-down menu of the list and where it was opened.
     pub popup: Option<(Popup, iced::Point)>,
+    /// What is being typed in the blocked / allowed senders boxes.
+    pub sender_input: (String, String),
+    /// Page of the message list shown (0 = newest).
+    pub page: usize,
     /// Asking before deleting the open event.
     pub confirm_event_delete: bool,
 }
@@ -652,6 +662,21 @@ pub enum Message {
     OpenPopup(Popup),
     ClosePopup,
     SetSort(ferrowl_core::sort::SortOrder),
+    /// Report the open message as spam (or, in Spam, as not spam).
+    SpamOpen,
+    /// Block the open message's sender and move it to Spam.
+    BlockSender,
+    /// The sender lists moved some messages (count).
+    RulesApplied(usize, Res<String>),
+    /// Text typed in the blocked (false) or allowed (true) senders box.
+    SenderInput(bool, String),
+    AddSender(bool),
+    RemoveSender(String),
+    /// Next (+1) or previous (-1) page of the list.
+    Page(i32),
+    /// Jump to a page (0 = first).
+    GoPage(usize),
+    SetPageSize(u32),
     /// Close the open message (the list takes the whole width again).
     CloseReader,
     /// Print the open message (through the browser's print dialog).
@@ -901,6 +926,8 @@ impl App {
             modifiers: keyboard::Modifiers::default(),
             anchor: None,
             popup: None,
+            sender_input: (String::new(), String::new()),
+            page: 0,
             confirm_event_delete: false,
         };
         // Development: open a given view directly (used for screenshots).
@@ -1222,6 +1249,62 @@ impl App {
         }
     }
 
+    /// Moves messages to Spam (or back to the inbox). `quiet`: moved by the
+    /// sender lists (one summary toast instead of the usual one).
+    fn junk(&mut self, folder: String, uids: Vec<u32>, to_spam: bool, quiet: bool) -> Task<Message> {
+        if uids.is_empty() {
+            return Task::none();
+        }
+        let b = self.backend.clone();
+        let folders = self.folders.clone();
+        if quiet {
+            let n = uids.len();
+            return self.perform(
+                async move {
+                    if to_spam {
+                        b.report_spam(folder, uids, folders).await
+                    } else {
+                        b.not_spam(folder, uids, folders).await
+                    }
+                },
+                move |r| Message::RulesApplied(n, r),
+            );
+        }
+        let note = if to_spam { "spam_moved" } else { "inbox_moved" };
+        let ids = uids.clone();
+        self.perform(
+            async move {
+                if to_spam {
+                    b.report_spam(folder, ids, folders).await.map(|_| ())
+                } else {
+                    b.not_spam(folder, ids, folders).await.map(|_| ())
+                }
+            },
+            move |result| Message::BulkDone {
+                uids: uids.clone(),
+                note,
+                result,
+            },
+        )
+    }
+
+    /// "Not spam": the senders of these messages go to the allowed list.
+    fn allow_senders_of(&mut self, uids: &[u32]) {
+        let Some(acc) = self.config.account().cloned() else {
+            return;
+        };
+        let addrs: Vec<String> = self
+            .headers
+            .iter()
+            .chain(self.search_results.iter().flatten())
+            .filter(|h| uids.contains(&h.uid) && !h.from_address.is_empty())
+            .map(|h| h.from_address.clone())
+            .collect();
+        for a in addrs {
+            let _ = Backend::set_sender_rule(&acc, &a, true);
+        }
+    }
+
     fn bulk(&mut self, action: Bulk) -> Task<Message> {
         let Some(folder) = self.current_folder.clone() else {
             return Task::none();
@@ -1268,6 +1351,13 @@ impl App {
                     async move { b.set_flagged_many(folder, uids, on).await },
                     Message::BulkSeen,
                 )
+            }
+            Bulk::Spam => {
+                let to_spam = self.current_kind() != FolderKind::Spam;
+                if !to_spam {
+                    self.allow_senders_of(&uids);
+                }
+                self.junk(folder, uids, to_spam, false)
             }
             Bulk::Archive => {
                 if self.current_kind() == FolderKind::Archive {
@@ -2014,6 +2104,7 @@ impl App {
                 Err(e) => self.toast(e, true),
             },
             Message::SelectFolder(name) => {
+                self.page = 0;
                 self.pane = Pane::Mail;
                 self.checked.clear();
                 self.appearance_open = false;
@@ -2045,8 +2136,20 @@ impl App {
                 }
                 self.loading_list = false;
                 match result {
-                    Ok((headers, first_seq)) => {
+                    Ok((mut headers, first_seq)) => {
                         self.conn = Conn::Online;
+                        // Sender lists: blocked mail leaves the inbox for
+                        // Spam, allowed mail leaves Spam for the inbox.
+                        let kind = self.folders.iter().find(|f| f.name == folder).map(|f| f.kind);
+                        let ruled = match (kind, self.config.account()) {
+                            (Some(k @ (FolderKind::Inbox | FolderKind::Spam)), Some(acc)) => {
+                                let to_spam = k == FolderKind::Inbox;
+                                let uids = Backend::ruled(acc, &headers, to_spam);
+                                headers.retain(|h| !uids.contains(&h.uid));
+                                self.junk(folder.clone(), uids, to_spam, true)
+                            }
+                            _ => Task::none(),
+                        };
                         let notify = if self
                             .folder_by_kind(FolderKind::Inbox)
                             .is_some_and(|f| f.name == folder)
@@ -2063,7 +2166,7 @@ impl App {
                         } else {
                             Task::none()
                         };
-                        Task::batch([self.refresh_unseen(), index, notify])
+                        Task::batch([self.refresh_unseen(), index, notify, ruled])
                     }
                     Err(e) => {
                         if !silent {
@@ -2083,6 +2186,7 @@ impl App {
                 _ => Task::none(),
             },
             Message::Search(s) => {
+                self.page = 0;
                 self.search = s;
                 self.run_search();
                 Task::none()
@@ -2258,6 +2362,7 @@ impl App {
             },
             Message::SetFilter(f) => {
                 self.filter = f;
+                self.page = 0;
                 Task::none()
             }
             // Shift+click: select a range; Ctrl/Cmd+click: add or remove one
@@ -2306,10 +2411,127 @@ impl App {
                 self.popup = None;
                 Task::none()
             }
+            Message::Page(delta) => {
+                let size = self.config.ui.page_size.max(1) as usize;
+                let rows = self.list_rows().len();
+                let next = (self.page as i64 + delta as i64).max(0) as usize;
+                // Past the loaded messages: take older ones from the local copy.
+                if next * size >= rows
+                    && let (Some(acc), Some(folder)) = (self.config.account(), self.current_folder.clone())
+                {
+                    let want = (self.headers.len() + 5 * size) as u32;
+                    let older = Backend::cached_headers_up_to(acc, &folder, want);
+                    let known: HashSet<u32> = self.headers.iter().map(|h| h.uid).collect();
+                    self.headers
+                        .extend(older.into_iter().filter(|h| !known.contains(&h.uid)));
+                }
+                if next * size < self.list_rows().len() {
+                    self.page = next;
+                }
+                operation::snap_to(LIST_ID, iced::widget::scrollable::RelativeOffset::START)
+            }
+            Message::GoPage(n) => {
+                self.popup = None;
+                self.page = n;
+                operation::snap_to(LIST_ID, iced::widget::scrollable::RelativeOffset::START)
+            }
+            Message::SetPageSize(n) => {
+                self.config.ui.page_size = n;
+                self.page = 0;
+                self.save_config()
+            }
             Message::SetSort(order) => {
+                self.page = 0;
                 self.popup = None;
                 self.config.ui.sort = order;
                 self.save_config()
+            }
+            Message::SpamOpen => {
+                let (Some(uid), Some(folder)) = (self.selected, self.current_folder.clone()) else {
+                    return Task::none();
+                };
+                let to_spam = self.current_kind() != FolderKind::Spam;
+                if !to_spam {
+                    self.allow_senders_of(&[uid]);
+                }
+                self.junk(folder, vec![uid], to_spam, false)
+            }
+            Message::BlockSender => {
+                let (Some(msg), Some(folder), Some(acc)) = (
+                    self.message.clone(),
+                    self.current_folder.clone(),
+                    self.config.account().cloned(),
+                ) else {
+                    return Task::none();
+                };
+                if msg.from_address.is_empty() {
+                    return Task::none();
+                }
+                if let Err(e) = Backend::set_sender_rule(&acc, &msg.from_address, false) {
+                    return self.toast(e, true);
+                }
+                // This message and the sender's other loaded ones.
+                let addr = msg.from_address.to_lowercase();
+                let mut uids: Vec<u32> = self
+                    .headers
+                    .iter()
+                    .filter(|h| h.from_address.to_lowercase() == addr)
+                    .map(|h| h.uid)
+                    .collect();
+                if !uids.contains(&msg.uid) {
+                    uids.push(msg.uid);
+                }
+                let who = if msg.from.is_empty() {
+                    msg.from_address.clone()
+                } else {
+                    msg.from.clone()
+                };
+                let toast = self.toast(tf("sender_blocked", &[("who", &who)]), false);
+                let move_ = if self.current_kind() == FolderKind::Spam {
+                    Task::none()
+                } else {
+                    self.junk(folder, uids, true, true)
+                };
+                Task::batch([toast, move_])
+            }
+            Message::RulesApplied(n, result) => match result {
+                Ok(_) => Task::batch([
+                    self.toast(tf("rules_moved", &[("n", &n.to_string())]), false),
+                    self.refresh_unseen(),
+                ]),
+                Err(e) => self.toast(e, true),
+            },
+            Message::SenderInput(allow, text) => {
+                if allow {
+                    self.sender_input.1 = text;
+                } else {
+                    self.sender_input.0 = text;
+                }
+                Task::none()
+            }
+            Message::AddSender(allow) => {
+                let Some(acc) = self.config.account().cloned() else {
+                    return Task::none();
+                };
+                let text = if allow {
+                    std::mem::take(&mut self.sender_input.1)
+                } else {
+                    std::mem::take(&mut self.sender_input.0)
+                };
+                let text = text.trim();
+                if !text.contains('@') {
+                    return Task::none();
+                }
+                match Backend::set_sender_rule(&acc, text, allow) {
+                    Ok(()) => Task::none(),
+                    Err(e) => self.toast(e, true),
+                }
+            }
+            Message::RemoveSender(address) => {
+                if let Some(acc) = self.config.account() {
+                    Backend::remove_sender_rule(acc, &address);
+                }
+                Task::none()
             }
             Message::Print => {
                 let Some(msg) = &self.message else {

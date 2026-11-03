@@ -119,6 +119,8 @@ pub struct Ui {
     pub threaded: bool,
     /// Order of message lists.
     pub sort: crate::sort::SortOrder,
+    /// Rows per page of the message list (20, 50 or 100).
+    pub page_size: u32,
 }
 
 impl Default for Ui {
@@ -134,6 +136,7 @@ impl Default for Ui {
             load_remote_images: true,
             threaded: true,
             sort: crate::sort::SortOrder::Newest,
+            page_size: 20,
         }
     }
 }

@@ -88,6 +88,7 @@ pub mod icons {
     pub const PRINTER: &str = icon_svg!(
         r#"<path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/>"#
     );
+    pub const BLOCK: &str = icon_svg!(r#"<circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/>"#);
     pub const PLUS: &str = icon_svg!(r#"<path d="M12 5v14"/><path d="M5 12h14"/>"#);
     pub const CALENDAR: &str = icon_svg!(
         r#"<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>"#
@@ -381,6 +382,27 @@ pub fn input(p: Palette, r: f32) -> impl Fn(&Theme, text_input::Status) -> text_
 }
 
 /// Borderless field (used inside containers that already have a border).
+/// A small button that opens a menu, drawn like a drop-down field.
+pub fn pick_btn(p: Palette) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, status| {
+        let active = matches!(status, button::Status::Hovered | button::Status::Pressed);
+        button::Style {
+            background: Some(Background::Color(if active {
+                mix(p.chip, p.soft, 0.6)
+            } else {
+                p.chip
+            })),
+            text_color: p.text,
+            border: Border {
+                color: if active { p.accent } else { p.line },
+                width: 1.0,
+                radius: radius(7.0),
+            },
+            ..Default::default()
+        }
+    }
+}
+
 /// Drop-down lists in the theme's colors (the default iced look is grey
 /// and square): a field like the filter chips, and a menu like a card.
 pub fn pick_style(

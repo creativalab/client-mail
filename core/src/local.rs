@@ -20,6 +20,7 @@ pub const INBOX: &str = "INBOX";
 pub const SENT: &str = "Sent";
 pub const ARCHIVE: &str = "Archive";
 pub const TRASH: &str = "Trash";
+pub const SPAM: &str = "Spam";
 
 const SCHEMA: &str = "
 PRAGMA journal_mode = WAL;
@@ -76,6 +77,7 @@ pub fn folders() -> Vec<Folder> {
         (INBOX, FolderKind::Inbox),
         (SENT, FolderKind::Sent),
         (ARCHIVE, FolderKind::Archive),
+        (SPAM, FolderKind::Spam),
         (TRASH, FolderKind::Trash),
     ]
     .into_iter()
