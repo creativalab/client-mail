@@ -35,6 +35,9 @@ data class MailboxState(
     /** Conversations (true) or one row per message. */
     val threaded: Boolean = true,
     val sort: SortOrder = SortOrder.NEWEST,
+    /** Gmail inbox: the tabs are shown, and which one is open (0 = Primary). */
+    val tabs: Boolean = false,
+    val category: Int = 0,
     /** Checked messages (uids); not empty = selection mode. */
     val selected: Set<UInt> = emptySet(),
     /** Asking before deleting the selection for good (in the Trash). */
@@ -42,7 +45,12 @@ data class MailboxState(
 ) {
     val selecting: Boolean get() = selected.isNotEmpty()
     val folder: Folder? get() = folders.firstOrNull { it.id == folderId }
-    val shown: List<Header> get() = if (query.isBlank()) messages else results
+    val shown: List<Header>
+        get() = when {
+            query.isNotBlank() -> results
+            tabs -> messages.filter { it.category.toInt() == category }
+            else -> messages
+        }
 
     /** The list rows: whole conversations, or single messages as one-member ones. */
     val rows: List<Conversation>
@@ -75,7 +83,9 @@ class MailboxViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 repo.ensureConnected()
-                _state.update { it.copy(folders = repo.folders.value, folderId = repo.inboxId()) }
+                _state.update {
+                    it.copy(folders = repo.folders.value, folderId = repo.inboxId(), tabs = repo.isGmail())
+                }
                 refresh()
             } catch (e: FerrowlException) {
                 _state.update { it.copy(error = e.message) }
@@ -93,7 +103,17 @@ class MailboxViewModel @Inject constructor(
 
     fun openFolder(id: String) {
         if (id == _state.value.folderId) return
-        _state.update { it.copy(folderId = id, messages = emptyList(), query = "", results = emptyList(), selected = emptySet()) }
+        _state.update {
+            it.copy(
+                folderId = id,
+                messages = emptyList(),
+                query = "",
+                results = emptyList(),
+                selected = emptySet(),
+                tabs = repo.isGmail() && id == repo.inboxId(),
+                category = 0,
+            )
+        }
         refresh()
     }
 
@@ -214,6 +234,9 @@ class MailboxViewModel @Inject constructor(
             }
         }
     }
+
+    /** Gmail inbox tab (0 Primary … 4 Forums). */
+    fun setCategory(c: Int) = _state.update { it.copy(category = c, selected = emptySet()) }
 
     fun setSort(order: SortOrder) {
         viewModelScope.launch { settings.setSort(order) }

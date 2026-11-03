@@ -16,6 +16,8 @@ struct Inner {
     session: Option<ImapSession>,
     /// The server is Gmail: messages carry labels (X-GM-EXT-1).
     gmail: bool,
+    /// Gmail: the user's labels (raw names of the label folders).
+    gmail_labels: Vec<String>,
 }
 
 #[derive(Clone, Default)]
@@ -415,6 +417,20 @@ impl Backend {
             let gmail = mail::has_gmail_labels(&mut session);
             let mut g = b.lock();
             g.gmail = gmail;
+            g.gmail_labels = if gmail {
+                folders
+                    .iter()
+                    .filter(|f| {
+                        f.kind == FolderKind::Other
+                            && f.selectable
+                            && !f.name.starts_with("[Gmail]")
+                            && !f.name.starts_with("[Google Mail]")
+                    })
+                    .map(|f| f.name.clone())
+                    .collect()
+            } else {
+                Vec::new()
+            };
             if let Some(mut old) = g.session.take() {
                 let _ = old.logout();
             }
@@ -469,12 +485,25 @@ impl Backend {
                 return Ok((local_headers(&account, &folder), if left > 0 { 2 } else { 0 }));
             }
             let mut page = b.with_session_sync(|s| mail::fetch_headers(s, &folder))?;
-            // Gmail: the labels of the listed messages, in one command.
-            if b.lock().gmail {
+            // Gmail: the labels of the listed messages and, in the inbox,
+            // their tab (Primary, Promotions, Social…).
+            let (gmail, names) = {
+                let g = b.lock();
+                (g.gmail, g.gmail_labels.clone())
+            };
+            if gmail {
                 let uids: Vec<u32> = page.headers.iter().map(|h| h.uid).collect();
-                if let Ok(mut labels) = b.with_session_sync(|s| mail::fetch_labels(s, &folder, &uids)) {
+                if let Ok(mut labels) = b.with_session_sync(|s| mail::fetch_labels(s, &folder, &uids, &names))
+                {
                     for h in page.headers.iter_mut() {
                         h.labels = labels.remove(&h.uid).unwrap_or_default();
+                    }
+                }
+                if folder.eq_ignore_ascii_case("INBOX")
+                    && let Ok(cats) = b.with_session_sync(|s| mail::fetch_categories(s, &folder, &uids))
+                {
+                    for h in page.headers.iter_mut() {
+                        h.category = cats.get(&h.uid).copied().unwrap_or_default();
                     }
                 }
             }

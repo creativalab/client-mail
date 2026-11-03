@@ -25,13 +25,26 @@ pub trait Store: Send + Sync {
 /// stay in the config file the app provides.
 pub struct SystemKeychain;
 
+/// Development and test profiles (`FERROWL_NO_KEYCHAIN` set) keep their
+/// secrets out of the user's real keychain.
+#[cfg(feature = "keychain")]
+fn keychain_off() -> bool {
+    std::env::var_os("FERROWL_NO_KEYCHAIN").is_some()
+}
+
 #[cfg(feature = "keychain")]
 impl Store for SystemKeychain {
     fn get(&self, user: &str) -> Option<String> {
+        if keychain_off() {
+            return None;
+        }
         keyring::Entry::new(SERVICE, user).ok()?.get_password().ok()
     }
 
     fn set(&self, user: &str, secret: &str) -> bool {
+        if keychain_off() {
+            return false;
+        }
         match keyring::Entry::new(SERVICE, user).and_then(|e| e.set_password(secret)) {
             Ok(()) => true,
             Err(e) => {
@@ -42,6 +55,9 @@ impl Store for SystemKeychain {
     }
 
     fn delete(&self, user: &str) {
+        if keychain_off() {
+            return;
+        }
         if let Ok(e) = keyring::Entry::new(SERVICE, user) {
             let _ = e.delete_credential();
         }

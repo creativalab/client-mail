@@ -7,6 +7,8 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.PrimaryScrollableTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -228,8 +230,22 @@ fun MailboxScreen(
                     val rows = s.rows
                     when {
                         s.error != null && rows.isEmpty() -> Centered(s.error!!, MaterialTheme.colorScheme.error)
-                        rows.isEmpty() && !s.refreshing && !s.searching -> Centered(stringResource(R.string.list_empty))
+                        // (With Gmail tabs the list stays, so another tab can be picked.)
+                        rows.isEmpty() && !s.refreshing && !s.searching && !s.tabs -> Centered(stringResource(R.string.list_empty))
                         else -> LazyColumn(Modifier.fillMaxSize()) {
+                            // Gmail inbox tabs.
+                            if (s.tabs && s.query.isBlank()) {
+                                item(key = "tabs") { CategoryTabs(s.category, vm::setCategory) }
+                            }
+                            if (rows.isEmpty() && !s.refreshing) {
+                                item(key = "empty") {
+                                    Text(
+                                        stringResource(R.string.list_empty),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(24.dp),
+                                    )
+                                }
+                            }
                             items(rows, key = { it.latest.uid.toLong() }) { c ->
                                 MessageRow(
                                     c.latest,
@@ -388,6 +404,23 @@ private fun LabelDialog(choices: List<Folder>, s: MailboxState, onToggle: (Strin
         },
         confirmButton = { TextButton(onClick = onDone) { Text(stringResource(R.string.close)) } },
     )
+}
+
+/** Gmail inbox tabs: Primary, Promotions, Social, Updates, Forums. */
+@Composable
+private fun CategoryTabs(current: Int, onPick: (Int) -> Unit) {
+    val labels = listOf(
+        R.string.gmail_primary,
+        R.string.gmail_promotions,
+        R.string.gmail_social,
+        R.string.gmail_updates,
+        R.string.gmail_forums,
+    )
+    PrimaryScrollableTabRow(selectedTabIndex = current, edgePadding = 8.dp) {
+        labels.forEachIndexed { i, label ->
+            Tab(selected = i == current, onClick = { onPick(i) }, text = { Text(stringResource(label)) })
+        }
+    }
 }
 
 /** "Sort by…": the orders, the current one checked. */

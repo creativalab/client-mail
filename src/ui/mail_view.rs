@@ -990,7 +990,86 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             .into()
     };
 
-    container(column![toolbar, header, view_mode, content])
+    // Gmail inbox tabs (Primary, Promotions, Social, Updates, Forums), with
+    // the unread count of each.
+    let tabs: Element<'a, Message> = if app.tabs_shown() {
+        let mut row_items: Vec<Element<'a, Message>> = Vec::new();
+        for c in ferrowl_core::mail::Category::ALL {
+            let active = app.category == c;
+            let unread = app.headers.iter().filter(|h| h.category == c && !h.seen).count();
+            let mut label = row![
+                text(t(c.key()))
+                    .size(13)
+                    .font(if active { semibold() } else { medium() })
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center);
+            if unread > 0 {
+                label = label.push(
+                    container(
+                        text(unread.to_string())
+                            .size(11)
+                            .font(semibold())
+                            .color(p.on_accent),
+                    )
+                    .padding([1, 7])
+                    .style(chip_box(p.accent, p.on_accent, 999.0)),
+                );
+            }
+            // The underline as wide as the tab's text (a Fill width would
+            // stretch every tab across the row).
+            let width = t(c.key()).chars().count() as f32 * 7.4 + if unread > 0 { 58.0 } else { 28.0 };
+            row_items.push(
+                button(column![
+                    // Same width as the underline, text centered: background
+                    // and underline always line up.
+                    container(label).width(width).center_x(width).padding([8, 0]),
+                    container(space().width(width).height(2)).style(panel(if active {
+                        p.accent
+                    } else {
+                        Color::TRANSPARENT
+                    })),
+                ])
+                .padding(0)
+                // Tab look: a light background on the open (or hovered) tab,
+                // rounded at the top only, square where it meets the line.
+                .style(move |_, st| {
+                    let hovered = matches!(st, button::Status::Hovered | button::Status::Pressed);
+                    button::Style {
+                        background: (active || hovered).then_some(Background::Color(if active {
+                            p.soft
+                        } else {
+                            mix(p.bg, p.soft, 0.5)
+                        })),
+                        text_color: if active { p.accent_text } else { p.text2 },
+                        border: Border {
+                            radius: iced::border::Radius {
+                                top_left: 8.0,
+                                top_right: 8.0,
+                                bottom_right: 0.0,
+                                bottom_left: 0.0,
+                            },
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    }
+                })
+                .on_press(Message::SetCategory(c))
+                .into(),
+            );
+        }
+        // Room below the tabs, before the filters.
+        column![
+            container(dir_row(row_items).spacing(4)).padding([0, 16]),
+            hline(p.line_soft),
+            space().height(14),
+        ]
+        .into()
+    } else {
+        space().height(0).into()
+    };
+
+    container(column![toolbar, header, tabs, view_mode, content])
         .width(if wide { Fill } else { iced::Length::Fixed(410.0) })
         .height(Fill)
         .style(panel(p.bg))

@@ -652,7 +652,73 @@ fn accounts(app: &App, p: Palette) -> Element<'_, Message> {
         field(t("email"), &d.email, Field::Email, false, false),
     ));
 
-    if let Some(pr) = preset {
+    // Google / Microsoft: "Sign in with…" (OAuth) when this build has the
+    // provider's app ID.
+    use ferrowl_core::oauth::Provider as OAuth;
+    let oauth_for = |pr: &crate::providers::Provider| -> Option<OAuth> {
+        match pr.login {
+            Login::MicrosoftSignIn => Some(OAuth::Microsoft),
+            _ if pr.name == "Google" => Some(OAuth::Google),
+            _ => None,
+        }
+        .filter(|o| o.available())
+    };
+    let signed_in = |provider: OAuth| -> Element<'_, Message> {
+        let name = match provider {
+            OAuth::Microsoft => "Microsoft",
+            OAuth::Google => "Google",
+        };
+        container(
+            dir_row(vec![
+                text(t("oauth_signed_in").replace("{provider}", name))
+                    .size(14)
+                    .color(p.sec_text)
+                    .width(Fill)
+                    .into(),
+                button(text(t("oauth_use_password")).size(12).color(p.accent_text))
+                    .padding([2, 4])
+                    .style(ghost(p, p.accent_text))
+                    .on_press(Message::OAuthUsePassword)
+                    .into(),
+            ])
+            .spacing(12)
+            .align_y(Alignment::Center),
+        )
+        .padding([10, 12])
+        .style(chip_box(p.sec_bg, p.sec_text, 8.0))
+        .into()
+    };
+    if let Some(provider) = d.oauth {
+        // Already signed in with the provider: no password to type.
+        form = form.push(signed_in(provider));
+    } else if let Some(provider) = preset
+        .and_then(oauth_for)
+        // An existing Gmail / Outlook.com account too.
+        .or_else(|| OAuth::for_email(&d.email).filter(|o| o.available()))
+    {
+        let label = match provider {
+            OAuth::Microsoft => t("oauth_microsoft"),
+            OAuth::Google => t("oauth_google"),
+        };
+        let mut row_items: Vec<Element<'_, Message>> = vec![
+            button(text(label).size(14).font(semibold()))
+                .height(40)
+                .padding([10, 18])
+                .style(accent_btn(p))
+                .on_press_maybe((!app.oauth_busy).then_some(Message::OAuthSignIn(provider)))
+                .into(),
+        ];
+        if app.oauth_busy {
+            row_items.push(text(t("oauth_waiting")).size(13).color(p.muted).into());
+        }
+        form = form.push(dir_row(row_items).spacing(12).align_y(Alignment::Center));
+        if provider == OAuth::Google {
+            // The app password stays possible (accounts outside the test list).
+            form = form
+                .push(text(t("oauth_or_app_password")).size(13).color(p.text2))
+                .push(field(t("password"), &d.password, Field::Password, true, false));
+        }
+    } else if let Some(pr) = preset {
         // Known provider: only the password is left to type.
         form = form.push(field(t("password"), &d.password, Field::Password, true, false));
         let hint: Option<(String, Option<String>)> = match pr.login {

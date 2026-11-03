@@ -194,6 +194,10 @@ impl Cache {
                 "labels",
                 "ALTER TABLE messages ADD COLUMN labels TEXT NOT NULL DEFAULT ''",
             ),
+            (
+                "category",
+                "ALTER TABLE messages ADD COLUMN category INTEGER NOT NULL DEFAULT 0",
+            ),
         ] {
             if !has_column(&conn, "messages", column)? {
                 conn.execute_batch(ddl)?;
@@ -257,13 +261,14 @@ impl Cache {
         }
         {
             let mut stmt = tx.prepare_cached(
-                "INSERT INTO messages (account, folder, uid, sender, subject, preview, ts, seen, attach, body, msgid, parents, counted, flagged, size, labels)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1, ?13, ?14, ?15)
+                "INSERT INTO messages (account, folder, uid, sender, subject, preview, ts, seen, attach, body, msgid, parents, counted, flagged, size, labels, category)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 1, ?13, ?14, ?15, ?16)
                  ON CONFLICT (account, folder, uid) DO UPDATE SET
                     counted = 1,
                     seen = excluded.seen,
                     flagged = excluded.flagged,
                     labels = excluded.labels,
+                    category = excluded.category,
                     size = CASE WHEN excluded.size > 0 THEN excluded.size ELSE messages.size END,
                     msgid = excluded.msgid,
                     parents = excluded.parents,
@@ -289,7 +294,8 @@ impl Cache {
                     h.parents.join(" "),
                     h.flagged,
                     h.size,
-                    h.labels.join("\n")
+                    h.labels.join("\n"),
+                    h.category.code()
                 ])?;
             }
         }
@@ -378,7 +384,7 @@ impl Cache {
     pub fn headers(&self, account: &str, folder: &str, limit: u32) -> Result<Vec<Header>> {
         let conn = self.lock();
         let mut stmt = conn.prepare_cached(
-            "SELECT uid, sender, subject, preview, ts, seen, attach, msgid, parents, flagged, size, labels FROM messages
+            "SELECT uid, sender, subject, preview, ts, seen, attach, msgid, parents, flagged, size, labels, category FROM messages
              WHERE account = ?1 AND folder = ?2 ORDER BY ts DESC, uid DESC LIMIT ?3",
         )?;
         let rows = stmt.query_map(params![account, folder, limit], row_to_header)?;
@@ -749,7 +755,7 @@ impl Cache {
         };
         let conn = self.lock();
         let mut stmt = conn.prepare_cached(
-            "SELECT m.uid, m.sender, m.subject, m.preview, m.ts, m.seen, m.attach, m.msgid, m.parents, m.flagged, m.size, m.labels
+            "SELECT m.uid, m.sender, m.subject, m.preview, m.ts, m.seen, m.attach, m.msgid, m.parents, m.flagged, m.size, m.labels, m.category
              FROM messages_fts f JOIN messages m ON m.id = f.rowid
              WHERE messages_fts MATCH ?3 AND m.account = ?1 AND m.folder = ?2
              ORDER BY m.ts DESC LIMIT ?4",
@@ -783,6 +789,7 @@ fn row_to_header(r: &rusqlite::Row<'_>) -> rusqlite::Result<Header> {
             .filter(|l| !l.is_empty())
             .map(str::to_owned)
             .collect(),
+        category: crate::mail::Category::from_code(r.get(12)?),
         ..Default::default()
     })
 }

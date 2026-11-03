@@ -17,6 +17,7 @@ pub mod invite;
 pub mod local;
 pub mod mail;
 pub mod markdown;
+pub mod oauth;
 pub mod paths;
 pub mod pop3;
 pub mod providers;

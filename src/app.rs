@@ -414,6 +414,8 @@ pub struct AccountDraft {
     pub carddav_url: String,
     /// Calendar server (empty = automatic).
     pub caldav_url: String,
+    /// Signed in with Google/Microsoft instead of a password.
+    pub oauth: Option<ferrowl_core::oauth::Provider>,
 }
 
 impl AccountDraft {
@@ -457,6 +459,7 @@ impl AccountDraft {
             keyring: a.keyring,
             carddav_url: a.carddav_url.clone(),
             caldav_url: a.caldav_url.clone(),
+            oauth: a.oauth,
         }
     }
 
@@ -476,6 +479,7 @@ impl AccountDraft {
             keyring: self.keyring,
             carddav_url: self.carddav_url.trim().to_string(),
             caldav_url: self.caldav_url.trim().to_string(),
+            oauth: self.oauth,
         };
         a.is_complete().then_some(a)
     }
@@ -572,6 +576,8 @@ pub struct App {
     /// Account being edited in settings (`None` = new account).
     pub editing: Option<usize>,
     pub confirm_remove: bool,
+    /// Waiting for the browser sign-in (Google/Microsoft).
+    pub oauth_busy: bool,
     /// Bumped on account switch, to drop results of the previous account.
     pub generation: u64,
     pub testing: bool,
@@ -607,6 +613,8 @@ pub struct App {
     pub page: usize,
     /// The account is Gmail: messages have labels.
     pub gmail: bool,
+    /// Gmail inbox tab shown.
+    pub category: ferrowl_core::mail::Category,
     /// Asking before deleting the open event.
     pub confirm_event_delete: bool,
 }
@@ -680,6 +688,8 @@ pub enum Message {
     Page(i32),
     /// Jump to a page (0 = first).
     GoPage(usize),
+    /// Gmail inbox tab.
+    SetCategory(ferrowl_core::mail::Category),
     /// Add (true) or remove a Gmail label (raw name) on the checked or open
     /// messages.
     ToggleLabel(String, bool),
@@ -781,6 +791,11 @@ pub enum Message {
     /// From the sidebar: open settings on an empty account form.
     AddAccount,
     RemoveAccount(bool),
+    /// Sign in with Google/Microsoft in the browser.
+    OAuthSignIn(ferrowl_core::oauth::Provider),
+    OAuthDone(Res<(ferrowl_core::oauth::Provider, String)>),
+    /// Back to a password instead of the provider's sign-in.
+    OAuthUsePassword,
     // contacts
     OpenContacts,
     ContactsQuery(String),
@@ -913,6 +928,7 @@ impl App {
             draft,
             editing,
             confirm_remove: false,
+            oauth_busy: false,
             generation: 0,
             testing: false,
             test_result: None,
@@ -937,6 +953,7 @@ impl App {
             sender_input: (String::new(), String::new()),
             page: 0,
             gmail: false,
+            category: ferrowl_core::mail::Category::Primary,
             confirm_event_delete: false,
         };
         // Development: open a given view directly (used for screenshots).
@@ -1207,6 +1224,14 @@ impl App {
                 h.flagged = on;
             }
         }
+    }
+
+    /// Gmail inbox: the Primary / Promotions / Social… tabs are shown.
+    pub fn tabs_shown(&self) -> bool {
+        self.gmail
+            && self.pane == Pane::Mail
+            && self.folder_by_kind(FolderKind::Inbox).map(|f| f.name.as_str())
+                == self.current_folder.as_deref()
     }
 
     /// The messages a label change applies to: the checked ones, else the
@@ -1825,10 +1850,13 @@ impl App {
         let tokens: Vec<String> = self.search.split_whitespace().map(str::to_lowercase).collect();
         // Free words were already matched by the full-text index.
         let indexed = self.search_results.is_some();
+        let by_tab = self.tabs_shown() && self.search.trim().is_empty();
         self.search_results
             .as_ref()
             .unwrap_or(&self.headers)
             .iter()
+            // Gmail inbox: only the open tab's messages (not while searching).
+            .filter(|h| !by_tab || h.category == self.category)
             .filter(|h| match self.filter {
                 ListFilter::All => true,
                 ListFilter::Unread => !h.seen,
@@ -2495,6 +2523,11 @@ impl App {
                     None => Task::none(),
                 };
                 Task::batch([self.toast(e, true), reload])
+            }
+            Message::SetCategory(c) => {
+                self.category = c;
+                self.page = 0;
+                Task::none()
             }
             Message::GoPage(n) => {
                 self.popup = None;
@@ -3241,6 +3274,58 @@ impl App {
                 self.confirm_remove = false;
                 iced::widget::operation::focus(crate::ui::settings::EMAIL_FIELD)
             }
+            Message::OAuthSignIn(provider) => {
+                if self.oauth_busy {
+                    return Task::none();
+                }
+                self.oauth_busy = true;
+                self.test_result = None;
+                let hint = self.draft.email.trim().to_string();
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            let open = |url: &str| -> anyhow::Result<()> { Ok(open::that_detached(url)?) };
+                            ferrowl_core::oauth::sign_in(provider, &hint, &open)
+                                .map(|email| (provider, email))
+                                .map_err(|e| format!("{e:#}"))
+                        })
+                        .await
+                        .unwrap_or_else(|e| Err(e.to_string()))
+                    },
+                    Message::OAuthDone,
+                )
+            }
+            Message::OAuthDone(result) => {
+                self.oauth_busy = false;
+                match result {
+                    Ok((provider, email)) => {
+                        // Signed in: the account's address and servers come
+                        // from the provider.
+                        let ((imap, imap_port), (smtp, smtp_port)) = provider.servers(&email);
+                        let d = &mut self.draft;
+                        if d.display_name.trim().is_empty() {
+                            d.display_name = email.split('@').next().unwrap_or_default().to_string();
+                        }
+                        d.email = email.clone();
+                        d.username = email;
+                        d.password.clear();
+                        d.oauth = Some(provider);
+                        d.imap_host = imap.into();
+                        d.imap_port = imap_port.to_string();
+                        d.smtp_host = smtp.into();
+                        d.smtp_port = smtp_port.to_string();
+                        Task::none()
+                    }
+                    Err(e) => {
+                        self.test_result = Some(Err(e));
+                        Task::none()
+                    }
+                }
+            }
+            Message::OAuthUsePassword => {
+                self.draft.oauth = None;
+                Task::none()
+            }
             Message::RemoveAccount(confirmed) => {
                 let Some(i) = self.editing else {
                     return Task::none();
@@ -3253,7 +3338,10 @@ impl App {
                 if i >= self.config.accounts.len() {
                     return Task::none();
                 }
-                self.config.accounts.remove(i);
+                let removed = self.config.accounts.remove(i);
+                if let Some(provider) = removed.oauth {
+                    ferrowl_core::oauth::forget(provider, &removed.email);
+                }
                 let was_active = i == self.config.active;
                 if self.config.active > i || self.config.active >= self.config.accounts.len() {
                     self.config.active = self.config.active.saturating_sub(1);
