@@ -3,7 +3,7 @@
 
 use crate::config::Account;
 use crate::i18n::{t, tf};
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use mail_parser::{AddressList, MessageParser};
 use std::collections::HashMap;
 use std::net::TcpStream;
@@ -431,7 +431,9 @@ pub fn connect(account: &Account) -> Result<ImapSession> {
     client.read_greeting().context("IMAP greeting")?;
     let login_error = |e: imap::Error| {
         let msg = e.to_string();
-        if msg.to_uppercase().contains("AUTHENTICATIONFAILED") {
+        if mailbox_refuses_apps(&msg) {
+            anyhow!(t("err_outlook_imap_off"))
+        } else if msg.to_uppercase().contains("AUTHENTICATIONFAILED") {
             anyhow!(tf("err_auth", &[("msg", &msg)]))
         } else {
             anyhow!(tf("err_login", &[("msg", &msg)]))
@@ -1218,8 +1220,23 @@ pub fn send(account: &Account, mail: &Outgoing) -> Result<Vec<u8>> {
         .authentication(mechanisms)
         .timeout(Some(Duration::from_secs(60)))
         .build();
-    mailer.send(&email).context(t("err_smtp"))?;
+    if let Err(e) = mailer.send(&email) {
+        if mailbox_refuses_apps(&e.to_string()) {
+            bail!(t("err_outlook_imap_off"));
+        }
+        return Err(anyhow::Error::new(e).context(t("err_smtp")));
+    }
     Ok(email.formatted())
+}
+
+/// Outlook.com / Microsoft 365 answers like this when the sign-in worked
+/// but the mailbox does not allow IMAP or SMTP from apps (off by default
+/// on many Outlook.com mailboxes, or disabled by the administrator).
+fn mailbox_refuses_apps(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    m.contains("authenticated but not connected")
+        || m.contains("smtpclientauthentication is disabled")
+        || m.contains("5.7.139")
 }
 
 /// Saves a copy of the sent message to the Sent folder.
@@ -1426,6 +1443,15 @@ impl lettre::message::header::Header for Autocrypt {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn outlook_mailbox_without_imap_is_recognised() {
+        assert!(mailbox_refuses_apps("User is authenticated but not connected."));
+        assert!(mailbox_refuses_apps(
+            "permanent error (535): 5.7.139 Authentication unsuccessful, SmtpClientAuthentication is disabled for the Mailbox."
+        ));
+        assert!(!mailbox_refuses_apps("AUTHENTICATIONFAILED Invalid credentials"));
+    }
 
     #[test]
     fn invitation_reply_carries_the_calendar_part() {
