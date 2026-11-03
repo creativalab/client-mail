@@ -184,6 +184,7 @@ view_toggle_tip = "画像やリモートコンテンツは読み込まれませ�
 
 # Multiple accounts
 add_account = "アカウントを追加"
+account_settings = "アカウント設定"
 new_account = "新しいアカウント"
 provider_label = "メールサービス"
 provider_other = "その他"

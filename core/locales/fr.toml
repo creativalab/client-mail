@@ -184,6 +184,7 @@ view_toggle_tip = "Les images et contenus distants ne sont jamais chargés"
 
 # Multiple accounts
 add_account = "Ajouter un compte"
+account_settings = "Paramètres du compte"
 new_account = "Nouveau compte"
 provider_label = "Fournisseur de messagerie"
 provider_other = "Autre"

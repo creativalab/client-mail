@@ -790,6 +790,8 @@ pub enum Message {
     SetKeepDays(Option<u32>),
     /// From the sidebar: open settings on an empty account form.
     AddAccount,
+    /// Settings of the account at this index (from the sidebar).
+    OpenAccountSettings(usize),
     RemoveAccount(bool),
     /// Sign in with Google/Microsoft in the browser.
     OAuthSignIn(ferrowl_core::oauth::Provider),
@@ -3261,6 +3263,11 @@ impl App {
                     self.confirm_remove = false;
                 }
                 Task::none()
+            }
+            Message::OpenAccountSettings(i) => {
+                self.appearance_open = false;
+                self.screen = Screen::Settings(Section::Accounts);
+                self.update(Message::EditAccount(i))
             }
             Message::AddAccount => {
                 self.appearance_open = false;

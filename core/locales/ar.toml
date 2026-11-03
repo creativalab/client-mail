@@ -184,6 +184,7 @@ view_toggle_tip = "لا يتم تحميل الصور والمحتوى البعي
 
 # Multiple accounts
 add_account = "إضافة حساب"
+account_settings = "إعدادات الحساب"
 new_account = "حساب جديد"
 provider_label = "مزوّد البريد"
 provider_other = "آخر"

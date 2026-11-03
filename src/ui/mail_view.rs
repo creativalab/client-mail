@@ -235,12 +235,32 @@ fn sidebar<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         ])
         .spacing(10)
         .align_y(Alignment::Center);
+        // The active account opens its settings; another one becomes active.
+        let pick = if active {
+            Message::OpenAccountSettings(i)
+        } else {
+            Message::SwitchAccount(i)
+        };
+        let settings = tooltip(
+            button(icon(icons::GEAR, 15.0, p.muted))
+                .padding([5, 6])
+                .style(ghost(p, p.muted))
+                .on_press(Message::OpenAccountSettings(i)),
+            t("account_settings"),
+            p,
+        );
         accounts = accounts.push(
-            button(row_el)
-                .width(Fill)
-                .padding([7, 12])
-                .style(nav_item(p, active && multi))
-                .on_press_maybe((!active).then_some(Message::SwitchAccount(i))),
+            dir_row(vec![
+                button(row_el)
+                    .width(Fill)
+                    .padding([7, 12])
+                    .style(nav_item(p, active && multi))
+                    .on_press(pick)
+                    .into(),
+                settings,
+            ])
+            .spacing(2)
+            .align_y(Alignment::Center),
         );
     }
     let add = tooltip(
