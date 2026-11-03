@@ -422,7 +422,34 @@ fn wait_for_code(listener: &TcpListener, state: &str, timeout: Duration) -> Resu
         if !ok {
             bail!("sign-in response did not match this request");
         }
+        // Browsers sometimes load the address again (a retry, a reload,
+        // HTTPS-first): keep answering for a while so they do not show an
+        // error page after a sign-in that worked.
+        if let Ok(again) = listener.try_clone() {
+            std::thread::spawn(move || serve_page(again, page, Duration::from_secs(30)));
+        }
         return Ok(params["code"].clone());
+    }
+}
+
+/// Answers every request on `listener` with `page` until `time` passes.
+fn serve_page(listener: TcpListener, page: String, time: Duration) {
+    let deadline = Instant::now() + time;
+    while Instant::now() < deadline {
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                let _ = stream.set_nonblocking(false);
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+                let mut line = String::new();
+                let _ = BufReader::new(&stream).read_line(&mut line);
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{page}",
+                    page.len()
+                );
+            }
+            Err(_) => std::thread::sleep(Duration::from_millis(100)),
+        }
     }
 }
 
@@ -541,5 +568,31 @@ mod tests {
             wait_for_code(&listener, "xyz", Duration::from_secs(5)).unwrap(),
             "abc"
         );
+    }
+
+    #[test]
+    fn repeated_redirect_still_gets_the_page() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let get = move || {
+            let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+            s.write_all(b"GET /?code=abc&state=xyz HTTP/1.1\r\nHost: localhost\r\n\r\n")
+                .unwrap();
+            let mut out = String::new();
+            let _ = std::io::Read::read_to_string(&mut s, &mut out);
+            out
+        };
+        let first = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            get()
+        });
+        assert_eq!(
+            wait_for_code(&listener, "xyz", Duration::from_secs(5)).unwrap(),
+            "abc"
+        );
+        assert!(first.join().unwrap().starts_with("HTTP/1.1 200"));
+        drop(listener);
+        // The browser loads the address again after the code was taken.
+        assert!(get().starts_with("HTTP/1.1 200"));
     }
 }
