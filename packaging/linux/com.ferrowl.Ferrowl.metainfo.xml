@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata: lets software centres (Ubuntu App Center, GNOME
+     Software, KDE Discover) show Ferrowl's name, icon and description. -->
+<component type="desktop-application">
+  <id>com.ferrowl.Ferrowl</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Ferrowl</name>
+  <summary>Fast, private email client</summary>
+  <summary xml:lang="it">Client di posta veloce e riservato</summary>
+  <developer id="com.creativalab">
+    <name>Creativalab</name>
+  </developer>
+  <description>
+    <p>
+      Ferrowl is a native desktop email client written in Rust. It works with
+      any IMAP or POP3 account, opens folders instantly from a local copy of
+      your mail and signs in to Gmail and Outlook through your browser.
+    </p>
+    <p>
+      It keeps passwords in the system keychain, groups messages into
+      conversations, supports CalDAV calendars, CardDAV contacts and OpenPGP,
+      and comes with six colour themes in ten languages.
+    </p>
+  </description>
+  <launchable type="desktop-id">ferrowl.desktop</launchable>
+  <icon type="stock">ferrowl</icon>
+  <url type="homepage">https://ferrowl.com/</url>
+  <url type="bugtracker">https://github.com/creativalab/ferrowl/issues</url>
+  <url type="vcs-browser">https://github.com/creativalab/ferrowl</url>
+  <url type="help">https://ferrowl.com/guides/</url>
+  <categories>
+    <category>Network</category>
+    <category>Email</category>
+  </categories>
+  <keywords>
+    <keyword>mail</keyword>
+    <keyword>email</keyword>
+    <keyword>imap</keyword>
+    <keyword>openpgp</keyword>
+  </keywords>
+  <provides>
+    <binary>ferrowl</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.4.1" date="2026-11-04"/>
+    <release version="0.4.0" date="2026-11-03"/>
+  </releases>
+</component>
