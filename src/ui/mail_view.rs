@@ -265,8 +265,8 @@ fn sidebar<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     }
     // "+" right after the section name, full size so it is easy to see.
     let add = tooltip(
-        button(container(text("+").size(18).font(semibold()).color(p.text2)).center(22))
-            .padding(0)
+        button(icon(icons::PLUS, 16.0, p.text2))
+            .padding(3)
             .style(ghost(p, p.text2))
             .on_press(Message::AddAccount),
         t("add_account"),
