@@ -558,6 +558,8 @@ pub struct App {
     /// Attachment preview: index and content (None while loading).
     pub preview: Option<(usize, Option<crate::preview::Content>)>,
     pub cursor: iced::Point,
+    /// Dragging the list's edge: cursor x and list width when it started.
+    pub list_resize: Option<(f32, f32)>,
     pub menu: Option<ContextMenu>,
     pub drag: Option<Drag>,
     pub hover_row: Option<u32>,
@@ -733,6 +735,7 @@ pub enum Message {
     PreviewReady(u32, usize, crate::preview::Content),
     ClosePreview,
     CursorMoved(iced::Point),
+    ListResizeStart,
     /// Window closed: exit right away.
     Quit,
     /// Another launch asked this window to come forward.
@@ -920,6 +923,7 @@ impl App {
             thumbs: HashMap::new(),
             preview: None,
             cursor: iced::Point::ORIGIN,
+            list_resize: None,
             menu: None,
             drag: None,
             hover_row: None,
@@ -1274,6 +1278,17 @@ impl App {
     }
 
     /// No message is open (or opening): the list uses the whole width.
+    /// Width of the message list beside the reader: the user's choice,
+    /// narrowed when the window leaves the reader too little room.
+    pub fn list_width(&self) -> f32 {
+        use ferrowl_core::config::{LIST_MAX_WIDTH, LIST_MIN_WIDTH};
+        let room = (self.window_width - 240.0 - 480.0).max(LIST_MIN_WIDTH);
+        self.config
+            .ui
+            .list_width
+            .clamp(LIST_MIN_WIDTH, LIST_MAX_WIDTH.min(room))
+    }
+
     pub fn list_is_wide(&self) -> bool {
         self.selected.is_none() && !self.loading_message
     }
@@ -1627,8 +1642,8 @@ impl App {
 
     /// Logical width available to the message in the reader.
     pub fn html_width(&self) -> u32 {
-        // sidebar 240 + list 410 + reader padding.
-        let w = (self.window_width - 650.0 - 80.0).clamp(320.0, 820.0);
+        // sidebar 240 + list + reader padding.
+        let w = (self.window_width - 240.0 - self.list_width() - 80.0).clamp(320.0, 820.0);
         (w as u32) / 20 * 20
     }
 
@@ -2870,8 +2885,18 @@ impl App {
             Message::Raise => iced::window::latest().and_then(|id| {
                 Task::batch([iced::window::minimize(id, false), iced::window::gain_focus(id)])
             }),
+            Message::ListResizeStart => {
+                self.list_resize = Some((self.cursor.x, self.list_width()));
+                Task::none()
+            }
             Message::CursorMoved(at) => {
                 self.cursor = at;
+                if let Some((x0, w0)) = self.list_resize {
+                    // The list sits after the sidebar: in RTL it grows leftwards.
+                    let dx = if i18n::is_rtl() { x0 - at.x } else { at.x - x0 };
+                    self.config.ui.list_width = w0 + dx;
+                    self.config.ui.list_width = self.list_width();
+                }
                 if let Some(d) = self.drag.as_mut()
                     && !d.active
                     && (at.x - d.start.x).abs() + (at.y - d.start.y).abs() > 8.0
@@ -2900,6 +2925,15 @@ impl App {
                     });
                 }
                 Task::none()
+            }
+            Message::MouseUp if self.list_resize.take().is_some() => {
+                let save = self.save_config();
+                match &self.html_render {
+                    Some(r) if r.width.abs_diff(self.html_width()) >= 40 && !self.html_rendering => {
+                        Task::batch([save, self.start_html_render()])
+                    }
+                    _ => save,
+                }
             }
             Message::MouseUp => match (self.drag.take(), self.drop_folder.clone()) {
                 (Some(d), Some(target)) if d.active => self.move_message(d.uid, target),

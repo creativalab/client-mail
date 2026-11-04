@@ -203,6 +203,19 @@ impl Cache {
                 conn.execute_batch(ddl)?;
             }
         }
+        // 1: messages without a Date header were cached with timestamp 0
+        // before the server's arrival time was used; drop those folders so
+        // the next sync downloads them again with a date.
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version < 1 {
+            conn.execute_batch(
+                "DELETE FROM folders WHERE (account, folder) IN
+                     (SELECT DISTINCT account, folder FROM messages WHERE ts = 0);
+                 DELETE FROM messages WHERE (account, folder) IN
+                     (SELECT DISTINCT account, folder FROM messages WHERE ts = 0);
+                 PRAGMA user_version = 1;",
+            )?;
+        }
         Ok(Cache {
             conn: Mutex::new(conn),
         })
@@ -921,6 +934,31 @@ mod tests {
             text: text.into(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn undated_folders_are_dropped_once() {
+        let path = std::env::temp_dir().join(format!("ferrowl-cache-test-{}.sqlite", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        {
+            let c = Cache::open(&path).unwrap();
+            let mut undated = h(2, "x", "no date", "");
+            undated.timestamp = 0;
+            c.store_headers("a", "INBOX", &[h(1, "x", "dated", ""), undated], "")
+                .unwrap();
+            c.store_headers("a", "Sent", &[h(3, "x", "dated", "")], "")
+                .unwrap();
+            c.conn
+                .lock()
+                .unwrap()
+                .execute_batch("PRAGMA user_version = 0")
+                .unwrap();
+        }
+        let c = Cache::open(&path).unwrap();
+        assert!(c.headers("a", "INBOX", 10).unwrap().is_empty());
+        assert_eq!(c.headers("a", "Sent", 10).unwrap().len(), 1);
+        drop(c);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

@@ -126,7 +126,13 @@ pub struct Ui {
     pub sort: crate::sort::SortOrder,
     /// Rows per page of the message list (20, 50 or 100).
     pub page_size: u32,
+    /// Width of the message list beside the reader, in pixels (the user
+    /// drags its edge; kept between LIST_MIN_WIDTH and LIST_MAX_WIDTH).
+    pub list_width: f32,
 }
+
+pub const LIST_MIN_WIDTH: f32 = 410.0;
+pub const LIST_MAX_WIDTH: f32 = 760.0;
 
 impl Default for Ui {
     fn default() -> Self {
@@ -142,6 +148,7 @@ impl Default for Ui {
             threaded: true,
             sort: crate::sort::SortOrder::Newest,
             page_size: 20,
+            list_width: LIST_MIN_WIDTH,
         }
     }
 }
