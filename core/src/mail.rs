@@ -628,7 +628,9 @@ pub fn fetch_delta(
     }
     let has_new = mailbox.uid_next.is_none_or(|next| next > known_max + 1);
     if has_new {
-        let query = format!("(UID FLAGS RFC822.SIZE BODY.PEEK[HEADER] BODY.PEEK[TEXT]<0.{PREVIEW_BYTES}>)");
+        let query = format!(
+            "(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER] BODY.PEEK[TEXT]<0.{PREVIEW_BYTES}>)"
+        );
         // "n:*" always returns at least the last message, even when older.
         let fetches = session.uid_fetch(format!("{}:*", known_max + 1), query)?;
         let fresh: Vec<_> = fetches
@@ -645,6 +647,7 @@ pub fn fetch_delta(
             let mut h = header_from_raw(uid, &raw, f.flags().contains(&imap::types::Flag::Seen));
             h.flagged = f.flags().contains(&imap::types::Flag::Flagged);
             h.size = f.size.unwrap_or(0);
+            fill_missing_date(&mut h.timestamp, f);
             delta.new.push(h);
         }
         delta
@@ -695,7 +698,8 @@ fn fetch_range(
         return Ok(page);
     }
     let range = format!("{first}:{last}");
-    let query = format!("(UID FLAGS RFC822.SIZE BODY.PEEK[HEADER] BODY.PEEK[TEXT]<0.{PREVIEW_BYTES}>)");
+    let query =
+        format!("(UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[HEADER] BODY.PEEK[TEXT]<0.{PREVIEW_BYTES}>)");
     let fetches = session.fetch(range, query)?;
 
     let mut headers: Vec<Header> = fetches
@@ -708,6 +712,7 @@ fn fetch_range(
             let mut h = header_from_raw(uid, &raw, f.flags().contains(&imap::types::Flag::Seen));
             h.flagged = f.flags().contains(&imap::types::Flag::Flagged);
             h.size = f.size.unwrap_or(0);
+            fill_missing_date(&mut h.timestamp, f);
             Some(h)
         })
         .collect();
@@ -814,12 +819,24 @@ pub fn fetch_message(
     keys: &PgpKeys,
 ) -> Result<FullMessage> {
     session.select(folder)?;
-    let fetches = session.uid_fetch(uid.to_string(), "BODY[]")?;
-    let raw = fetches
+    let fetches = session.uid_fetch(uid.to_string(), "(INTERNALDATE BODY[])")?;
+    let f = fetches
         .iter()
-        .find_map(|f| f.body())
+        .find(|f| f.body().is_some())
         .context(t("err_not_found"))?;
-    parse_full(uid, raw, keys)
+    let mut full = parse_full(uid, f.body().unwrap_or_default(), keys)?;
+    fill_missing_date(&mut full.timestamp, f);
+    Ok(full)
+}
+
+/// Messages without a usable Date header (some scripts and alert senders
+/// omit it) take the server's arrival time instead of sorting as 1970.
+fn fill_missing_date(timestamp: &mut i64, f: &imap::types::Fetch) {
+    if *timestamp == 0
+        && let Some(d) = f.internal_date()
+    {
+        *timestamp = d.timestamp();
+    }
 }
 
 /// Builds the reader's view of a raw message (OpenPGP unwrapped).

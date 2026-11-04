@@ -22,7 +22,12 @@ pub fn view(app: &App) -> Element<'_, Message> {
     let body = if app.pane == Pane::Mail && app.list_is_wide() {
         dir_row(vec![sidebar(app, p), vline(p.line), list]).height(Fill)
     } else {
-        dir_row(vec![sidebar(app, p), vline(p.line), list, vline(p.line), detail]).height(Fill)
+        let edge = if app.pane == Pane::Mail {
+            list_edge(app, p)
+        } else {
+            vline(p.line)
+        };
+        dir_row(vec![sidebar(app, p), vline(p.line), list, edge, detail]).height(Fill)
     };
 
     let base = container(column![top_bar(app, p), hline(p.line), body])
@@ -56,6 +61,21 @@ pub fn view(app: &App) -> Element<'_, Message> {
         layers.push(toast);
     }
     stack(layers).width(Fill).height(Fill).into()
+}
+
+/// The line between the message list and the reader, which can be dragged
+/// to widen or narrow the list.
+fn list_edge<'a>(app: &App, p: Palette) -> Element<'a, Message> {
+    let color = if app.list_resize.is_some() {
+        p.accent
+    } else {
+        p.line
+    };
+    let line = container(space().width(1).height(Fill)).style(panel(color));
+    mouse_area(container(line).width(7).height(Fill).center_x(7))
+        .on_press(Message::ListResizeStart)
+        .interaction(iced::mouse::Interaction::ResizingHorizontally)
+        .into()
 }
 
 // ---------------------------------------------------------------- top bar
@@ -300,6 +320,10 @@ fn sidebar<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                 .font(MONO)
                 .size(12)
                 .color(p.text2),
+            text(concat!("Ferrowl ", env!("CARGO_PKG_VERSION")))
+                .font(MONO)
+                .size(12)
+                .color(p.muted),
         ]
         .spacing(4),
     )
@@ -1111,7 +1135,11 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     };
 
     container(column![toolbar, header, tabs, view_mode, content])
-        .width(if wide { Fill } else { iced::Length::Fixed(410.0) })
+        .width(if wide {
+            Fill
+        } else {
+            iced::Length::Fixed(app.list_width())
+        })
         .height(Fill)
         .style(panel(p.bg))
         .into()
