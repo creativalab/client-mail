@@ -717,7 +717,10 @@ pub fn theme_card<'a>(
         });
     let name = row![
         container(iced::widget::space().width(10).height(10)).style(chip_box(c.accent, c.accent, 5.0)),
-        text(def.name.as_str()).size(13).font(semibold()).color(p.text)
+        text(t(&format!("theme_{}", def.key)))
+            .size(13)
+            .font(semibold())
+            .color(p.text)
     ]
     .spacing(6)
     .align_y(iced::Alignment::Center);
