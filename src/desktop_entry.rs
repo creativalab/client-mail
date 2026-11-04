@@ -35,6 +35,26 @@ pub fn integrate_appimage() {
         return;
     };
     let _ = install(&data, &appimage);
+    set_file_icon(&data, &appimage);
+}
+
+/// File managers show an AppImage with a generic icon. GNOME Files (and
+/// other GVfs-based ones) honour a per-file custom icon: point it at the
+/// installed owl so the downloaded file looks like Ferrowl after first run.
+fn set_file_icon(data: &Path, appimage: &Path) {
+    let icon = data.join("icons/hicolor/256x256/apps/ferrowl.png");
+    if !icon.is_file() {
+        return;
+    }
+    let uri = format!("file://{}", icon.display());
+    let _ = std::process::Command::new("gio")
+        .arg("set")
+        .arg(appimage)
+        .arg("metadata::custom-icon")
+        .arg(uri)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
 }
 
 fn install(data: &Path, appimage: &Path) -> std::io::Result<()> {
