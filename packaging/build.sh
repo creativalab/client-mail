@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Packages target/release/ferrowl for distribution.
-#   packaging/build.sh linux   → dist/Ferrowl-x86_64.AppImage, dist/ferrowl_<v>_amd64.deb, dist/ferrowl-linux-x86_64.tar.gz
+#   packaging/build.sh linux   → dist/Ferrowl-x86_64.AppImage, dist/ferrowl_<v>_amd64.deb (+ ferrowl_amd64.deb), dist/ferrowl-linux-x86_64.tar.gz
 #   packaging/build.sh macos   → dist/Ferrowl-macos-arm64.dmg (Ferrowl.app inside), dist/ferrowl-macos-arm64.tar.gz
 #   packaging/build.sh windows → dist/ferrowl-windows-x86_64.zip
 set -euo pipefail
@@ -37,6 +37,9 @@ linux)
 
   # Debian/Ubuntu package (installs the menu entry and icons system-wide).
   cargo deb --no-build --no-strip --output dist/ >/dev/null
+  # Same package under a fixed name, so the website can link
+  # releases/latest/download/ferrowl_amd64.deb without knowing the version.
+  cp dist/ferrowl_*_amd64.deb dist/ferrowl_amd64.deb
   ;;
 macos)
   APP=dist/Ferrowl.app
