@@ -652,6 +652,9 @@ pub enum Message {
     },
     /// The IDLE connection saw a change in the inbox (account generation).
     Push(u64),
+    /// New unread mail in another account's inbox: (account address,
+    /// (sender, subject) of each message).
+    OtherMail(String, Vec<(String, String)>),
     /// Inbox checked after a push while another folder is open.
     PushChecked(Res<(Vec<Header>, u32)>),
     ToggleNotifications(bool),
@@ -1117,7 +1120,23 @@ impl App {
                 account: account.clone(),
                 folder: inbox.name.clone(),
                 generation: self.generation,
+                other: false,
             }));
+        }
+        // The other accounts' inboxes too, so their new mail is notified
+        // without switching to them.
+        if self.config.ui.notifications {
+            for (i, account) in self.config.accounts.iter().enumerate() {
+                if i == self.config.active || account.is_pop3() {
+                    continue;
+                }
+                subs.push(crate::push::subscription(crate::push::Watch {
+                    account: account.clone(),
+                    folder: "INBOX".into(),
+                    generation: 0,
+                    other: true,
+                }));
+            }
         }
         Subscription::batch(subs)
     }
@@ -2313,6 +2332,31 @@ impl App {
                 Task::batch([notify, self.refresh_unseen()])
             }
             Message::PushChecked(Err(_)) => Task::none(),
+            Message::OtherMail(account, mails) => {
+                if !self.config.ui.notifications {
+                    return Task::none();
+                }
+                let (summary, body) = match mails.as_slice() {
+                    [(from, subject)] => (format!("{from} · {account}"), subject.clone()),
+                    many => (
+                        format!(
+                            "{} · {account}",
+                            tf("notif_many", &[("n", &many.len().to_string())])
+                        ),
+                        many.iter()
+                            .take(3)
+                            .map(|(from, subject)| format!("{from} — {subject}"))
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    ),
+                };
+                Task::perform(
+                    async move {
+                        let _ = tokio::task::spawn_blocking(move || crate::push::notify(summary, body)).await;
+                    },
+                    |_| Message::Noop,
+                )
+            }
             Message::PgpGenerate => {
                 let Some(a) = self.config.account().cloned() else {
                     return Task::none();
@@ -3031,8 +3075,21 @@ impl App {
             }
             Message::BodyAction(action) => {
                 // Read-only text: selection and copy allowed, edits not.
-                if !action.is_edit() {
-                    self.body.perform(action);
+                if action.is_edit() {
+                    return Task::none();
+                }
+                let click = matches!(action, text_editor::Action::Click(_));
+                self.body.perform(action);
+                // A click on a link opens it.
+                if click {
+                    let at = self.body.cursor().position;
+                    if let Some(url) = self
+                        .body
+                        .line(at.line)
+                        .and_then(|l| crate::linkify::at(&l.text, at.column))
+                    {
+                        return self.update(Message::OpenLink(url));
+                    }
                 }
                 Task::none()
             }
@@ -3927,6 +3984,36 @@ impl App {
                 Task::batch([copy, self.toast(t("copied"), false)])
             }
             Message::DevScreenshot => {
+                // Development: show the selected message with this plain-text
+                // body without a server (FERROWL_DEV_BODY, "\n" for new lines).
+                if let (Ok(body), Some(uid), None) = (
+                    std::env::var("FERROWL_DEV_BODY"),
+                    self.selected,
+                    self.message.as_ref(),
+                ) && let Some(h) = self.headers.iter().find(|h| h.uid == uid).cloned()
+                {
+                    let msg = FullMessage {
+                        uid,
+                        from: h.from.clone(),
+                        from_address: String::new(),
+                        to: String::new(),
+                        cc: String::new(),
+                        to_addrs: Vec::new(),
+                        cc_addrs: Vec::new(),
+                        subject: h.subject.clone(),
+                        timestamp: h.timestamp,
+                        message_id: None,
+                        references: Vec::new(),
+                        body: body.replace("\\n", "\n"),
+                        html: None,
+                        inline: HashMap::new(),
+                        attachments: Vec::new(),
+                        dkim_pass: false,
+                        pgp: None,
+                        calendar: None,
+                    };
+                    return self.update(Message::Loaded(Ok(msg)));
+                }
                 // Open the first message so the reader pane is populated.
                 if std::env::var_os("FERROWL_DEV_CONFIRM").is_some() && self.selected.is_some() {
                     self.confirm_delete = true;

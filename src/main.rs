@@ -5,6 +5,7 @@ mod app;
 #[cfg(target_os = "linux")]
 mod desktop_entry;
 mod html_view;
+mod linkify;
 mod preview;
 mod print;
 mod push;

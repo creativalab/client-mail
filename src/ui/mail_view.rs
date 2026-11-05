@@ -1409,6 +1409,10 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         html_body(app, p)
     } else {
         text_editor(&app.body)
+            .highlight_with::<crate::linkify::Highlighter>(
+                crate::linkify::Settings(p.accent_text),
+                crate::linkify::format,
+            )
             .on_action(Message::BodyAction)
             .size(15)
             .line_height(1.65)
