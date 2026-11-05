@@ -21,6 +21,10 @@ pub struct Watch {
     pub account: Account,
     pub folder: String,
     pub generation: u64,
+    /// An account other than the one in use: new mail is looked up here and
+    /// reported with [`Message::OtherMail`] (for a desktop notification)
+    /// instead of [`Message::Push`].
+    pub other: bool,
 }
 
 impl Hash for Watch {
@@ -30,6 +34,7 @@ impl Hash for Watch {
         self.account.imap_port.hash(state);
         self.folder.hash(state);
         self.generation.hash(state);
+        self.other.hash(state);
     }
 }
 
@@ -64,17 +69,65 @@ fn stream(watch: &Watch) -> impl Stream<Item = Message> + use<> {
                 }
             };
             backoff = 15;
+            // Other accounts: the highest UID already seen, so only mail
+            // arrived after this point is reported.
+            let mut seen_max = 0;
+            if watch.other {
+                let folder = watch.folder.clone();
+                match tokio::task::spawn_blocking(move || {
+                    let r = session
+                        .select(&folder)
+                        .map(|m| m.uid_next.unwrap_or(1).saturating_sub(1));
+                    (session, r)
+                })
+                .await
+                {
+                    Ok((s, Ok(max))) => {
+                        session = s;
+                        seen_max = max;
+                    }
+                    _ => continue,
+                }
+            }
             loop {
                 let folder = watch.folder.clone();
+                let other = watch.other;
                 let waited = tokio::task::spawn_blocking(move || {
-                    let r = mail::idle_wait(&mut session, &folder, IDLE_TIMEOUT);
+                    let r = mail::idle_wait(&mut session, &folder, IDLE_TIMEOUT).and_then(|changed| {
+                        if !(changed && other) {
+                            return Ok((changed, Vec::new()));
+                        }
+                        let new = match mail::fetch_delta(&mut session, &folder, seen_max, seen_max + 1)? {
+                            Some(d) => d.new,
+                            // More new mail than a page: the newest page.
+                            None => mail::fetch_headers(&mut session, &folder)?.headers,
+                        };
+                        Ok((changed, new))
+                    });
                     (session, r)
                 })
                 .await;
                 match waited {
-                    Ok((s, Ok(changed))) => {
+                    Ok((s, Ok((changed, new)))) => {
                         session = s;
-                        if changed && out.send(Message::Push(watch.generation)).await.is_err() {
+                        if !changed {
+                            continue;
+                        }
+                        let msg = if watch.other {
+                            let fresh: Vec<(String, String)> = new
+                                .iter()
+                                .filter(|h| h.uid > seen_max && !h.seen)
+                                .map(|h| (h.from.clone(), h.subject.clone()))
+                                .collect();
+                            seen_max = new.iter().map(|h| h.uid).max().unwrap_or(0).max(seen_max);
+                            if fresh.is_empty() {
+                                continue;
+                            }
+                            Message::OtherMail(watch.account.email.clone(), fresh)
+                        } else {
+                            Message::Push(watch.generation)
+                        };
+                        if out.send(msg).await.is_err() {
                             return;
                         }
                     }
