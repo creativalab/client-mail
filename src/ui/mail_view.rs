@@ -832,9 +832,23 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         // the chosen order.
         let rows: Vec<_> = rows_now.into_iter().skip(from).take(size).collect();
         let threaded = app.config.ui.threaded;
+        // Room for text in a row (padding and scrollbar off), so a wider
+        // list shows longer senders, subjects and previews.
+        let row_px = if wide {
+            app.window_width - 240.0
+        } else {
+            app.list_width()
+        } - 52.0;
         let mut col = Column::new();
         for (h, uids, unread) in rows {
             let count = uids.len();
+            // Sender: the fixed column of the wide list, otherwise what the
+            // date, star and count chip leave.
+            let sender_px = if wide {
+                230.0
+            } else {
+                row_px - 46.0 - 110.0 - if count > 1 { 32.0 } else { 0.0 }
+            };
             let checked = uids.iter().all(|u| app.checked.contains(u));
             // An expanded conversation shows its messages below the row and
             // highlights the open one there; collapsed, the row stands for it.
@@ -867,11 +881,20 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                 ..Default::default()
             })
             .on_press(Message::Check(uids.clone(), !checked));
+            // Leading 16 px column: a conversation's expand arrow, otherwise
+            // the unread dot; the checkbox then sits right before the sender.
+            let dot = || -> Element<'a, Message> {
+                container(container(space().width(8).height(8)).style(chip_box(
+                    if unread { p.accent } else { Color::TRANSPARENT },
+                    p.accent,
+                    4.0,
+                )))
+                .center(16)
+                .into()
+            };
             let mut top: Vec<Element<'a, Message>> = Vec::new();
-            if threaded {
-                // Expand/collapse arrow of a conversation; same room kept on
-                // single messages so the rows line up.
-                top.push(if count > 1 {
+            {
+                top.push(if threaded && count > 1 {
                     tooltip(
                         button(icon(
                             if expanded {
@@ -895,25 +918,21 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                         p,
                     )
                 } else {
-                    space().width(16).into()
+                    dot()
                 });
             }
             top.extend([
                 check.into(),
-                container(space().width(8).height(8))
-                    .style(chip_box(
-                        if unread { p.accent } else { Color::TRANSPARENT },
-                        p.accent,
-                        4.0,
-                    ))
-                    .into(),
-                text(trunc(&h.from, 32))
-                    .wrapping(Wrapping::None)
-                    .size(14)
-                    .font(if unread { INTER_BOLD } else { medium() })
-                    .color(p.text)
-                    .width(if wide { iced::Length::Fixed(230.0) } else { Fill })
-                    .into(),
+                container(
+                    text(trunc(&h.from, fit(sender_px, 14.0)))
+                        .wrapping(Wrapping::None)
+                        .size(14)
+                        .font(if unread { INTER_BOLD } else { medium() })
+                        .color(p.text),
+                )
+                .width(if wide { iced::Length::Fixed(230.0) } else { Fill })
+                .clip(true)
+                .into(),
             ]);
             // Wide list: subject and preview on the same line as the sender.
             if wide {
@@ -1026,13 +1045,13 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             if !wide {
                 lines = lines.push(
                     container(
-                        text(trunc(&h.subject, 44))
+                        text(trunc(&h.subject, fit(row_px - 46.0, 14.0)))
                             .size(14)
                             .font(if unread { semibold() } else { INTER })
                             .color(p.text)
                             .wrapping(Wrapping::None),
                     )
-                    .padding(indent(38.0))
+                    .padding(indent(46.0))
                     .width(Fill)
                     .clip(true),
                 );
@@ -1040,12 +1059,12 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             if !wide && preview && !h.preview.is_empty() {
                 lines = lines.push(
                     container(
-                        text(trunc(&h.preview, 52))
+                        text(trunc(&h.preview, fit(row_px - 46.0, 13.0)))
                             .size(13)
                             .color(p.muted)
                             .wrapping(Wrapping::None),
                     )
-                    .padding(indent(38.0))
+                    .padding(indent(46.0))
                     .width(Fill)
                     .clip(true),
                 );
@@ -1639,6 +1658,12 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     container(col).width(Fill).height(Fill).style(panel(p.bg)).into()
 }
 
+/// How many characters of text at `size` px fit in `px` (Inter averages
+/// about half an em per character; the text is also clipped).
+fn fit(px: f32, size: f32) -> usize {
+    (px / (size * 0.5)).max(8.0) as usize
+}
+
 /// One message of an expanded conversation in the list: a compact,
 /// indented row (unread dot, sender, preview, date); a click opens it.
 fn thread_row<'a>(
@@ -1658,13 +1683,20 @@ fn thread_row<'a>(
                 3.0,
             ))
             .into(),
-        text(trunc(&m.from, 28))
-            .size(13)
-            .font(if unread { semibold() } else { INTER })
-            .color(p.text)
-            .wrapping(Wrapping::None)
-            .width(if wide { Length::Fixed(200.0) } else { Fill })
-            .into(),
+        text(trunc(
+            &m.from,
+            if wide {
+                28
+            } else {
+                fit(app.list_width() - 160.0, 13.0)
+            },
+        ))
+        .size(13)
+        .font(if unread { semibold() } else { INTER })
+        .color(p.text)
+        .wrapping(Wrapping::None)
+        .width(if wide { Length::Fixed(200.0) } else { Fill })
+        .into(),
     ];
     if wide {
         line.push(
@@ -1693,7 +1725,7 @@ fn thread_row<'a>(
         .width(Fill)
         .padding({
             // Indented past the row's arrow and checkbox (mirrored in RTL).
-            let (start, end) = (64.0, 20.0);
+            let (start, end) = (52.0, 20.0);
             let rtl = i18n::is_rtl();
             Padding {
                 top: pad * 0.6,
