@@ -1408,7 +1408,7 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     let body: Element<'a, Message> = if show_html {
         html_body(app, p)
     } else {
-        text_editor(&app.body)
+        let shown = text_editor(&app.body)
             .highlight_with::<crate::linkify::Highlighter>(
                 crate::linkify::Settings(p.accent_text),
                 crate::linkify::format,
@@ -1423,7 +1423,24 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                 placeholder: p.muted,
                 value: p.text2,
                 selection: mix(p.accent, p.bg, 0.7),
-            })
+            });
+        // An invisible copy laid out the same way under the shown text:
+        // the app moves its cursor to the mouse to find links under it,
+        // without touching the user's selection.
+        let probe = text_editor(&app.body_probe)
+            .size(15)
+            .line_height(1.65)
+            .padding(0)
+            .style(|_, _| text_editor::Style {
+                background: Background::Color(Color::TRANSPARENT),
+                border: Border::default(),
+                placeholder: Color::TRANSPARENT,
+                value: Color::TRANSPARENT,
+                selection: Color::TRANSPARENT,
+            });
+        mouse_area(super::hand::hand(stack![probe, shown], app.body_link_hover))
+            .on_move(Message::BodyHover)
+            .on_exit(Message::BodyLeave)
             .into()
     };
 

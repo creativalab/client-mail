@@ -3,6 +3,7 @@
 pub mod calendar;
 pub mod compose;
 pub mod contacts;
+pub mod hand;
 pub mod invite;
 pub mod mail_view;
 pub mod settings;
