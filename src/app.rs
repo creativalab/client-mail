@@ -570,6 +570,9 @@ pub struct App {
     pub confirm_delete: bool,
     /// Messages checked in the list (uids of the open folder).
     pub checked: std::collections::BTreeSet<u32>,
+    /// Conversations opened in the list: a conversation is expanded when
+    /// any of its messages is here (opening a message adds it).
+    pub open_threads: std::collections::BTreeSet<u32>,
     /// The delete dialog is for the checked messages, not the open one.
     pub bulk_delete: bool,
     pub appearance_open: bool,
@@ -715,6 +718,8 @@ pub enum Message {
     BulkSeen(Res<()>),
     /// Conversations (true) or one row per message (false).
     SetThreaded(bool),
+    /// Expands or collapses a conversation in the list (its messages).
+    ToggleThread(Vec<u32>),
     Open(u32),
     Loaded(Res<FullMessage>),
     ToggleHtml,
@@ -932,6 +937,7 @@ impl App {
             loading_message: false,
             confirm_delete: false,
             checked: Default::default(),
+            open_threads: Default::default(),
             bulk_delete: false,
             appearance_open: false,
             compose: None,
@@ -1942,6 +1948,8 @@ impl App {
             return Task::none();
         };
         self.selected = Some(uid);
+        // Its conversation opens in the list, showing its messages.
+        self.open_threads.insert(uid);
         self.message = None;
         self.html_render = None;
         self.hover_link = None;
@@ -2199,6 +2207,7 @@ impl App {
                 self.page = 0;
                 self.pane = Pane::Mail;
                 self.checked.clear();
+                self.open_threads.clear();
                 self.appearance_open = false;
                 self.screen = Screen::Mail;
                 if self.current_folder.as_deref() == Some(&name) {
@@ -2483,6 +2492,16 @@ impl App {
             Message::Open(uid) => {
                 self.anchor = Some(uid);
                 self.open(uid)
+            }
+            Message::ToggleThread(uids) => {
+                if uids.iter().any(|u| self.open_threads.contains(u)) {
+                    for u in &uids {
+                        self.open_threads.remove(u);
+                    }
+                } else if let Some(&u) = uids.first() {
+                    self.open_threads.insert(u);
+                }
+                Task::none()
             }
             Message::ToggleStar(uids, on) => {
                 let Some(folder) = self.current_folder.clone() else {

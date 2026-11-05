@@ -831,13 +831,19 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         // One row per conversation (its newest message) or per message, in
         // the chosen order.
         let rows: Vec<_> = rows_now.into_iter().skip(from).take(size).collect();
-        let open_thread = app.selected.map(|uid| app.conversation(uid)).unwrap_or_default();
+        let threaded = app.config.ui.threaded;
         let mut col = Column::new();
         for (h, uids, unread) in rows {
             let count = uids.len();
             let checked = uids.iter().all(|u| app.checked.contains(u));
-            let selected =
-                app.selected == Some(h.uid) || (count > 1 && open_thread.iter().any(|m| m.uid == h.uid));
+            // An expanded conversation shows its messages below the row and
+            // highlights the open one there; collapsed, the row stands for it.
+            let expanded = count > 1 && uids.iter().any(|u| app.open_threads.contains(u));
+            let selected = if expanded {
+                false
+            } else {
+                app.selected.is_some_and(|s| uids.contains(&s))
+            };
             let check = button(
                 container(if checked {
                     text("✓").size(11).color(p.on_accent)
@@ -861,7 +867,38 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                 ..Default::default()
             })
             .on_press(Message::Check(uids.clone(), !checked));
-            let mut top = vec![
+            let mut top: Vec<Element<'a, Message>> = Vec::new();
+            if threaded {
+                // Expand/collapse arrow of a conversation; same room kept on
+                // single messages so the rows line up.
+                top.push(if count > 1 {
+                    tooltip(
+                        button(icon(
+                            if expanded {
+                                icons::CHEVRON_DOWN
+                            } else if i18n::is_rtl() {
+                                icons::CHEVRON_LEFT
+                            } else {
+                                icons::CHEVRON_RIGHT
+                            },
+                            14.0,
+                            p.text2,
+                        ))
+                        .padding(1)
+                        .style(ghost(p, p.muted))
+                        .on_press(Message::ToggleThread(uids.clone())),
+                        if expanded {
+                            t("thread_collapse")
+                        } else {
+                            t("thread_expand")
+                        },
+                        p,
+                    )
+                } else {
+                    space().width(16).into()
+                });
+            }
+            top.extend([
                 check.into(),
                 container(space().width(8).height(8))
                     .style(chip_box(
@@ -877,7 +914,7 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                     .color(p.text)
                     .width(if wide { iced::Length::Fixed(230.0) } else { Fill })
                     .into(),
-            ];
+            ]);
             // Wide list: subject and preview on the same line as the sender.
             if wide {
                 let mut line = vec![
@@ -1047,6 +1084,15 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
                 .on_exit(Message::RowExit(uid))
                 .on_right_press(Message::OpenMenu(uid));
             col = col.push(item).push(hline(p.line_soft));
+            if expanded {
+                // The conversation's messages, newest first, indented under
+                // its row.
+                for m in app.conversation(h.uid).into_iter().rev() {
+                    col = col
+                        .push(thread_row(app, m, wide, pad, p))
+                        .push(hline(p.line_soft));
+                }
+            }
         }
         scrollable(col)
             .id(LIST_ID)
@@ -1386,9 +1432,6 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     ]
     .spacing(24)
     .max_width(820);
-    if let Some(strip) = conversation_strip(app, msg.uid, p) {
-        content = content.push(strip);
-    }
     content = content.push(sender);
     if let Some(card) = super::invite::view(app, msg.uid, p) {
         content = content.push(card);
@@ -1575,77 +1618,101 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     container(col).width(Fill).height(Fill).style(panel(p.bg)).into()
 }
 
-/// The HTML message as rendered tiles, with link hover/click.
-/// The other messages of the open conversation, oldest first: one compact
-/// row each (sender, date, preview); the open one is highlighted.
-fn conversation_strip<'a>(app: &'a App, open: u32, p: Palette) -> Option<Element<'a, Message>> {
-    let thread = app.conversation(open);
-    if thread.len() < 2 {
-        return None;
-    }
-    let mut list = Column::new().spacing(2);
-    list = list.push(
-        text(tf("conversation_count", &[("n", &thread.len().to_string())]))
-            .size(12)
-            .font(semibold())
-            .color(p.muted),
-    );
-    for h in thread {
-        let current = h.uid == open;
-        let unread = !h.seen;
-        let row = dir_row(vec![
-            text(trunc(&h.from, 28))
-                .size(13)
-                .font(if unread || current { semibold() } else { INTER })
-                .color(p.text)
-                .wrapping(Wrapping::None)
-                .width(Length::Fixed(200.0))
-                .into(),
-            text(trunc(&h.preview, 60))
-                .size(13)
-                .color(p.muted)
-                .wrapping(Wrapping::None)
-                .width(Fill)
-                .into(),
-            text(short_date(h.timestamp))
-                .font(MONO)
-                .size(12)
-                .color(p.muted)
-                .into(),
-        ])
-        .spacing(12)
-        .align_y(Alignment::Center);
-        list = list.push(
-            button(row)
-                .width(Fill)
-                .padding([6, 10])
-                .style(move |_, st| button::Style {
-                    background: Some(Background::Color(if current {
-                        p.soft
-                    } else if matches!(st, button::Status::Hovered) {
-                        p.chip
-                    } else {
-                        Color::TRANSPARENT
-                    })),
-                    text_color: p.text,
-                    border: Border {
-                        radius: radius(8.0),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                })
-                .on_press_maybe((!current).then_some(Message::Open(h.uid))),
+/// One message of an expanded conversation in the list: a compact,
+/// indented row (unread dot, sender, preview, date); a click opens it.
+fn thread_row<'a>(
+    app: &'a App,
+    m: &'a ferrowl_core::mail::Header,
+    wide: bool,
+    pad: f32,
+    p: Palette,
+) -> Element<'a, Message> {
+    let current = app.selected == Some(m.uid);
+    let unread = !m.seen;
+    let mut line: Vec<Element<'a, Message>> = vec![
+        container(space().width(6).height(6))
+            .style(chip_box(
+                if unread { p.accent } else { Color::TRANSPARENT },
+                p.accent,
+                3.0,
+            ))
+            .into(),
+        text(trunc(&m.from, 28))
+            .size(13)
+            .font(if unread { semibold() } else { INTER })
+            .color(p.text)
+            .wrapping(Wrapping::None)
+            .width(if wide { Length::Fixed(200.0) } else { Fill })
+            .into(),
+    ];
+    if wide {
+        line.push(
+            container(
+                text(m.preview.as_str())
+                    .size(13)
+                    .color(p.muted)
+                    .wrapping(Wrapping::None),
+            )
+            .width(Fill)
+            .clip(true)
+            .into(),
         );
     }
-    Some(
-        container(list)
-            .padding(10)
-            .width(Fill)
-            .style(card(p, p.line, 12.0))
+    if m.has_attachment {
+        line.push(icon(icons::CLIP, 13.0, p.muted));
+    }
+    line.push(
+        text(short_date(m.timestamp))
+            .font(MONO)
+            .size(12)
+            .color(p.muted)
             .into(),
-    )
+    );
+    let row_btn = button(dir_row(line).spacing(8).align_y(Alignment::Center))
+        .width(Fill)
+        .padding({
+            // Indented past the row's arrow and checkbox (mirrored in RTL).
+            let (start, end) = (64.0, 20.0);
+            let rtl = i18n::is_rtl();
+            Padding {
+                top: pad * 0.6,
+                bottom: pad * 0.6,
+                left: if rtl { end } else { start },
+                right: if rtl { start } else { end },
+            }
+        })
+        .style(move |_, st| button::Style {
+            background: Some(Background::Color(if current {
+                p.soft
+            } else if matches!(st, button::Status::Hovered) {
+                mix(p.bg, p.soft, 0.5)
+            } else {
+                mix(p.bg, p.chip, 0.4)
+            })),
+            text_color: p.text,
+            ..Default::default()
+        })
+        .on_press(Message::Open(m.uid));
+    let item: Element<'a, Message> = if current {
+        let bar = container(space().width(3).height(Fill)).style(panel(p.accent));
+        let bar = if i18n::is_rtl() {
+            container(bar).align_x(Horizontal::Right).width(Fill).height(Fill)
+        } else {
+            container(bar).height(Fill)
+        };
+        stack![row_btn, bar].into()
+    } else {
+        row_btn.into()
+    };
+    let uid = m.uid;
+    mouse_area(item)
+        .on_enter(Message::RowEnter(uid))
+        .on_exit(Message::RowExit(uid))
+        .on_right_press(Message::OpenMenu(uid))
+        .into()
 }
 
+/// The HTML message as rendered tiles, with link hover/click.
 fn html_body<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     let Some(r) = &app.html_render else {
         return container(text(t("html_loading")).size(14).color(p.muted))
