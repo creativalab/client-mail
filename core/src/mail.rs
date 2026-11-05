@@ -479,6 +479,22 @@ pub fn idle_wait(session: &mut ImapSession, folder: &str, timeout: Duration) -> 
 
 pub fn list_folders(session: &mut ImapSession) -> Result<Vec<Folder>> {
     let names = session.list(Some(""), Some("*"))?;
+    let has_attr = |n: &imap::types::Name, attr: &str| {
+        n.attributes()
+            .iter()
+            .any(|a| matches!(a, imap::types::NameAttribute::Custom(c) if c.eq_ignore_ascii_case(attr)))
+    };
+    // No \Archive folder but an \All one (Gmail's "All Mail"): archiving
+    // there is how Gmail archives (the message only loses its Inbox label),
+    // so it is the Archive, ahead of any folder merely named "Archive".
+    let all_mail = (!names.iter().any(|n| has_attr(n, "\\Archive")))
+        .then(|| {
+            names
+                .iter()
+                .find(|n| has_attr(n, "\\All"))
+                .map(|n| n.name().to_string())
+        })
+        .flatten();
     let mut folders: Vec<Folder> = names
         .iter()
         .map(|n| {
@@ -488,7 +504,11 @@ pub fn list_folders(session: &mut ImapSession) -> Result<Vec<Folder>> {
                 Some(d) if !d.is_empty() => decoded.split(d.as_str()).map(str::to_string).collect(),
                 _ => vec![decoded],
             };
-            let kind = classify(n.name(), &path, n.attributes());
+            let kind = match classify(n.name(), &path, n.attributes()) {
+                _ if all_mail.as_deref() == Some(n.name()) => FolderKind::Archive,
+                FolderKind::Archive if all_mail.is_some() => FolderKind::Other,
+                kind => kind,
+            };
             Folder {
                 name: n.name().to_string(),
                 selectable: !n.attributes().contains(&imap::types::NameAttribute::NoSelect),
