@@ -108,8 +108,15 @@ class MailRepository @Inject constructor(
      * any, becomes active. Returns false when no account is left.
      */
     suspend fun removeAccount(email: String): Boolean {
-        val removed = accounts.accounts.first().firstOrNull { it.email.equals(email, ignoreCase = true) } ?: return true
+        val all = accounts.accounts.first()
+        val removed = all.firstOrNull { it.email.equals(email, ignoreCase = true) } ?: return true
         removed.oauth?.let { oauthForget(it, removed.email) }
+        // Cached mail, search index, contacts and calendars of the account
+        // (shared when the same mailbox is added twice: kept then).
+        val sharesCache = all.any {
+            it !== removed && it.username == removed.username && it.incomingHost == removed.incomingHost
+        }
+        if (!sharesCache) withContext(Dispatchers.IO) { engine.forgetAccount(removed) }
         val next = accounts.remove(removed.email)
         runCatching { push.accountChanged() }
         if (next == null) {

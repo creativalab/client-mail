@@ -1043,6 +1043,13 @@ impl Engine {
         Ok(out)
     }
 
+    /// Deletes what the device keeps for a removed account (cached mail,
+    /// search index, contacts, calendars, sender rules).
+    pub fn forget_account(&self, account: Account) {
+        let account: config::Account = account.into();
+        ferrowl_core::cache::forget_account(&account);
+    }
+
     /// Messages already stored on the device, instantly (before `headers`).
     /// The inbox as saved on the device for `account`, before connecting:
     /// the app shows it at once while the connection is made.
