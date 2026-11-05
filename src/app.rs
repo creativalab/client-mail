@@ -539,6 +539,10 @@ pub struct App {
     pub selected: Option<u32>,
     pub message: Option<FullMessage>,
     pub body: text_editor::Content,
+    /// Hidden copy of `body` used to find the link under the mouse.
+    pub body_probe: text_editor::Content,
+    /// The mouse is over a link of the plain-text body (hand cursor).
+    pub body_link_hover: bool,
     /// The open message's HTML, rendered into image tiles.
     pub html_render: Option<crate::html_view::Rendered>,
     pub html_rendering: bool,
@@ -759,6 +763,9 @@ pub enum Message {
     MenuAction(u32, CtxAction),
     OpenLink(String),
     BodyAction(text_editor::Action),
+    /// The mouse moved over the plain-text body (position in it).
+    BodyHover(iced::Point),
+    BodyLeave,
     // message actions
     Reply,
     ReplyAll,
@@ -919,6 +926,8 @@ impl App {
             selected: None,
             message: None,
             body: text_editor::Content::new(),
+            body_probe: text_editor::Content::new(),
+            body_link_hover: false,
             html_render: None,
             html_rendering: false,
             html_force_remote: None,
@@ -2776,6 +2785,8 @@ impl App {
                     *n = n.saturating_sub(1);
                 }
                 self.body = text_editor::Content::with_text(&msg.body);
+                self.body_probe = text_editor::Content::with_text(&msg.body);
+                self.body_link_hover = false;
                 self.invite = self.invite_card(&msg);
                 self.message = Some(msg);
                 self.html_render = None;
@@ -3071,6 +3082,21 @@ impl App {
                 if let Err(e) = open::that_detached(&url) {
                     return self.toast(e.to_string(), true);
                 }
+                Task::none()
+            }
+            Message::BodyHover(point) => {
+                // Hand cursor over links: place the hidden copy's cursor
+                // under the mouse and look for a link there.
+                self.body_probe.perform(text_editor::Action::Click(point));
+                let at = self.body_probe.cursor().position;
+                self.body_link_hover = self
+                    .body_probe
+                    .line(at.line)
+                    .is_some_and(|l| crate::linkify::at(&l.text, at.column).is_some());
+                Task::none()
+            }
+            Message::BodyLeave => {
+                self.body_link_hover = false;
                 Task::none()
             }
             Message::BodyAction(action) => {
