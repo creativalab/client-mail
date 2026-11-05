@@ -3399,6 +3399,16 @@ impl App {
                 if let Some(provider) = removed.oauth {
                     ferrowl_core::oauth::forget(provider, &removed.email);
                 }
+                // Same mailbox added twice shares the cache: keep it then.
+                let key = ferrowl_core::cache::account_key(&removed);
+                if !self
+                    .config
+                    .accounts
+                    .iter()
+                    .any(|a| ferrowl_core::cache::account_key(a) == key)
+                {
+                    ferrowl_core::cache::forget_account(&removed);
+                }
                 let was_active = i == self.config.active;
                 if self.config.active > i || self.config.active >= self.config.accounts.len() {
                     self.config.active = self.config.active.saturating_sub(1);

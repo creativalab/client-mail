@@ -393,6 +393,31 @@ impl Cache {
         Ok(())
     }
 
+    /// Deletes everything stored for an account: messages (and their search
+    /// index), folders, address book, contacts, calendars, events, sender
+    /// rules and invitation replies. Used when the account is removed.
+    pub fn forget_account(&self, account: &str) -> Result<()> {
+        let mut conn = self.lock();
+        let tx = conn.transaction()?;
+        for table in [
+            "messages",
+            "folders",
+            "addresses",
+            "contacts",
+            "calendars",
+            "events",
+            "sender_rules",
+            "invite_replies",
+        ] {
+            tx.execute(
+                &format!("DELETE FROM {table} WHERE account = ?1"),
+                params![account],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// The most recent `limit` messages of a folder.
     pub fn headers(&self, account: &str, folder: &str, limit: u32) -> Result<Vec<Header>> {
         let conn = self.lock();
@@ -918,9 +943,38 @@ pub fn account_key(account: &crate::config::Account) -> String {
     format!("{}@{}", account.username, account.imap_host)
 }
 
+/// Deletes the cached data of a removed account from the device. The
+/// cache only holds copies of what is on the servers, so nothing is lost;
+/// a POP3 account's local mailbox (`local.sqlite`) is left alone.
+pub fn forget_account(account: &crate::config::Account) {
+    if let Some(cache) = get()
+        && let Err(e) = cache.forget_account(&account_key(account))
+    {
+        eprintln!("could not clear cached data of the removed account: {e:#}");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn forget_account_clears_only_that_account() {
+        let c = Cache::in_memory();
+        c.check_uidvalidity("a", "INBOX", 1).unwrap();
+        c.store_headers("a", "INBOX", &[h(1, "x", "secret", "hidden words")], "")
+            .unwrap();
+        c.store_headers("b", "INBOX", &[h(1, "y", "kept", "other words")], "")
+            .unwrap();
+        c.set_sender_rule("a", "spam@x.it", false).unwrap();
+        c.forget_account("a").unwrap();
+        assert!(c.headers("a", "INBOX", 10).unwrap().is_empty());
+        assert!(c.uidvalidity("a", "INBOX").unwrap().is_none());
+        assert!(c.sender_rules("a", false).unwrap().is_empty());
+        assert!(c.search("a", "INBOX", &["hidden".into()], 10).unwrap().is_empty());
+        assert_eq!(c.headers("b", "INBOX", 10).unwrap().len(), 1);
+        assert_eq!(c.search("b", "INBOX", &["other".into()], 10).unwrap().len(), 1);
+    }
 
     fn h(uid: u32, from: &str, subject: &str, text: &str) -> Header {
         Header {
