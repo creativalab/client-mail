@@ -606,7 +606,7 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     .style(chip_box(p.chip, p.text2, 9.0));
 
     // Toolbar: the select box (with its menu) and the actions on the
-    // checked messages, enabled once something is checked.
+    // checked messages (or the open one), enabled once there is one.
     let rows_now = app.list_rows();
     let all_checked = !rows_now.is_empty()
         && rows_now
@@ -666,12 +666,14 @@ fn message_list<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
         },
         ..Default::default()
     });
+    // The actions also work on the open message when nothing is checked.
+    let any_target = any_checked || app.selected.is_some();
     let act = |ic: &'static str, tip: &'static str, msg: Message| {
         tooltip(
-            button(icon(ic, 17.0, if any_checked { p.text2 } else { p.field }))
+            button(icon(ic, 17.0, if any_target { p.text2 } else { p.field }))
                 .padding([7, 8])
                 .style(ghost(p, p.text2))
-                .on_press_maybe(any_checked.then_some(msg)),
+                .on_press_maybe(any_target.then_some(msg)),
             tip,
             p,
         )
@@ -2323,7 +2325,7 @@ fn popup_menu<'a>(app: &'a App, kind: Popup, at: iced::Point, p: Palette) -> Ele
             }
         }
         Popup::Labels => {
-            let targets = app.label_targets();
+            let targets = app.targets();
             let has = |name: &str| {
                 !targets.is_empty()
                     && targets.iter().all(|u| {
