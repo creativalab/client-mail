@@ -404,16 +404,19 @@ class MailRepository @Inject constructor(
         changed(translate("bulk_moved").replace("{n}", uids.size.toString()))
     }
 
-    /** Moves several messages to the Trash, or deletes them for good when already there. */
-    suspend fun delete(folderId: String, uids: List<UInt>) {
+    /**
+     * Moves several messages to the Trash, or deletes them for good when
+     * already there; `quiet` when the screen already confirmed it (swipe).
+     */
+    suspend fun delete(folderId: String, uids: List<UInt>, quiet: Boolean = false) {
         ready()
         val n = uids.size.toString()
         if (deletesForever(folderId)) {
             engine.deleteForeverMany(folderId, uids)
-            changed(translate("bulk_deleted_forever").replace("{n}", n))
+            changed(if (quiet) "" else translate("bulk_deleted_forever").replace("{n}", n))
         } else {
             engine.moveMany(folderId, uids, folderOf(FolderKind.TRASH)!!.id)
-            changed(translate("bulk_trashed").replace("{n}", n))
+            changed(if (quiet) "" else translate("bulk_trashed").replace("{n}", n))
         }
     }
 

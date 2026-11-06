@@ -124,6 +124,8 @@ fun MessageScreen(
                 // Reply, reply all, forward: small, at the bottom left, on a
                 // raised pill that stands out over the message (as on iOS).
                 Surface(
+                    // A little away from the edge (on top of the button's own margin).
+                    modifier = Modifier.padding(start = 12.dp),
                     shape = RoundedCornerShape(50),
                     color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f),
                     tonalElevation = 3.dp,

@@ -32,6 +32,9 @@ final class MailRepository {
 
     private var connecting: Task<[Folder], Error>?
 
+    /// Another account is being connected (the screen shows it).
+    private(set) var switching: String?
+
     init(engine: Engine, notices: Notices, directory: URL) {
         self.engine = engine
         self.notices = notices
@@ -72,6 +75,8 @@ final class MailRepository {
     /// Makes another account the active one and connects it.
     func switchTo(_ email: String) async throws {
         guard let account = accounts.first(where: { $0.email.caseInsensitiveCompare(email) == .orderedSame }) else { return }
+        switching = account.email
+        defer { switching = nil }
         folders = try await engine.connect(account: account)
         activeEmail = account.email
         persist()
@@ -107,6 +112,8 @@ final class MailRepository {
             await Task.detached { engine.forgetAccount(account: removed) }.value
         }
         store.removeSecrets(of: removed.email)
+        Badge.forget(removed.email)
+        Badge.show()
         accounts.removeAll { $0.email == removed.email }
         let wasActive = removed.email == activeEmail
         if wasActive { activeEmail = accounts.first?.email }
@@ -258,16 +265,17 @@ final class MailRepository {
         changed(quiet ? "" : uids.count == 1 ? t("archived") : t("bulk_archived", ["n": "\(uids.count)"]))
     }
 
-    /// Moves to the Trash, or deletes for good when already there.
-    func delete(_ folderId: String, _ uids: [UInt32]) async throws {
+    /// Moves to the Trash, or deletes for good when already there; `quiet`
+    /// when the screen already confirmed it (swipe).
+    func delete(_ folderId: String, _ uids: [UInt32], quiet: Bool = false) async throws {
         try await ready()
         let n = "\(uids.count)"
         if deletesForever(folderId) {
             try await engine.deleteForeverMany(folderId: folderId, uids: uids)
-            changed(uids.count == 1 ? t("deleted_forever") : t("bulk_deleted_forever", ["n": n]))
+            changed(quiet ? "" : uids.count == 1 ? t("deleted_forever") : t("bulk_deleted_forever", ["n": n]))
         } else if let trash = folder(of: .trash) {
             try await engine.moveMany(folderId: folderId, uids: uids, targetId: trash.id)
-            changed(uids.count == 1 ? t("moved_to_trash") : t("bulk_trashed", ["n": n]))
+            changed(quiet ? "" : uids.count == 1 ? t("moved_to_trash") : t("bulk_trashed", ["n": n]))
         }
     }
 

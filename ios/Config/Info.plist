@@ -21,6 +21,8 @@
 		<string>ko</string>
 		<string>ar</string>
 	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>Ferrowl uses the camera to take photos to attach to your messages.</string>
 	<key>UIBackgroundModes</key>

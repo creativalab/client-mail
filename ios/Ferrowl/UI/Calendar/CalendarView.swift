@@ -72,6 +72,7 @@ struct CalendarView: View {
             .task(id: month) { await load() }
             .sheet(item: $editing, onDismiss: { Task { await load() } }) { edit in
                 EventEditView(url: edit.url, day: edit.day)
+                    .showsNotices()
             }
         }
     }

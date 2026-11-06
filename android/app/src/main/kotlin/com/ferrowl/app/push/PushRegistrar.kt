@@ -38,6 +38,9 @@ class PushRegistrar @Inject constructor(
 ) {
     private val lock = Mutex()
 
+    /** Whether the first-launch question is still to be asked. */
+    suspend fun needsAsking(): Boolean = !store.current().asked
+
     /** Turns notifications on. Throws with a message to show if it fails. */
     suspend fun enable() {
         val all = accounts.accounts.first()
@@ -73,7 +76,8 @@ class PushRegistrar @Inject constructor(
 
     /** Brings the registration up to date (app start, accounts changed). */
     suspend fun sync(): Unit = lock.withLock {
-        if (!store.current().enabled) return
+        // Nothing goes to the server before the user said yes.
+        if (!store.current().enabled || !store.current().asked) return
         val wanted = watched(accounts.accounts.first())
         val fcmToken = FirebaseMessaging.getInstance().token.await()
         var s = store.current()

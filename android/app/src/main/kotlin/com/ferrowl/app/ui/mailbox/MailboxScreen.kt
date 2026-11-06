@@ -103,6 +103,17 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.TextRange
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Surface
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 
 /**
  * The mail list of one folder, with the folder list in a side drawer,
@@ -123,8 +134,36 @@ fun MailboxScreen(
     vm: MailboxViewModel = hiltViewModel(),
 ) {
     val s by vm.state.collectAsStateWithLifecycle()
+    // A tapped new-mail notification opens its message (after switching account).
+    val openRequest by vm.openRequests.collectAsStateWithLifecycle()
+    LaunchedEffect(openRequest, s.active) {
+        if (openRequest == null) return@LaunchedEffect
+        val (folder, uid) = vm.takeOpenRequest() ?: return@LaunchedEffect
+        if (uid != null) onOpen(folder, uid, false)
+    }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    // Instant notifications: what they send to the server is explained once,
+    // with the first account, before anything is sent; Android 13+ then asks
+    // for the permission to show them.
+    val askPush by vm.askPush.collectAsStateWithLifecycle()
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { vm.enablePush() }
+    val context = LocalContext.current
+    if (askPush) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text(stringResource(R.string.push_title)) },
+            text = { Text(stringResource(R.string.push_desc)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    if (needsPermission) permission.launch(Manifest.permission.POST_NOTIFICATIONS) else vm.enablePush()
+                }) { Text(stringResource(R.string.push_enable)) }
+            },
+            dismissButton = { TextButton(onClick = vm::declinePush) { Text(stringResource(R.string.pro_not_now)) } },
+        )
+    }
     var searchOpen by remember { mutableStateOf(false) }
     // The search text with its cursor: a command tapped below puts it at the end.
     var searchField by remember { mutableStateOf(TextFieldValue("")) }
@@ -135,6 +174,20 @@ fun MailboxScreen(
     // A failed refresh is reported at the top, like every notice.
     ReportError(s.error, vm::errorShown)
     if (s.confirmDelete) ConfirmBulkDelete(vm)
+    // Switching account: connecting can take a few seconds.
+    s.switching?.let { email ->
+        // A dialog: always above the screen and its drawer; it cannot be dismissed.
+        Dialog(onDismissRequest = {}, properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)) {
+            Surface(shape = RoundedCornerShape(18.dp), tonalElevation = 6.dp, shadowElevation = 6.dp) {
+                Column(Modifier.padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator()
+                    Spacer(Modifier.height(12.dp))
+                    Text(stringResource(R.string.status_connecting), style = MaterialTheme.typography.titleMedium)
+                    Text(email, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
     if (s.showPro) ProOffer(s.proPrice, vm)
     LaunchedEffect(s.openAddAccount) {
         if (s.openAddAccount) {
@@ -329,7 +382,7 @@ fun MailboxScreen(
                                 // Swipe a row: towards the start (left) archives it,
                                 // towards the end (right) replies to it.
                                 // Half the row: a slanted touch while scrolling the list
-                                // must not archive or reply.
+                                // must not delete or reply.
                                 val swipe = rememberSwipeToDismissBoxState(positionalThreshold = { width -> width * 0.5f })
                                 val swipeScope = rememberCoroutineScope()
                                 // How far the finger really moved: a quick flick
@@ -353,7 +406,8 @@ fun MailboxScreen(
                                             }
                                         },
                                     enableDismissFromStartToEnd = !s.selecting,
-                                    enableDismissFromEndToStart = !s.selecting,
+                                    // Delete; not in the Trash, where it would be for good without asking.
+                                    enableDismissFromEndToStart = !s.selecting && !vm.deletesForever,
                                     backgroundContent = { SwipeBackground(swipe.dismissDirection) },
                                     onDismiss = { value ->
                                         // Less than half the row: put it back, do nothing.
@@ -362,7 +416,7 @@ fun MailboxScreen(
                                             return@SwipeToDismissBox
                                         }
                                         when (value) {
-                                            SwipeToDismissBoxValue.EndToStart -> vm.archiveRow(c.uids)
+                                            SwipeToDismissBoxValue.EndToStart -> vm.deleteRow(c.uids)
                                             SwipeToDismissBoxValue.StartToEnd -> {
                                                 swipeScope.launch { swipe.reset() }
                                                 onReply(s.folderId, c.latest.uid)
@@ -698,7 +752,7 @@ private fun Centered(text: String, color: Color = MaterialTheme.colorScheme.onSu
     Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) { Text(text, color = color) }
 }
 
-/** What a swipe does, under the row: reply at the start, archive at the end. */
+/** What a swipe does, under the row: reply at the start, delete at the end. */
 @Composable
 private fun SwipeBackground(direction: SwipeToDismissBoxValue) {
     if (direction == SwipeToDismissBoxValue.Settled) return
@@ -707,14 +761,15 @@ private fun SwipeBackground(direction: SwipeToDismissBoxValue) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(if (reply) colors.primaryContainer else colors.tertiaryContainer)
+            .background(if (reply) colors.primaryContainer else colors.errorContainer)
             .padding(horizontal = 24.dp),
         contentAlignment = if (reply) Alignment.CenterStart else Alignment.CenterEnd,
     ) {
-        Icon(
-            painterResource(if (reply) R.drawable.ic_reply else R.drawable.ic_archive),
-            contentDescription = stringResource(if (reply) R.string.reply else R.string.archive),
-        )
+        if (reply) {
+            Icon(painterResource(R.drawable.ic_reply), contentDescription = stringResource(R.string.reply))
+        } else {
+            Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.delete), tint = colors.onErrorContainer)
+        }
     }
 }
 

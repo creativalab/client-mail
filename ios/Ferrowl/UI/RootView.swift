@@ -16,7 +16,32 @@ struct RootView: View {
                     .id(mail.activeEmail ?? "")
             }
         }
+        // Switching account: connecting can take a few seconds.
+        .overlay {
+            if let email = mail.switching {
+                ZStack {
+                    Color.black.opacity(0.25).ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        ProgressView().controlSize(.large)
+                        Text(t("status_connecting")).font(.headline)
+                        Text(email).font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    .padding(28)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+                }
+                .transition(.opacity)
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: mail.switching)
         .overlay(alignment: .top) { NoticeBanner() }
+        // Instant notifications: what they send to the server is explained
+        // once, with the first account, before anything is sent.
+        .sheet(isPresented: Binding(get: { !mail.accounts.isEmpty && !app.push.asked }, set: { _ in })) {
+            PushConsent()
+                .interactiveDismissDisabled()
+                .presentationDetents([.medium, .large])
+        }
         .task { app.pro.start() }
         // While the app is open: new mail of every account every few minutes.
         .task(id: scenePhase == .active && !mail.accounts.isEmpty) {
@@ -59,10 +84,18 @@ struct NoticeBanner: View {
                     .foregroundStyle(notice.isError ? .red : .accentColor)
                 Text(notice.text)
                     .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let label = notice.actionLabel {
                     Button(label) { notices.act() }
                         .font(.subheadline.bold())
+                }
+                if notice.isError {
+                    Button { notices.dismiss() } label: {
+                        Image(systemName: "xmark").font(.subheadline.weight(.semibold))
+                    }
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(t("close"))
                 }
             }
             .padding(.horizontal, 16)
@@ -76,6 +109,61 @@ struct NoticeBanner: View {
             .accessibilityAddTraits(.isStaticText)
             .id(notice.id)
             .animation(.snappy, value: notice.id)
+        }
+    }
+}
+
+extension View {
+    /// Confirmations and errors on top of a sheet too (a sheet covers the
+    /// app's own notice at the top).
+    func showsNotices() -> some View {
+        overlay(alignment: .top) { NoticeBanner() }
+    }
+}
+
+/// Asked once: instant notifications through push.ferrowl.com, or not.
+struct PushConsent: View {
+    @Environment(AppModel.self) private var app
+    @Environment(Notices.self) private var notices
+    @State private var busy = false
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 18) {
+                Image(systemName: "bell.badge")
+                    .font(.system(size: 44))
+                    .foregroundStyle(.tint)
+                    .padding(.top, 24)
+                Text(t("push_title")).font(.title2.bold())
+                Text(t("push_desc"))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    busy = true
+                    Task {
+                        defer { busy = false }
+                        do {
+                            try await app.push.enable(app)
+                        } catch {
+                            notices.error(describePush(error))
+                            await app.push.disable()
+                        }
+                    }
+                } label: {
+                    HStack {
+                        if busy { ProgressView() }
+                        Text(t("push_enable")).bold()
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(busy)
+                Button(t("pro_not_now")) { Task { await app.push.disable() } }
+                    .disabled(busy)
+            }
+            .padding(24)
         }
     }
 }

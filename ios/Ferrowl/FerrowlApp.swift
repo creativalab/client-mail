@@ -9,22 +9,24 @@ final class AppModel {
     let notices = Notices()
     let prefs = Preferences()
     let pro = ProStore()
-    let push = PushRegistrar()
+    /// Made after the shared settings are in place (it reads its
+    /// registration from there).
+    let push: PushRegistrar
     let mail: MailRepository
     /// A second engine on the same files, to check the accounts that are
     /// not the active one without disconnecting it.
     let side: Engine
     private let banners = ForegroundBanners()
+    /// A notification was tapped: the message to open (account, uid; no
+    /// uid = its inbox).
+    var pendingOpen: (email: String, uid: UInt32?)?
 
     init() {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let data = support.appendingPathComponent("mail", isDirectory: true)
-        try? FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
-        // The cache is rebuilt from the server: no need to back it up.
-        var dir = support
-        var values = URLResourceValues()
-        values.isExcludedFromBackup = true
-        try? dir.setResourceValues(values)
+        // Shared with the notification extension (see SharedStorage).
+        SharedStorage.migrate()
+        push = PushRegistrar()
+        let support = SharedStorage.directory
+        let data = SharedStorage.mail
 
         // Sign-in tokens go to the Keychain.
         setTokenVault(vault: KeychainTokenVault())
@@ -32,6 +34,7 @@ final class AppModel {
         side = Engine(dataDir: data.path, language: Language.code)
         UNUserNotificationCenter.current().delegate = banners
         mail = MailRepository(engine: engine, notices: notices, directory: support)
+        banners.open = { [weak self] email, uid in self?.pendingOpen = (email, uid) }
     }
 
     /// Whether an account may be used: the first is free, the others need
@@ -45,10 +48,24 @@ final class AppModel {
 }
 
 /// New-mail notifications also show while the app is open.
+/// New-mail notifications also show while the app is open; tapping one
+/// opens its message.
 final class ForegroundBanners: NSObject, UNUserNotificationCenterDelegate {
+    var open: ((String, UInt32?) -> Void)?
+
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                 withCompletionHandler done: @escaping (UNNotificationPresentationOptions) -> Void) {
         done([.banner, .list, .sound])
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler done: @escaping () -> Void) {
+        let info = response.notification.request.content.userInfo
+        if let email = info["email"] as? String {
+            let uid = (info["uid"] as? NSNumber)?.uint32Value ?? (info["uid"] as? Int).map { UInt32($0) }
+            DispatchQueue.main.async { self.open?(email, uid) }
+        }
+        done()
     }
 }
 
