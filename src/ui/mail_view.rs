@@ -7,7 +7,9 @@ use crate::mail::{Folder, FolderKind};
 use crate::theme;
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::text::Wrapping;
-use iced::widget::{Column, Row, column, mouse_area, opaque, row, scrollable, space, stack, text_editor};
+use iced::widget::{
+    Column, Row, column, mouse_area, opaque, row, scrollable, sensor, space, stack, text_editor,
+};
 use iced::{Alignment, Length::Fill, Padding};
 use std::collections::BTreeMap;
 
@@ -1769,6 +1771,15 @@ fn thread_row<'a>(
 
 /// The HTML message as rendered tiles, with link hover/click.
 fn html_body<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
+    // Measures the width the reader gives the message, so it is laid out
+    // for exactly that.
+    sensor(container(html_page(app, p)).width(Fill))
+        .on_show(|s| Message::ReaderWidth(s.width))
+        .on_resize(|s| Message::ReaderWidth(s.width))
+        .into()
+}
+
+fn html_page<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     let Some(r) = &app.html_render else {
         return container(text(t("html_loading")).size(14).color(p.muted))
             .padding([24, 0])

@@ -546,6 +546,8 @@ pub struct App {
     /// The open message's HTML, rendered into image tiles.
     pub html_render: Option<crate::html_view::Rendered>,
     pub html_rendering: bool,
+    /// Width the reader actually gives the HTML message, once measured.
+    pub reader_width: Option<f32>,
     /// Remote content loaded for this message despite the setting.
     pub html_force_remote: Option<u32>,
     /// Link under the pointer in the HTML view (shown at the bottom).
@@ -739,7 +741,8 @@ pub enum Message {
     HtmlLeave,
     HtmlClick,
     WindowResized(iced::Size),
-    HtmlResizeSettled(f32),
+    /// The reader's measured width changed.
+    ReaderWidth(f32),
     ScaleFactor(f32),
     // pointer, context menu, drag and drop
     Thumbs(u32, Vec<(usize, iced::widget::image::Handle)>),
@@ -930,6 +933,7 @@ impl App {
             body_link_hover: false,
             html_render: None,
             html_rendering: false,
+            reader_width: None,
             html_force_remote: None,
             hover_link: None,
             html_pointer: None,
@@ -1676,9 +1680,24 @@ impl App {
 
     /// Logical width available to the message in the reader.
     pub fn html_width(&self) -> u32 {
-        // sidebar 240 + list + reader padding.
-        let w = (self.window_width - 240.0 - self.list_width() - 80.0).clamp(320.0, 820.0);
-        (w as u32) / 20 * 20
+        // Measured by the reader; until then sidebar 240 + list + padding.
+        let w = self
+            .reader_width
+            // Less the page's 1 px border on each side.
+            .map(|w| w - 2.0)
+            .unwrap_or(self.window_width - 240.0 - self.list_width() - 80.0)
+            .clamp(200.0, 820.0);
+        (w as u32) / 4 * 4
+    }
+
+    /// Lays the open HTML message out again when the reader's width changed
+    /// (stale requests are dropped by the renderer, so this can run on every
+    /// resize step, like a browser does).
+    fn relayout_html(&mut self) -> Task<Message> {
+        match &self.html_render {
+            Some(r) if r.width != self.html_width() => self.start_html_render(),
+            _ => Task::none(),
+        }
     }
 
     /// Renders the open message's HTML in the background, if it has one and
@@ -2841,7 +2860,7 @@ impl App {
                     if self
                         .html_render
                         .as_ref()
-                        .is_some_and(|r| r.width.abs_diff(self.html_width()) >= 40)
+                        .is_some_and(|r| r.width != self.html_width())
                     {
                         return self.start_html_render();
                     }
@@ -2909,23 +2928,11 @@ impl App {
             Message::WindowResized(size) => {
                 self.window_width = size.width;
                 self.window_height = size.height;
-                // Re-layout the open HTML message for the new reader width (debounced).
-                match &self.html_render {
-                    Some(r) if r.width.abs_diff(self.html_width()) >= 40 => {
-                        let w = size.width;
-                        Task::perform(tokio::time::sleep(Duration::from_millis(80)), move |_| {
-                            Message::HtmlResizeSettled(w)
-                        })
-                    }
-                    _ => Task::none(),
-                }
+                self.relayout_html()
             }
-            Message::HtmlResizeSettled(w) => {
-                if (w - self.window_width).abs() < 1.0 && !self.html_rendering {
-                    self.start_html_render()
-                } else {
-                    Task::none()
-                }
+            Message::ReaderWidth(w) => {
+                self.reader_width = Some(w);
+                self.relayout_html()
             }
             Message::Thumbs(uid, list) => {
                 if self.message.as_ref().is_some_and(|m| m.uid == uid) {
@@ -3010,12 +3017,7 @@ impl App {
             }
             Message::MouseUp if self.list_resize.take().is_some() => {
                 let save = self.save_config();
-                match &self.html_render {
-                    Some(r) if r.width.abs_diff(self.html_width()) >= 40 && !self.html_rendering => {
-                        Task::batch([save, self.start_html_render()])
-                    }
-                    _ => save,
-                }
+                Task::batch([save, self.relayout_html()])
             }
             Message::MouseUp => match (self.drag.take(), self.drop_folder.clone()) {
                 (Some(d), Some(target)) if d.active => self.move_message(d.uid, target),
