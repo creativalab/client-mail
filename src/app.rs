@@ -2850,20 +2850,15 @@ impl App {
                     // after a resize keeps the position).
                     let first = self.html_render.is_none();
                     self.html_render = rendered;
+                    // The reader changed width while this was being painted.
+                    let again = self.relayout_html();
                     if first {
-                        return operation::snap_to(
-                            READER_ID,
-                            iced::widget::scrollable::RelativeOffset::START,
-                        );
+                        return Task::batch([
+                            operation::snap_to(READER_ID, iced::widget::scrollable::RelativeOffset::START),
+                            again,
+                        ]);
                     }
-                    // The window changed size while this was being painted.
-                    if self
-                        .html_render
-                        .as_ref()
-                        .is_some_and(|r| r.width != self.html_width())
-                    {
-                        return self.start_html_render();
-                    }
+                    return again;
                 }
                 Task::none()
             }
@@ -4041,7 +4036,9 @@ impl App {
                         message_id: None,
                         references: Vec::new(),
                         body: body.replace("\\n", "\n"),
-                        html: None,
+                        // FERROWL_DEV_HTML=<file>: an HTML part as well.
+                        html: std::env::var_os("FERROWL_DEV_HTML")
+                            .and_then(|f| std::fs::read_to_string(f).ok()),
                         inline: HashMap::new(),
                         attachments: Vec::new(),
                         dkim_pass: false,

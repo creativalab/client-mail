@@ -33,8 +33,12 @@ const FETCH_DEADLINE: Duration = Duration::from_secs(10);
 #[derive(Debug, Clone)]
 pub struct Rendered {
     pub uid: u32,
-    /// Logical width the message was laid out for.
+    /// Logical width the message was asked for (and is shown at).
     pub width: u32,
+    /// Shown size / painted size: below 1 when the content is wider than
+    /// `width` (fixed-width newsletters) and is shrunk to fit, like mail
+    /// apps do. Tile heights are in painted units.
+    pub zoom: f32,
     /// Logical height of each tile, in order.
     pub tiles: Vec<(image::Handle, f32)>,
     /// Remote content was present but not loaded.
@@ -261,16 +265,29 @@ fn load(job: &Job) -> Loaded {
 fn paint(loaded: &mut Loaded, width: u32, scale: f32) -> Rendered {
     let scale = scale.clamp(1.0, 3.0);
     let width = width.max(200);
-    let physical_w = (width as f32 * scale).round() as u32;
     let doc = &mut loaded.doc;
-    doc.set_viewport(Viewport::new(
-        physical_w,
-        (800.0 * scale) as u32,
-        scale,
-        ColorScheme::Light,
-    ));
-    doc.set_viewport_scroll(blitz_dom::Point { x: 0.0, y: 0.0 });
-    doc.resolve(0.0);
+    let layout = |doc: &mut HtmlDocument, w: u32| {
+        let physical_w = (w as f32 * scale).round() as u32;
+        doc.set_viewport(Viewport::new(
+            physical_w,
+            (800.0 * scale) as u32,
+            scale,
+            ColorScheme::Light,
+        ));
+        doc.set_viewport_scroll(blitz_dom::Point { x: 0.0, y: 0.0 });
+        doc.resolve(0.0);
+        physical_w
+    };
+    let mut physical_w = layout(doc, width);
+    // Content wider than the room (a 600 px table): lay it out at its own
+    // width and show it shrunk, instead of cutting its right side.
+    let content_w = (doc.root_element().scrollable_overflow().x1 / scale as f64).ceil() as u32;
+    let mut zoom = 1.0;
+    if content_w > width + 1 {
+        let laid = content_w.min(width * 3);
+        physical_w = layout(doc, laid);
+        zoom = width as f32 / laid as f32;
+    }
 
     // The content's height, not the root box's: with `html, body
     // { height: 100% }` the root is as tall as the viewport and the rest
@@ -306,6 +323,7 @@ fn paint(loaded: &mut Loaded, width: u32, scale: f32) -> Rendered {
     Rendered {
         uid: loaded.uid,
         width,
+        zoom,
         tiles,
         blocked_remote: loaded.blocked_remote,
     }
