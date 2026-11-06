@@ -18,6 +18,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -233,6 +236,10 @@ internal fun linked(text: String): AnnotatedString = buildAnnotatedString {
  */
 @Composable
 private fun HtmlView(html: String) {
+    // Dark theme: plain mail follows it; mail with its own colors stays light.
+    val colors = MaterialTheme.colorScheme
+    val dark = colors.surface.luminance() < 0.5f
+    val page = fitToScreen(html, if (dark) DarkPage(cssColor(colors.onSurface), cssColor(colors.primary)) else null)
     AndroidView(
         factory = { context ->
             WebView(context).apply {
@@ -245,6 +252,8 @@ private fun HtmlView(html: String) {
                 settings.setSupportZoom(true)
                 settings.builtInZoomControls = true
                 settings.displayZoomControls = false
+                // The app's background shows through plain mail in dark mode.
+                setBackgroundColor(android.graphics.Color.TRANSPARENT)
                 webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                         val url = request.url
@@ -258,9 +267,9 @@ private fun HtmlView(html: String) {
         },
         update = { view ->
             // Load only when the message changes, not on every recomposition.
-            if (view.tag != html) {
-                view.tag = html
-                view.loadDataWithBaseURL(null, fitToScreen(html), "text/html", "UTF-8", null)
+            if (view.tag != page) {
+                view.tag = page
+                view.loadDataWithBaseURL(null, page, "text/html", "UTF-8", null)
             }
         },
         modifier = Modifier.fillMaxSize(),
@@ -275,10 +284,16 @@ private fun HtmlView(html: String) {
  * overview mode can zoom wider layouts out to fit. Images and media never
  * exceed the screen; long words and links wrap.
  */
-internal fun fitToScreen(html: String): String {
+internal fun fitToScreen(html: String, dark: DarkPage? = null): String {
+    // Mail with colors of its own is written for a light page: it keeps one.
+    val followsDark = dark != null && !hasOwnColors(html)
+    val page = if (followsDark) "color-scheme:dark;background:transparent;color:${dark!!.text}" else "background:#fff;color:#1F1B18"
+    val links = if (followsDark) "a{color:${dark!!.link}}" else ""
     val head = "<meta name=\"viewport\" content=\"width=device-width\">" +
         "<style>" +
+        "html{$page}" +
         "body{margin:12px;overflow-wrap:anywhere}" +
+        links +
         "img,video{max-width:100%!important;height:auto!important}" +
         "pre{white-space:pre-wrap}" +
         "</style>"
@@ -290,3 +305,15 @@ internal fun fitToScreen(html: String): String {
         "<!doctype html><html><head>$head</head><body>$clean</body></html>"
     }
 }
+
+/** Text and link colors (CSS) for plain mail shown in the dark theme. */
+internal data class DarkPage(val text: String, val link: String)
+
+/**
+ * Whether the mail sets colors or styles of its own (newsletters, receipts).
+ * Plain mail (text with links, as most mail apps send it) follows the theme.
+ */
+internal fun hasOwnColors(html: String): Boolean =
+    Regex("<style|bgcolor\\s*=|background|color\\s*[:=]", RegexOption.IGNORE_CASE).containsMatchIn(html)
+
+private fun cssColor(c: Color): String = String.format("#%06X", c.toArgb() and 0xFFFFFF)

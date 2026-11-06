@@ -9,6 +9,8 @@ struct HTMLView: UIViewRepresentable {
     let html: String
     let inline: [String: Data]
     let remoteImages: Bool
+    /// The app is in dark mode: mail without colors of its own follows it.
+    let dark: Bool
     @Binding var height: CGFloat
     let openMailto: (URL) -> Void
 
@@ -33,15 +35,22 @@ struct HTMLView: UIViewRepresentable {
 
     func updateUIView(_ view: WKWebView, context: Context) {
         context.coordinator.parent = self
-        let page = Self.page(html, inline: inline, remoteImages: remoteImages)
+        let page = Self.page(html, inline: inline, remoteImages: remoteImages, dark: dark)
         guard context.coordinator.loaded != page else { return }
         context.coordinator.loaded = page
         view.loadHTMLString(page, baseURL: nil)
     }
 
+    /// Whether the mail sets colors or styles of its own (newsletters,
+    /// receipts). Those are written for a light page and stay light; plain
+    /// mail (text with links, as most mail apps send it) can follow the theme.
+    static func hasOwnColors(_ html: String) -> Bool {
+        html.range(of: #"<style|bgcolor\s*=|background|color\s*[:=]"#, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
     /// The mail inside a page that fits the phone's width (wider layouts are
     /// scaled down) with the privacy rules above.
-    static func page(_ html: String, inline: [String: Data], remoteImages: Bool) -> String {
+    static func page(_ html: String, inline: [String: Data], remoteImages: Bool, dark: Bool = false) -> String {
         var body = html
         // cid: images become data: URLs.
         for (cid, data) in inline {
@@ -54,16 +63,20 @@ struct HTMLView: UIViewRepresentable {
             of: #"<meta[^>]*name\s*=\s*["']?viewport[^>]*>"#, with: "",
             options: [.regularExpression, .caseInsensitive]
         )
+        // Dark mode: plain mail goes dark; styled mail stays a light card.
+        let followsDark = dark && !hasOwnColors(html)
+        let card = dark && !followsDark
         let images = remoteImages ? "data: https: http:" : "data:"
         let csp = "default-src 'none'; img-src \(images); style-src 'unsafe-inline' data:; media-src data:; font-src data:"
         let head = """
         <meta charset="utf-8">
         <meta http-equiv="Content-Security-Policy" content="\(csp)">
         <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=yes">
-        <meta name="color-scheme" content="light only">
+        <meta name="color-scheme" content="\(followsDark ? "dark" : "light only")">
         <style>
           html { -webkit-text-size-adjust: 100%; }
-          body { margin: 0; padding: 0 2px; font: -apple-system-body; word-wrap: break-word; background: #fff; color: #1F1B18; }
+          body { margin: 0; padding: \(card ? "12px" : "0 2px"); font: -apple-system-body; word-wrap: break-word; \(followsDark ? "background: transparent; color: #EDE7E3;" : "background: #fff; color: #1F1B18;") }
+          \(followsDark ? "a { color: #E07A4A; }" : "")
           img, video { max-width: 100% !important; height: auto !important; }
           pre { white-space: pre-wrap; }
           table { max-width: 100%; }

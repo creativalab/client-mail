@@ -272,6 +272,7 @@ struct MessageBody: View {
     let compose: (ComposeRequest) -> Void
 
     @Environment(Preferences.self) private var prefs
+    @Environment(\.colorScheme) private var scheme
     @State private var showText = false
     @State private var loadImages = false
     @State private var height: CGFloat = 120
@@ -316,8 +317,9 @@ struct MessageBody: View {
                     }
                 }
                 HTMLView(html: html, inline: message.inline, remoteImages: prefs.remoteImages || loadImages,
-                         height: $height, openMailto: mailto)
+                         dark: scheme == .dark, height: $height, openMailto: mailto)
                     .frame(height: height)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
                 Button(t("view_text")) { showText = true }.font(.footnote)
             } else {
                 Text(message.text.isEmpty ? AttributedString(t("no_text")) : Self.linked(message.text))

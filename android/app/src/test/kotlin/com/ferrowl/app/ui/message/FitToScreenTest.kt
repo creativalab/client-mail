@@ -26,4 +26,18 @@ class FitToScreenTest {
         assertTrue(out.startsWith("<!doctype html><html><head>"))
         assertTrue(out.endsWith("<body><p>hello</p></body></html>"))
     }
+
+    @Test
+    fun plainMailFollowsTheDarkTheme() {
+        val out = fitToScreen("<div dir=\"ltr\">Hi,<br>see you</div>", DarkPage("#EEEEEE", "#E07A4A"))
+        assertTrue(out.contains("background:transparent;color:#EEEEEE"))
+        assertTrue(out.contains("a{color:#E07A4A}"))
+    }
+
+    @Test
+    fun styledMailStaysLightInTheDarkTheme() {
+        val out = fitToScreen("<table bgcolor=\"#f4f4f4\"><tr><td>Sale</td></tr></table>", DarkPage("#EEEEEE", "#E07A4A"))
+        assertTrue(out.contains("background:#fff"))
+        assertTrue(!out.contains("transparent"))
+    }
 }
