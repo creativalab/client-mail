@@ -128,7 +128,7 @@ struct SettingsView: View {
             } message: { _ in
                 Text(t("confirm_remove_account"))
             }
-            .sheet(isPresented: $offer) { ProOffer(onBought: { offer = false }) }
+            .sheet(isPresented: $offer) { ProOffer(onBought: { offer = false }).showsNotices() }
             .manageSubscriptionsSheet(isPresented: $manage)
         }
     }

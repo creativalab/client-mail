@@ -145,7 +145,14 @@ final class MailboxModel {
     }
 
     func loadUnread() async {
-        if let counts = try? await mail.unread() { unread = counts }
+        if let counts = try? await mail.unread() {
+            unread = counts
+            // The number on the app icon.
+            if let email = mail.activeEmail, let inbox = counts[mail.inboxId] {
+                Badge.set(Int(inbox), for: email)
+                Badge.show()
+            }
+        }
     }
 
     private func search() {
@@ -245,10 +252,10 @@ final class MailboxModel {
         run(target(row)) { [mail] f, u in try await mail.archive(f, u) }
     }
 
-    /// Swipe: the row leaves the list at once and "Archived · Undo" shows at
-    /// the top; the server is asked only when the notice is gone, so Undo
-    /// really undoes it.
-    func archiveWithUndo(_ row: Row) {
+    /// Swipe: the row leaves the list at once and "Moved to Trash · Undo"
+    /// shows at the top; the server is asked only when the notice is gone,
+    /// so Undo really undoes it.
+    func deleteWithUndo(_ row: Row) {
         let folder = folderId
         let uids = Set(row.uids)
         let removed = messages.filter { uids.contains($0.uid) }
@@ -259,13 +266,13 @@ final class MailboxModel {
             try? await Task.sleep(for: Notices.duration)
             guard !Task.isCancelled else { return }
             do {
-                try await mail.archive(folder, Array(uids), quiet: true)
+                try await mail.delete(folder, Array(uids), quiet: true)
             } catch {
                 notices.error(describe(error))
                 await refresh()
             }
         }
-        notices.withAction(t("archived"), t("undo")) { [weak self] in
+        notices.withAction(t("moved_to_trash"), t("undo")) { [weak self] in
             job.cancel()
             guard let self, self.folderId == folder else { return }
             self.messages = (self.messages + removed).sorted { $0.timestamp > $1.timestamp }

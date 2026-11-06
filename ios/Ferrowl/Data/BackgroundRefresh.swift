@@ -52,16 +52,22 @@ enum BackgroundRefresh {
             let active = account.email == mail.activeEmail
             do {
                 let headers: [Header]
+                let unread: UInt32?
                 if active {
                     try await mail.ensureConnected()
                     headers = try await mail.headers(mail.inboxId)
+                    unread = try? await mail.engine.unread(folderIds: [mail.inboxId])[mail.inboxId]
                 } else {
                     // A second engine: the account on screen stays connected.
                     let folders = try await app.side.connect(account: account)
                     let inbox = folders.first { $0.kind == .inbox }?.id ?? "INBOX"
                     headers = try await app.side.headers(folderId: inbox).headers
+                    unread = try? await app.side.unread(folderIds: [inbox])[inbox]
                 }
                 notifyNew(headers, account: account.email, announce: !(foreground && active))
+                // The number on the app icon: the inbox's unread messages.
+                if let unread { Badge.set(Int(unread), for: account.email) }
+                Badge.show()
                 if active { mail.touch() }
             } catch {
                 ok = false
@@ -86,7 +92,7 @@ enum BackgroundRefresh {
     /// ones newer than the last time when `announce`).
     static func notifyNew(_ headers: [Header], account: String, announce: Bool) {
         let key = "lastUid:\(account.lowercased())"
-        let defaults = UserDefaults.standard
+        let defaults = SharedStorage.defaults
         let last = UInt32(defaults.integer(forKey: key))
         let newest = headers.map(\.uid).max() ?? last
         defaults.set(Int(max(newest, last)), forKey: key)
@@ -104,7 +110,10 @@ enum BackgroundRefresh {
         }
         content.subtitle = account
         content.sound = .default
+        content.badge = NSNumber(value: Badge.total())
         content.threadIdentifier = account
+        // Tapping it opens the newest message.
+        content.userInfo = ["email": account, "uid": NSNumber(value: first.uid)]
         let request = UNNotificationRequest(identifier: "mail:\(account):\(first.uid)", content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
     }

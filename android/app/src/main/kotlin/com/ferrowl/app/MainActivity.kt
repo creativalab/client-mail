@@ -34,6 +34,8 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var billing: Billing
 
+    @Inject lateinit var notificationOpen: com.ferrowl.app.push.NotificationOpen
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -63,6 +65,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handle(intent: Intent?) {
+        // A tapped new-mail notification: open its message.
+        intent?.getStringExtra(com.ferrowl.app.push.NotificationOpen.EXTRA_EMAIL)?.let { email ->
+            val uid = intent.getLongExtra(com.ferrowl.app.push.NotificationOpen.EXTRA_UID, -1).takeIf { it >= 0 }
+            notificationOpen.request(email, uid)
+            intent.removeExtra(com.ferrowl.app.push.NotificationOpen.EXTRA_EMAIL)
+        }
         val uri = intent?.data ?: return
         if (microsoft.isAnswer(uri)) {
             microsoft.complete(uri)

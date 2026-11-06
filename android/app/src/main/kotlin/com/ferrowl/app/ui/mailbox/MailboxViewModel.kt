@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.ferrowl.app.data.Billing
 import com.ferrowl.app.data.MailRepository
 import com.ferrowl.app.data.SettingsStore
+import com.ferrowl.app.push.NotificationOpen
 import com.ferrowl.app.ui.notice.Notices
 import com.ferrowl.core.Conversation
 import com.ferrowl.core.FerrowlException
@@ -42,6 +43,8 @@ data class MailboxState(
     val folderId: String = "",
     val messages: List<Header> = emptyList(),
     val refreshing: Boolean = false,
+    /** Another account is being connected (shown over the screen). */
+    val switching: String? = null,
     val error: String? = null,
     /** Search text; when not blank the list shows [results]. */
     val query: String = "",
@@ -89,6 +92,7 @@ class MailboxViewModel @Inject constructor(
     private val settings: SettingsStore,
     private val notices: Notices,
     private val billing: Billing,
+    private val notificationOpen: NotificationOpen,
 ) : ViewModel() {
     private val _state = MutableStateFlow(MailboxState())
     val state: StateFlow<MailboxState> = _state.asStateFlow()
@@ -180,6 +184,27 @@ class MailboxViewModel @Inject constructor(
         }
     }
 
+    /** A tapped notification asks for this message (switch account first). */
+    val openRequests = notificationOpen.pending
+
+    /**
+     * Handles a tapped notification: switches to its account (the request
+     * stays until that account is active), then returns the inbox and the
+     * message uid to open, or null when there is nothing to open yet.
+     */
+    suspend fun takeOpenRequest(): Pair<String, UInt?>? {
+        val r = notificationOpen.pending.value ?: return null
+        val s = _state.value
+        if (!r.email.equals(s.active, ignoreCase = true)) {
+            if (s.accounts.any { it.equals(r.email, ignoreCase = true) }) switchAccount(r.email) else notificationOpen.done()
+            return null
+        }
+        notificationOpen.done()
+        repo.ensureConnected()
+        openFolder(repo.inboxId())
+        return repo.inboxId() to r.uid?.toUInt()
+    }
+
     /**
      * Whether another account may be added; without Ferrowl Pro only the
      * first one is free, and the offer is shown instead.
@@ -227,12 +252,14 @@ class MailboxViewModel @Inject constructor(
             offerPro(email)
             return
         }
-        _state.update { it.copy(refreshing = true, error = null) }
+        _state.update { it.copy(refreshing = true, switching = email, error = null) }
         viewModelScope.launch {
             try {
                 repo.switchTo(email)
             } catch (e: FerrowlException) {
                 _state.update { it.copy(refreshing = false, error = e.message) }
+            } finally {
+                _state.update { it.copy(switching = null) }
             }
         }
     }
@@ -394,25 +421,28 @@ class MailboxViewModel @Inject constructor(
 
     fun archiveSelected() = bulk { folder, uids -> repo.archive(folder, uids) }
 
+    /** Whether deleting in the open folder is for good (the Trash): no swipe there. */
+    val deletesForever: Boolean get() = repo.deletesForever(_state.value.folderId)
+
     /**
-     * Swipe: the row leaves the list at once and "Archived · Undo" shows at
-     * the top; the server is asked only when the notice is gone, so Undo
-     * really undoes it.
+     * Swipe: the row leaves the list at once and "Moved to Trash · Undo"
+     * shows at the top; the server is asked only when the notice is gone,
+     * so Undo really undoes it.
      */
-    fun archiveRow(uids: List<UInt>) {
+    fun deleteRow(uids: List<UInt>) {
         val folder = _state.value.folderId
         val rows = _state.value.messages.filter { it.uid in uids }
         _state.update { s -> s.copy(messages = s.messages.filterNot { it.uid in uids }) }
         val job = viewModelScope.launch {
             delay(UNDO_MS)
             try {
-                repo.archive(folder, uids, quiet = true)
+                repo.delete(folder, uids, quiet = true)
             } catch (e: FerrowlException) {
                 _state.update { it.copy(error = e.message) }
                 refresh()
             }
         }
-        notices.withAction(translate("archived"), translate("undo")) {
+        notices.withAction(translate("moved_to_trash"), translate("undo")) {
             job.cancel()
             _state.update { s ->
                 if (s.folderId != folder) s else s.copy(messages = (s.messages + rows).sortedByDescending { it.timestamp })

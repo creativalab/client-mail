@@ -16,6 +16,24 @@ struct RootView: View {
                     .id(mail.activeEmail ?? "")
             }
         }
+        // Switching account: connecting can take a few seconds.
+        .overlay {
+            if let email = mail.switching {
+                ZStack {
+                    Color.black.opacity(0.25).ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        ProgressView().controlSize(.large)
+                        Text(t("status_connecting")).font(.headline)
+                        Text(email).font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    .padding(28)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+                }
+                .transition(.opacity)
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: mail.switching)
         .overlay(alignment: .top) { NoticeBanner() }
         .task { app.pro.start() }
         // While the app is open: new mail of every account every few minutes.
@@ -59,10 +77,18 @@ struct NoticeBanner: View {
                     .foregroundStyle(notice.isError ? .red : .accentColor)
                 Text(notice.text)
                     .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let label = notice.actionLabel {
                     Button(label) { notices.act() }
                         .font(.subheadline.bold())
+                }
+                if notice.isError {
+                    Button { notices.dismiss() } label: {
+                        Image(systemName: "xmark").font(.subheadline.weight(.semibold))
+                    }
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel(t("close"))
                 }
             }
             .padding(.horizontal, 16)
@@ -77,5 +103,13 @@ struct NoticeBanner: View {
             .id(notice.id)
             .animation(.snappy, value: notice.id)
         }
+    }
+}
+
+extension View {
+    /// Confirmations and errors on top of a sheet too (a sheet covers the
+    /// app's own notice at the top).
+    func showsNotices() -> some View {
+        overlay(alignment: .top) { NoticeBanner() }
     }
 }

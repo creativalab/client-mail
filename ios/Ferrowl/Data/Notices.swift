@@ -2,7 +2,8 @@ import Foundation
 import Observation
 
 /// Short confirmations and errors shown at the top of every screen
-/// ("Archived · Undo", "Message sent"), one at a time.
+/// ("Archived · Undo", "Message sent"), one at a time. Confirmations go
+/// away by themselves; errors stay until closed.
 @MainActor
 @Observable
 final class Notices {
@@ -46,6 +47,8 @@ final class Notices {
         guard !notice.text.isEmpty else { return }
         hide?.cancel()
         current = notice
+        // Errors stay until closed: they often explain what to do.
+        if notice.isError { return }
         hide = Task { [weak self] in
             try? await Task.sleep(for: Self.duration)
             guard !Task.isCancelled else { return }

@@ -104,6 +104,27 @@ fn is_connection_error(e: &anyhow::Error) -> bool {
     })
 }
 
+/// Whether the session is still in step with the server after `e`: a
+/// refusal (NO/BAD) ends the command cleanly; anything else (a response
+/// the IMAP library could not parse, an unexpected one) may leave part of
+/// the answer unread, and the next command would read it instead of its
+/// own (the library then panics on the mismatched tag: seen with Outlook).
+fn session_still_usable(e: &anyhow::Error) -> bool {
+    !e.chain().any(|c| {
+        c.downcast_ref::<imap::Error>()
+            .is_some_and(|ie| !matches!(ie, imap::Error::No(_) | imap::Error::Bad(_)))
+    })
+}
+
+/// Runs an operation on a session, turning a panic of the IMAP library
+/// (out of step with the server) into an error.
+fn guarded<T>(
+    session: &mut ImapSession,
+    op: &impl Fn(&mut ImapSession) -> anyhow::Result<T>,
+) -> Option<anyhow::Result<T>> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| op(session))).ok()
+}
+
 impl Backend {
     fn lock(&self) -> MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|p| p.into_inner())
@@ -373,16 +394,39 @@ impl Backend {
         loop {
             let result: anyhow::Result<T> = (|| {
                 if let Some(s) = g.session.as_mut() {
-                    match op(s) {
-                        Ok(v) => return Ok(v),
-                        Err(e) if !is_connection_error(&e) => return Err(e),
-                        Err(_) => g.session = None,
+                    match guarded(s, &op) {
+                        Some(Ok(v)) => return Ok(v),
+                        Some(Err(e)) if !is_connection_error(&e) => {
+                            // Out of step with the server: the next command
+                            // starts on a new connection.
+                            if !session_still_usable(&e) {
+                                // Development builds: which answer it was.
+                                if cfg!(debug_assertions) {
+                                    eprintln!("imap: new connection after: {e:#}");
+                                }
+                                g.session = None;
+                            }
+                            return Err(e);
+                        }
+                        // Connection lost, or the library panicked: once more
+                        // on a new connection.
+                        _ => g.session = None,
                     }
                 }
                 let mut session = mail::connect(&account)?;
-                let result = op(&mut session);
-                g.session = Some(session);
-                result
+                match guarded(&mut session, &op) {
+                    Some(Ok(v)) => {
+                        g.session = Some(session);
+                        Ok(v)
+                    }
+                    Some(Err(e)) => {
+                        if session_still_usable(&e) {
+                            g.session = Some(session);
+                        }
+                        Err(e)
+                    }
+                    None => Err(anyhow::anyhow!("{}", t("err_generic"))),
+                }
             })();
             match result {
                 Ok(v) => return Ok(v),
@@ -672,7 +716,11 @@ impl Backend {
                     .filter_map(|f| Some((f.clone(), store.unseen(&key, &f).ok()?)))
                     .collect());
             }
-            b.with_session_sync(|s| Ok(mail::unseen_counts(s, &folders)))
+            let (counts, in_step) = b.with_session_sync(|s| Ok(mail::unseen_counts(s, &folders)))?;
+            if !in_step {
+                b.lock().session = None;
+            }
+            Ok(counts)
         })
         .await
     }

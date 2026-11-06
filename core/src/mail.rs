@@ -530,11 +530,27 @@ pub fn list_folders(session: &mut ImapSession) -> Result<Vec<Folder>> {
 }
 
 /// Unread messages for each requested folder (STATUS command).
-pub fn unseen_counts(session: &mut ImapSession, folders: &[String]) -> HashMap<String, u32> {
+/// Unread messages per folder, and whether the session is still in step
+/// with the server afterwards (false: start the next command on a new
+/// connection).
+pub fn unseen_counts(session: &mut ImapSession, folders: &[String]) -> (HashMap<String, u32>, bool) {
     let mut out = HashMap::new();
     for f in folders {
-        if session.status(f, "(UNSEEN)").is_err() {
-            continue;
+        match session.status(f, "(UNSEEN)") {
+            Ok(_) => {}
+            // Refused for this folder: the session is still in step.
+            Err(imap::Error::No(_) | imap::Error::Bad(_)) => continue,
+            // An answer the library could not read (seen with Outlook):
+            // the rest of it is still unread, so any further command here
+            // would read it instead of its own. Stop with what we have; the
+            // engine starts the next command on a new connection.
+            Err(e) => {
+                if cfg!(debug_assertions) {
+                    eprintln!("imap: STATUS {f:?} unreadable, stopping the counts: {e}");
+                }
+                session.unsolicited_responses.try_iter().for_each(drop);
+                return (out, false);
+            }
         }
         // imap 2.4 delivers the STATUS response among the unsolicited responses.
         while let Ok(resp) = session.unsolicited_responses.try_recv() {
@@ -547,7 +563,7 @@ pub fn unseen_counts(session: &mut ImapSession, folders: &[String]) -> HashMap<S
             }
         }
     }
-    out
+    (out, true)
 }
 
 // ---------------------------------------------------------------- reading

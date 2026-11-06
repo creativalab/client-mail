@@ -36,6 +36,14 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import javax.inject.Inject
 import javax.inject.Singleton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.res.stringResource
+import com.ferrowl.app.R
+import kotlinx.coroutines.flow.first
 
 /**
  * A short message at the top of the screen: a confirmation or a problem,
@@ -79,8 +87,8 @@ val LocalBilling = staticCompositionLocalOf<com.ferrowl.app.data.Billing> { erro
 val LocalNotices = staticCompositionLocalOf<Notices> { error("Notices not provided") }
 
 /**
- * Shows each notice at the top, under the status bar, for a few seconds
- * (errors a little longer); tapping it closes it. Screen readers announce it.
+ * Shows each notice at the top, under the status bar: confirmations for a
+ * few seconds, errors until closed (✕ or a tap). Screen readers announce it.
  */
 @Composable
 fun TopNoticeHost(notices: Notices, modifier: Modifier = Modifier) {
@@ -92,8 +100,13 @@ fun TopNoticeHost(notices: Notices, modifier: Modifier = Modifier) {
         notices.flow.collectLatest { n ->
             current = n
             visible = true
-            delay(if (n.error || n.action != null) 6_000 else 3_500)
-            visible = false
+            if (n.error) {
+                // Errors stay until closed: they often explain what to do.
+                snapshotFlow { visible }.first { !it }
+            } else {
+                delay(if (n.action != null) 6_000 else 3_500)
+                visible = false
+            }
             delay(300)
         }
     }
@@ -126,6 +139,11 @@ fun TopNoticeHost(notices: Notices, modifier: Modifier = Modifier) {
                             n.onAction?.invoke()
                             visible = false
                         }) { Text(n.action, color = if (n.error) colors.onErrorContainer else colors.inversePrimary) }
+                    }
+                    if (n.error) {
+                        IconButton(onClick = { visible = false }) {
+                            Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.close))
+                        }
                     }
                 }
             }

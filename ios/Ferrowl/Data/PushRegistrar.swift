@@ -26,14 +26,14 @@ final class PushRegistrar {
     private static let secrets = "com.ferrowl.app.push"
 
     private(set) var enabled: Bool {
-        didSet { UserDefaults.standard.set(enabled, forKey: "push.enabled") }
+        didSet { SharedStorage.defaults.set(enabled, forKey: "push.enabled") }
     }
 
     /// Server account ids by address (lowercase).
     private var accounts: [String: String] {
         didSet {
             if let data = try? JSONEncoder().encode(accounts) {
-                UserDefaults.standard.set(data, forKey: "push.accounts")
+                SharedStorage.defaults.set(data, forKey: "push.accounts")
             }
         }
     }
@@ -43,8 +43,11 @@ final class PushRegistrar {
     private var running = false
 
     init() {
-        enabled = UserDefaults.standard.bool(forKey: "push.enabled")
-        accounts = (UserDefaults.standard.data(forKey: "push.accounts"))
+        // On by default: the phone registers with the first account; turning
+        // it off in Settings is remembered.
+        SharedStorage.defaults.register(defaults: ["push.enabled": true])
+        enabled = SharedStorage.defaults.bool(forKey: "push.enabled")
+        accounts = (SharedStorage.defaults.data(forKey: "push.accounts"))
             .flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
     }
 
@@ -133,6 +136,15 @@ final class PushRegistrar {
             device = token
         }
         guard let token = device, let key = Keychain.get(Self.secrets, "key") else { return }
+        // Registrations kept by versions before the shared settings, which the
+        // server may still watch next to newer ones: removed once.
+        if let data = UserDefaults.standard.data(forKey: "push.accounts"),
+           let legacy = try? JSONDecoder().decode([String: String].self, from: data) {
+            for (email, id) in legacy where accounts[email] != id {
+                _ = try? await call("DELETE", "/v1/accounts/\(id)", token: token, body: nil)
+            }
+            UserDefaults.standard.removeObject(forKey: "push.accounts")
+        }
         if !accounts.isEmpty {
             _ = try await call("POST", "/v1/unlock", token: token, body: ["key": key])
         }

@@ -897,6 +897,17 @@ pub fn push_account_json(account: Account) -> String {
     serde_json::to_string(&account).unwrap_or_default()
 }
 
+/// The sign-in to send the push server with an account that signs in with
+/// Microsoft/Google (JSON: refresh token and client), so it can watch it
+/// without a password. `None` for password accounts, or when this device
+/// has no refresh token (Android Google accounts: Google Identity Services).
+#[uniffi::export]
+pub fn push_oauth_json(account: Account) -> Option<String> {
+    let provider = account.oauth?;
+    let grant = oauth::grant(provider.into(), &account.email)?;
+    serde_json::to_string(&grant).ok()
+}
+
 #[uniffi::export]
 pub fn markdown_to_html(markdown: String) -> Option<String> {
     ferrowl_core::markdown::has_formatting(&markdown)

@@ -28,12 +28,28 @@
 			remoteGlobalIDString = F00000000000000000002001;
 			remoteInfo = Engine;
 		};
+		F00000000000000000002004 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F00000000000000000001001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F00000000000000000002001;
+			remoteInfo = Engine;
+		};
+		F00000000000000000002006 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F00000000000000000001001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F0000000000000000000F002;
+			remoteInfo = FerrowlNotifications;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXBuildFile section */
+		F0000000000000000000B002 /* FerrowlNotifications.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F0000000000000000000A005 /* FerrowlNotifications.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		F0000000000000000000A005 /* FerrowlNotifications.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FerrowlNotifications.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		F0000000000000000000A001 /* Ferrowl.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Ferrowl.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F0000000000000000000A004 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Config/Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -41,10 +57,33 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		F0000000000000000000C001 /* Ferrowl */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Ferrowl; sourceTree = "<group>"; };
 		F0000000000000000000C002 /* Engine (generated) */ = {isa = PBXFileSystemSynchronizedRootGroup; name = "Engine (generated)"; path = Engine/Swift; sourceTree = "<group>"; };
+		F0000000000000000000C003 /* Shared */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Shared; sourceTree = "<group>"; };
+		F0000000000000000000C004 /* FerrowlNotifications */ = {isa = PBXFileSystemSynchronizedRootGroup; path = FerrowlNotifications; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		F0000000000000000000D005 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				F0000000000000000000B002 /* FerrowlNotifications.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		F0000000000000000000D002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F0000000000000000000D012 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -58,6 +97,8 @@
 			isa = PBXGroup;
 			children = (
 				F0000000000000000000C001 /* Ferrowl */,
+				F0000000000000000000C003 /* Shared */,
+				F0000000000000000000C004 /* FerrowlNotifications */,
 				F0000000000000000000C002 /* Engine (generated) */,
 				F0000000000000000000A004 /* Info.plist */,
 				F0000000000000000000E002 /* Products */,
@@ -68,6 +109,7 @@
 			isa = PBXGroup;
 			children = (
 				F0000000000000000000A001 /* Ferrowl.app */,
+				F0000000000000000000A005 /* FerrowlNotifications.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -82,20 +124,46 @@
 				F0000000000000000000D001 /* Sources */,
 				F0000000000000000000D002 /* Frameworks */,
 				F0000000000000000000D003 /* Resources */,
+				F0000000000000000000D005 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				F00000000000000000002003 /* PBXTargetDependency */,
+				F00000000000000000002007 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				F0000000000000000000C001 /* Ferrowl */,
+				F0000000000000000000C003 /* Shared */,
 				F0000000000000000000C002 /* Engine (generated) */,
 			);
 			name = Ferrowl;
 			productName = Ferrowl;
 			productReference = F0000000000000000000A001 /* Ferrowl.app */;
 			productType = "com.apple.product-type.application";
+		};
+		F0000000000000000000F002 /* FerrowlNotifications */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F00000000000000000001104 /* Build configuration list for PBXNativeTarget "FerrowlNotifications" */;
+			buildPhases = (
+				F0000000000000000000D011 /* Sources */,
+				F0000000000000000000D012 /* Frameworks */,
+				F0000000000000000000D013 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F00000000000000000002005 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				F0000000000000000000C004 /* FerrowlNotifications */,
+				F0000000000000000000C003 /* Shared */,
+				F0000000000000000000C002 /* Engine (generated) */,
+			);
+			name = FerrowlNotifications;
+			productName = FerrowlNotifications;
+			productReference = F0000000000000000000A005 /* FerrowlNotifications.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -137,12 +205,20 @@
 			targets = (
 				F0000000000000000000F001 /* Ferrowl */,
 				F00000000000000000002001 /* Engine */,
+				F0000000000000000000F002 /* FerrowlNotifications */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		F0000000000000000000D003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F0000000000000000000D013 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -182,6 +258,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F0000000000000000000D011 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -189,6 +272,16 @@
 			isa = PBXTargetDependency;
 			target = F00000000000000000002001 /* Engine */;
 			targetProxy = F00000000000000000002002 /* PBXContainerItemProxy */;
+		};
+		F00000000000000000002005 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F00000000000000000002001 /* Engine */;
+			targetProxy = F00000000000000000002004 /* PBXContainerItemProxy */;
+		};
+		F00000000000000000002007 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F0000000000000000000F002 /* FerrowlNotifications */;
+			targetProxy = F00000000000000000002006 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -344,6 +437,70 @@
 			};
 			name = Release;
 		};
+		F00000000000000000001207 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Config/FerrowlNotifications.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5C6VYPSHRS;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/Engine/include";
+				INFOPLIST_FILE = Config/NotificationsInfo.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Ferrowl;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.4.8;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"$(SRCROOT)/Engine/lib/$(PLATFORM_NAME)/libferrowl_ffi.a",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ferrowl.app.notifications;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Engine/include";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		F00000000000000000001208 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Config/FerrowlNotifications.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5C6VYPSHRS;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/Engine/include";
+				INFOPLIST_FILE = Config/NotificationsInfo.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Ferrowl;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.4.8;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"$(SRCROOT)/Engine/lib/$(PLATFORM_NAME)/libferrowl_ffi.a",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ferrowl.app.notifications;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_INCLUDE_PATHS = "$(SRCROOT)/Engine/include";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -370,6 +527,15 @@
 			buildConfigurations = (
 				F00000000000000000001205 /* Debug */,
 				F00000000000000000001206 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F00000000000000000001104 /* Build configuration list for PBXNativeTarget "FerrowlNotifications" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F00000000000000000001207 /* Debug */,
+				F00000000000000000001208 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

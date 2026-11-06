@@ -26,8 +26,8 @@ class MailNotifier @Inject constructor(@ApplicationContext private val context: 
     /** One message: sender and subject; several: how many, and the newest. */
     fun show(fresh: List<Header>, account: String) {
         val newest = fresh.first()
-        // The account, when there are several.
-        val builder = base().setSubText(account)
+        // The account, when there are several; tapping opens the newest message.
+        val builder = base(account, newest.uid.toLong()).setSubText(account)
         if (fresh.size == 1) {
             builder.setContentTitle(newest.from).setContentText(newest.subject)
         } else {
@@ -44,14 +44,21 @@ class MailNotifier @Inject constructor(@ApplicationContext private val context: 
 
     /** When the inbox could not be read: just "New mail". */
     fun showGeneric(account: String?) =
-        post(base().setContentTitle(translate("notif_new_mail")).also { b -> account?.let(b::setSubText) }, account)
+        post(base(account, null).setContentTitle(translate("notif_new_mail")).also { b -> account?.let(b::setSubText) }, account)
 
-    private fun base(): NotificationCompat.Builder {
+    private fun base(account: String?, uid: Long?): NotificationCompat.Builder {
         ensureChannel()
+        val intent = Intent(context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        if (account != null) {
+            intent.putExtra(NotificationOpen.EXTRA_EMAIL, account)
+            if (uid != null) intent.putExtra(NotificationOpen.EXTRA_UID, uid)
+        }
         val open = PendingIntent.getActivity(
             context,
-            0,
-            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            // One per account, so each notification opens its own message.
+            account?.lowercase()?.hashCode() ?: 0,
+            intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         return NotificationCompat.Builder(context, CHANNEL)
