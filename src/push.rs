@@ -140,6 +140,53 @@ fn stream(watch: &Watch) -> impl Stream<Item = Message> + use<> {
 }
 
 /// Shows a desktop notification (blocking: run off the UI thread).
+///
+/// Linux: sent over one D-Bus connection kept for the app's lifetime.
+/// GNOME Shell destroys an application's notifications as soon as the
+/// connection that sent them closes, and a connection per notification
+/// (what notify-rust does) closes right after sending: they never showed.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn notify(summary: String, body: String) {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    static BUS: Mutex<Option<zbus::blocking::Connection>> = Mutex::new(None);
+
+    let mut bus = BUS.lock().unwrap_or_else(|p| p.into_inner());
+    // A broken connection (session bus restarted) is opened again once.
+    for _ in 0..2 {
+        if bus.is_none() {
+            *bus = zbus::blocking::Connection::session().ok();
+        }
+        let Some(conn) = bus.as_ref() else { return };
+        // Names the app (ferrowl.desktop, as installed by the package and by
+        // desktop_entry), whatever process happened to launch it.
+        let hints: HashMap<&str, zbus::zvariant::Value> =
+            HashMap::from([("desktop-entry", zbus::zvariant::Value::from("ferrowl"))]);
+        let sent = conn.call_method(
+            Some("org.freedesktop.Notifications"),
+            "/org/freedesktop/Notifications",
+            Some("org.freedesktop.Notifications"),
+            "Notify",
+            &(
+                "Ferrowl",
+                0u32,
+                "",
+                summary.as_str(),
+                body.as_str(),
+                Vec::<&str>::new(),
+                hints,
+                -1i32,
+            ),
+        );
+        if sent.is_ok() {
+            return;
+        }
+        *bus = None;
+    }
+}
+
+/// Shows a desktop notification (blocking: run off the UI thread).
+#[cfg(not(all(unix, not(target_os = "macos"))))]
 pub fn notify(summary: String, body: String) {
     let _ = notify_rust::Notification::new()
         .appname("Ferrowl")
