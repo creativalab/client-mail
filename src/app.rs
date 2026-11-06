@@ -1286,9 +1286,9 @@ impl App {
                 == self.current_folder.as_deref()
     }
 
-    /// The messages a label change applies to: the checked ones, else the
+    /// The messages the toolbar actions apply to: the checked ones, else the
     /// open one.
-    pub fn label_targets(&self) -> Vec<u32> {
+    pub fn targets(&self) -> Vec<u32> {
         if self.checked.is_empty() {
             self.selected.into_iter().collect()
         } else {
@@ -1431,7 +1431,7 @@ impl App {
         let Some(folder) = self.current_folder.clone() else {
             return Task::none();
         };
-        let uids: Vec<u32> = self.checked.iter().copied().collect();
+        let uids = self.targets();
         if uids.is_empty() {
             return Task::none();
         }
@@ -2193,7 +2193,7 @@ impl App {
                 let Some(folder) = self.current_folder.clone().filter(|f| *f != target.name) else {
                     return Task::none();
                 };
-                let uids: Vec<u32> = self.checked.iter().copied().collect();
+                let uids = self.targets();
                 if uids.is_empty() {
                     return Task::none();
                 }
@@ -2599,7 +2599,7 @@ impl App {
                 let Some(folder) = self.current_folder.clone() else {
                     return Task::none();
                 };
-                let uids = self.label_targets();
+                let uids = self.targets();
                 for h in self
                     .headers
                     .iter_mut()
@@ -3194,7 +3194,7 @@ impl App {
                 let (true, Some(folder)) = (yes, self.current_folder.clone()) else {
                     return Task::none();
                 };
-                let uids: Vec<u32> = self.checked.iter().copied().collect();
+                let uids = self.targets();
                 let b = self.backend.clone();
                 let ids = uids.clone();
                 self.perform(
