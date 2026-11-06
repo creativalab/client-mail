@@ -33,6 +33,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
+import javax.inject.Named
 import javax.inject.Singleton
 
 /**
@@ -46,6 +47,8 @@ import javax.inject.Singleton
 @Singleton
 class MailRepository @Inject constructor(
     private val engine: Engine,
+    /** A second engine, to read the inbox of an account that is not the active one. */
+    @Named("side") private val side: Engine,
     private val accounts: AccountStore,
     private val push: PushRegistrar,
     private val noticeBoard: Notices,
@@ -139,8 +142,8 @@ class MailRepository @Inject constructor(
         }
         learnFromSent()
         syncContactsQuietly()
-        // A new account replaces the one watched for notifications.
-        runCatching { push.accountChanged() }
+        // Notifications: the server gets this account (again, with its new settings).
+        runCatching { push.accountSaved(account.email) }
     }
 
     /**
@@ -258,6 +261,26 @@ class MailRepository @Inject constructor(
     suspend fun cachedInbox(): Pair<List<Header>, Boolean> = withContext(Dispatchers.IO) {
         val account = accounts.account.first() ?: return@withContext emptyList<Header>() to false
         engine.cachedInbox(account) to account.incomingHost.endsWith("gmail.com")
+    }
+
+    private val sideLock = Mutex()
+
+    /**
+     * The newest inbox messages of any account (for notifications): the
+     * active one through the main engine, the others through [side], so
+     * the account on screen stays connected.
+     */
+    suspend fun inboxOf(email: String): List<Header> {
+        val active = accounts.account.first()
+        if (active != null && active.email.equals(email, ignoreCase = true)) {
+            ensureConnected()
+            return engine.headers(inboxId()).headers
+        }
+        val account = accounts.accounts.first().firstOrNull { it.email.equals(email, ignoreCase = true) } ?: return emptyList()
+        return sideLock.withLock {
+            val inbox = side.connect(account).firstOrNull { it.kind == FolderKind.INBOX }?.id ?: "INBOX"
+            side.headers(inbox).headers
+        }
     }
 
     /** Messages already on the phone (local database, off the main thread). */

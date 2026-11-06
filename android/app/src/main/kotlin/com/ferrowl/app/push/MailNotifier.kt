@@ -19,14 +19,15 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Shows the "new mail" notifications (one, replaced at each update). */
+/** Shows the "new mail" notifications (one per account, replaced at each update). */
 @Singleton
 class MailNotifier @Inject constructor(@ApplicationContext private val context: Context) {
 
     /** One message: sender and subject; several: how many, and the newest. */
-    fun show(fresh: List<Header>) {
+    fun show(fresh: List<Header>, account: String) {
         val newest = fresh.first()
-        val builder = base()
+        // The account, when there are several.
+        val builder = base().setSubText(account)
         if (fresh.size == 1) {
             builder.setContentTitle(newest.from).setContentText(newest.subject)
         } else {
@@ -38,11 +39,12 @@ class MailNotifier @Inject constructor(@ApplicationContext private val context: 
                 .setStyle(style)
                 .setNumber(fresh.size)
         }
-        post(builder)
+        post(builder, account)
     }
 
     /** When the inbox could not be read: just "New mail". */
-    fun showGeneric() = post(base().setContentTitle(translate("notif_new_mail")))
+    fun showGeneric(account: String?) =
+        post(base().setContentTitle(translate("notif_new_mail")).also { b -> account?.let(b::setSubText) }, account)
 
     private fun base(): NotificationCompat.Builder {
         ensureChannel()
@@ -59,14 +61,15 @@ class MailNotifier @Inject constructor(@ApplicationContext private val context: 
             .setAutoCancel(true)
     }
 
-    private fun post(builder: NotificationCompat.Builder) {
+    /** One notification per account (replaced at each update). */
+    private fun post(builder: NotificationCompat.Builder, account: String?) {
         // Android 13+: nothing to show without the user's permission.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             return
         }
-        NotificationManagerCompat.from(context).notify(ID, builder.build())
+        NotificationManagerCompat.from(context).notify(account?.lowercase(), ID, builder.build())
     }
 
     private fun ensureChannel() {

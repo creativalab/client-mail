@@ -776,6 +776,13 @@ pub fn set_access_token_source(source: Arc<dyn AccessTokenSource>) {
     }));
 }
 
+/// Where Google sends the iOS app back after signing in (pass it to
+/// [oauth_begin]).
+#[uniffi::export]
+pub fn google_ios_redirect() -> String {
+    oauth::GOOGLE_IOS_REDIRECT.to_string()
+}
+
 /// Whether this build can sign in with `provider` (client registered).
 #[uniffi::export]
 pub fn oauth_available(provider: OAuthProvider) -> bool {
@@ -1086,15 +1093,16 @@ impl Engine {
         Ok(self.backend.index_older(folder_id, more, 150).await?)
     }
 
-    /// Search in the messages stored on the device.
+    /// Search in the messages stored on the device: free words and the
+    /// operators `from:`, `has:attachment`, `is:unread`, `is:read`,
+    /// `is:starred` (see `ferrowl_core::query`).
     pub fn search(&self, folder_id: String, query: String) -> Vec<Header> {
-        let words: Vec<String> = query.split_whitespace().map(str::to_owned).collect();
         match lock(&self.account).as_ref() {
-            Some(a) if !words.is_empty() => Backend::search(a, &folder_id, &words)
+            Some(a) => Backend::search_query(a, &folder_id, &query)
                 .into_iter()
                 .map(Header::from)
                 .collect(),
-            _ => Vec::new(),
+            None => Vec::new(),
         }
     }
 

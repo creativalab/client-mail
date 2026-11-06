@@ -22,6 +22,7 @@ pub mod oauth;
 pub mod paths;
 pub mod pop3;
 pub mod providers;
+pub mod query;
 pub mod secrets;
 pub mod sort;
 pub mod threads;

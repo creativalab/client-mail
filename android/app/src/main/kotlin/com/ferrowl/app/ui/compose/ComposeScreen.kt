@@ -3,6 +3,7 @@ package com.ferrowl.app.ui.compose
 import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -36,6 +37,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -69,12 +72,14 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ferrowl.app.R
 import com.ferrowl.app.ui.message.ReplyKind
 import com.ferrowl.app.ui.notice.ReportError
 import com.ferrowl.core.AddressSuggestion
+import java.io.File
 
 /**
  * Writing a message: new, reply, reply all or forward, laid out like the
@@ -95,6 +100,24 @@ fun ComposeScreen(
     LaunchedEffect(Unit) { vm.start(kind, folderId, uid, to) }
     val s by vm.state.collectAsStateWithLifecycle()
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> vm.addFiles(uris) }
+    // Photos and videos from the gallery (system picker: no permission needed).
+    val pickMedia = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris -> vm.addFiles(uris) }
+    // A photo from the camera app, written to a file of ours (FileProvider).
+    val context = LocalContext.current
+    var photo by rememberSaveable { mutableStateOf<String?>(null) }
+    val shoot = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        val path = photo
+        photo = null
+        if (path != null) {
+            val file = File(path)
+            if (ok && file.length() > 0) {
+                vm.addFiles(listOf(FileProvider.getUriForFile(context, "${context.packageName}.files", file)))
+            } else {
+                file.delete()
+            }
+        }
+    }
+    var attachMenu by remember { mutableStateOf(false) }
     ReportError(s.error, vm::errorShown)
     LaunchedEffect(s.sent) { if (s.sent) onClose() }
     var askDiscard by remember { mutableStateOf(false) }
@@ -144,8 +167,27 @@ fun ComposeScreen(
                         Spacer(Modifier.width(8.dp))
                         Text(stringResource(R.string.send))
                     }
-                    IconButton(onClick = { pick.launch(arrayOf("*/*")) }, enabled = !s.sending) {
-                        Icon(painterResource(R.drawable.ic_attach), contentDescription = stringResource(R.string.attach))
+                    Box {
+                        IconButton(onClick = { attachMenu = true }, enabled = !s.sending) {
+                            Icon(painterResource(R.drawable.ic_attach), contentDescription = stringResource(R.string.attach))
+                        }
+                        DropdownMenu(expanded = attachMenu, onDismissRequest = { attachMenu = false }) {
+                            DropdownMenuItem(text = { Text(stringResource(R.string.attach_file)) }, onClick = {
+                                attachMenu = false
+                                pick.launch(arrayOf("*/*"))
+                            })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.attach_photo)) }, onClick = {
+                                attachMenu = false
+                                pickMedia.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                            })
+                            DropdownMenuItem(text = { Text(stringResource(R.string.attach_camera)) }, onClick = {
+                                attachMenu = false
+                                val dir = File(context.cacheDir, "camera").apply { mkdirs() }
+                                val file = File(dir, "IMG_${System.currentTimeMillis()}.jpg")
+                                photo = file.path
+                                shoot.launch(FileProvider.getUriForFile(context, "${context.packageName}.files", file))
+                            })
+                        }
                     }
                     Spacer(Modifier.weight(1f))
                     IconButton(onClick = leave) {

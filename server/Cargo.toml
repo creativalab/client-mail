@@ -23,6 +23,9 @@ sha2 = "0.10"
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
 ureq = { version = "3", features = ["json"] }
 zeroize = "1"
+# APNs needs HTTP/2 (ureq has only HTTP/1.1); TLS through rustls with the
+# ring provider installed at start-up, certificates from the system.
+reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "http2", "json", "rustls-no-provider"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

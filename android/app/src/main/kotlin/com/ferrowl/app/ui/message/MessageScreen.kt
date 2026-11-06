@@ -9,7 +9,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -22,13 +24,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FabPosition
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.mutableStateOf
@@ -48,6 +49,17 @@ import com.ferrowl.app.R
 import com.ferrowl.app.ui.notice.LocalNotices
 import com.ferrowl.app.ui.mailbox.StarButton
 import com.ferrowl.core.Message
+import android.util.Patterns
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
+import androidx.compose.ui.res.painterResource
 
 /** What the user can do with an open message. */
 enum class ReplyKind { REPLY, REPLY_ALL, FORWARD }
@@ -60,12 +72,14 @@ fun MessageScreen(
     starred: Boolean,
     onBack: () -> Unit,
     onReply: (ReplyKind) -> Unit,
+    /** Deleted, archived or moved: back to the message list (also from a conversation). */
+    onGone: () -> Unit = onBack,
     vm: MessageViewModel = hiltViewModel(),
 ) {
     LaunchedEffect(folderId, uid) { vm.load(folderId, uid, starred) }
     val star by vm.starred.collectAsStateWithLifecycle()
     val state by vm.state.collectAsStateWithLifecycle()
-    LaunchedEffect(state) { if (state == MessageState.Gone) onBack() }
+    LaunchedEffect(state) { if (state == MessageState.Gone) onGone() }
     val invite by vm.invite.collectAsStateWithLifecycle()
     var menu by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
@@ -107,13 +121,29 @@ fun MessageScreen(
         },
         floatingActionButton = {
             if (state is MessageState.Shown) {
-                ExtendedFloatingActionButton(
-                    onClick = { onReply(ReplyKind.REPLY) },
-                    icon = { Icon(Icons.Filled.Edit, contentDescription = null) },
-                    text = { Text(stringResource(R.string.reply)) },
-                )
+                // Reply, reply all, forward: small, at the bottom left, on a
+                // raised pill that stands out over the message (as on iOS).
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.94f),
+                    tonalElevation = 3.dp,
+                    shadowElevation = 4.dp,
+                ) {
+                    Row(Modifier.padding(horizontal = 4.dp)) {
+                        IconButton(onClick = { onReply(ReplyKind.REPLY) }) {
+                            Icon(painterResource(R.drawable.ic_reply), contentDescription = stringResource(R.string.reply), modifier = Modifier.size(20.dp))
+                        }
+                        IconButton(onClick = { onReply(ReplyKind.REPLY_ALL) }) {
+                            Icon(painterResource(R.drawable.ic_reply_all), contentDescription = stringResource(R.string.reply_all), modifier = Modifier.size(20.dp))
+                        }
+                        IconButton(onClick = { onReply(ReplyKind.FORWARD) }) {
+                            Icon(painterResource(R.drawable.ic_forward), contentDescription = stringResource(R.string.forward), modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
             }
         },
+        floatingActionButtonPosition = FabPosition.Start,
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (val s = state) {
@@ -165,9 +195,28 @@ private fun Body(m: Message, extra: @Composable () -> Unit) {
             HtmlView(html)
         } else {
             SelectionContainer {
-                Text(m.text, modifier = Modifier.verticalScroll(rememberScrollState()).padding(16.dp))
+                Text(linked(m.text), modifier = Modifier.verticalScroll(rememberScrollState()).padding(16.dp))
             }
         }
+    }
+}
+
+/**
+ * Plain text with its web and e-mail addresses made into links (opened by
+ * the system: browser, or a new message for `mailto:`).
+ */
+internal fun linked(text: String): AnnotatedString = buildAnnotatedString {
+    append(text)
+    val style = TextLinkStyles(SpanStyle(textDecoration = TextDecoration.Underline))
+    for (m in Patterns.WEB_URL.toRegex().findAll(text)) {
+        val url = if (m.value.contains("://")) m.value else "https://${m.value}"
+        // Bare words like "file.txt" also match WEB_URL: only real addresses.
+        if (m.value.contains("://") || m.value.startsWith("www.", ignoreCase = true)) {
+            addLink(LinkAnnotation.Url(url, style), m.range.first, m.range.last + 1)
+        }
+    }
+    for (m in Patterns.EMAIL_ADDRESS.toRegex().findAll(text)) {
+        addLink(LinkAnnotation.Url("mailto:${m.value}", style), m.range.first, m.range.last + 1)
     }
 }
 

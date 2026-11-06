@@ -9,10 +9,16 @@
 //! - `FERROWL_PUSH_DB`: SQLite file (default `ferrowl-push.sqlite`)
 //! - `FERROWL_PUSH_BIND`: listen address (default `127.0.0.1:8080`, behind
 //!   an HTTPS reverse proxy such as Caddy)
-//! - `GOOGLE_APPLICATION_CREDENTIALS`: Firebase service account key (JSON).
-//!   Without it notifications are only logged (development).
+//! - `GOOGLE_APPLICATION_CREDENTIALS`: Firebase service account key (JSON),
+//!   for Android phones.
+//! - `FERROWL_APNS_KEY` (path of the `.p8` key), `FERROWL_APNS_KEY_ID`,
+//!   `FERROWL_APNS_TEAM_ID`, `FERROWL_APNS_TOPIC` (bundle id, default
+//!   `com.ferrowl.app`): Apple Push Notification service, for iPhones.
+//!
+//! A platform without credentials only logs its notifications (development).
 
 mod api;
+mod apns;
 mod fcm;
 mod seal;
 mod store;
@@ -27,13 +33,30 @@ async fn main() -> anyhow::Result<()> {
 
     let db = std::env::var("FERROWL_PUSH_DB").unwrap_or_else(|_| "ferrowl-push.sqlite".into());
     let bind = std::env::var("FERROWL_PUSH_BIND").unwrap_or_else(|_| "127.0.0.1:8080".into());
-    let notifier: Arc<dyn fcm::Notifier> = match std::env::var("GOOGLE_APPLICATION_CREDENTIALS") {
-        Ok(path) => Arc::new(fcm::Fcm::from_file(&path)?),
+    let fcm: Option<Box<dyn fcm::Notifier>> = match std::env::var("GOOGLE_APPLICATION_CREDENTIALS") {
+        Ok(path) => Some(Box::new(fcm::Fcm::from_file(&path)?)),
         Err(_) => {
-            eprintln!("GOOGLE_APPLICATION_CREDENTIALS not set: notifications are only logged");
-            Arc::new(fcm::LogNotifier)
+            eprintln!("GOOGLE_APPLICATION_CREDENTIALS not set: Android notifications are only logged");
+            None
         }
     };
+    // Empty values (the unit file before the Apple ids are filled in) count as unset.
+    let set = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
+    let apns: Option<Box<dyn fcm::Notifier>> = match (
+        set("FERROWL_APNS_KEY"),
+        set("FERROWL_APNS_KEY_ID"),
+        set("FERROWL_APNS_TEAM_ID"),
+    ) {
+        (Some(key), Some(key_id), Some(team)) => {
+            let topic = set("FERROWL_APNS_TOPIC").unwrap_or_else(|| "com.ferrowl.app".into());
+            Some(Box::new(apns::Apns::new(&key, &key_id, &team, &topic)?))
+        }
+        _ => {
+            eprintln!("FERROWL_APNS_KEY / _KEY_ID / _TEAM_ID not set: iPhone notifications are only logged");
+            None
+        }
+    };
+    let notifier: Arc<dyn fcm::Notifier> = Arc::new(fcm::Push { fcm, apns });
 
     let state = api::AppState {
         store: Arc::new(store::Store::open(&db)?),

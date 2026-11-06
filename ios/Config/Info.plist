@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.ferrowl.app.refresh</string>
+	</array>
+	<key>CFBundleAllowMixedLocalizations</key>
+	<true/>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>it</string>
+		<string>fr</string>
+		<string>de</string>
+		<string>es</string>
+		<string>pt</string>
+		<string>zh-Hans</string>
+		<string>ja</string>
+		<string>ko</string>
+		<string>ar</string>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Ferrowl uses the camera to take photos to attach to your messages.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+	</array>
+</dict>
+</plist>

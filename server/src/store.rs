@@ -4,6 +4,7 @@
 //! AES-GCM ciphertext (see `seal`). Nothing here can be read without the
 //! phones' keys.
 
+use crate::fcm::{Platform, Target};
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
@@ -28,10 +29,13 @@ CREATE TABLE IF NOT EXISTS accounts (
 CREATE INDEX IF NOT EXISTS accounts_device ON accounts (device);
 ";
 
+/// Added after the first version: the push service of each phone
+/// (`fcm_token` then holds an FCM or an APNs token).
+const PLATFORM_COLUMN: &str = "ALTER TABLE devices ADD COLUMN platform TEXT NOT NULL DEFAULT 'fcm'";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Device {
     pub id: String,
-    pub fcm_token: String,
 }
 
 #[derive(Debug, Clone)]
@@ -74,6 +78,12 @@ impl Store {
 
     fn with(conn: Connection) -> Result<Store> {
         conn.execute_batch(SCHEMA)?;
+        let has_platform: bool = conn
+            .prepare("SELECT 1 FROM pragma_table_info('devices') WHERE name = 'platform'")?
+            .exists([])?;
+        if !has_platform {
+            conn.execute_batch(PLATFORM_COLUMN)?;
+        }
         Ok(Store {
             conn: Mutex::new(conn),
         })
@@ -84,10 +94,10 @@ impl Store {
     }
 
     /// Registers a phone; `token` is its secret (only the hash is kept).
-    pub fn add_device(&self, id: &str, token: &str, fcm_token: &str) -> Result<()> {
+    pub fn add_device(&self, id: &str, token: &str, target: &Target) -> Result<()> {
         self.lock().execute(
-            "INSERT INTO devices (id, token_hash, fcm_token, created) VALUES (?1, ?2, ?3, ?4)",
-            params![id, hash(token), fcm_token, now()],
+            "INSERT INTO devices (id, token_hash, fcm_token, platform, created) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, hash(token), target.token, target.platform.name(), now()],
         )?;
         Ok(())
     }
@@ -96,33 +106,34 @@ impl Store {
         Ok(self
             .lock()
             .query_row(
-                "SELECT id, fcm_token FROM devices WHERE token_hash = ?1",
+                "SELECT id FROM devices WHERE token_hash = ?1",
                 params![hash(token)],
+                |r| Ok(Device { id: r.get(0)? }),
+            )
+            .optional()?)
+    }
+
+    /// Where the phone receives notifications.
+    pub fn target(&self, device: &str) -> Result<Option<Target>> {
+        Ok(self
+            .lock()
+            .query_row(
+                "SELECT fcm_token, platform FROM devices WHERE id = ?1",
+                params![device],
                 |r| {
-                    Ok(Device {
-                        id: r.get(0)?,
-                        fcm_token: r.get(1)?,
+                    Ok(Target {
+                        token: r.get(0)?,
+                        platform: Platform::from_name(&r.get::<_, String>(1)?),
                     })
                 },
             )
             .optional()?)
     }
 
-    pub fn fcm_token(&self, device: &str) -> Result<Option<String>> {
-        Ok(self
-            .lock()
-            .query_row(
-                "SELECT fcm_token FROM devices WHERE id = ?1",
-                params![device],
-                |r| r.get(0),
-            )
-            .optional()?)
-    }
-
-    pub fn set_fcm_token(&self, device: &str, fcm_token: &str) -> Result<()> {
+    pub fn set_target(&self, device: &str, target: &Target) -> Result<()> {
         self.lock().execute(
-            "UPDATE devices SET fcm_token = ?2 WHERE id = ?1",
-            params![device, fcm_token],
+            "UPDATE devices SET fcm_token = ?2, platform = ?3 WHERE id = ?1",
+            params![device, target.token, target.platform.name()],
         )?;
         Ok(())
     }
@@ -172,13 +183,23 @@ mod tests {
     #[test]
     fn devices_and_accounts() {
         let s = Store::in_memory().unwrap();
-        s.add_device("d1", "secret-token", "fcm-1").unwrap();
+        let fcm = |t: &str| Target {
+            platform: Platform::Fcm,
+            token: t.into(),
+        };
+        s.add_device("d1", "secret-token", &fcm("fcm-1")).unwrap();
         let d = s.device_by_token("secret-token").unwrap().unwrap();
         assert_eq!(d.id, "d1");
         assert!(s.device_by_token("other").unwrap().is_none());
 
-        s.set_fcm_token("d1", "fcm-2").unwrap();
-        assert_eq!(s.fcm_token("d1").unwrap().as_deref(), Some("fcm-2"));
+        s.set_target("d1", &fcm("fcm-2")).unwrap();
+        assert_eq!(s.target("d1").unwrap(), Some(fcm("fcm-2")));
+        let iphone = Target {
+            platform: Platform::ApnsSandbox,
+            token: "ab12".into(),
+        };
+        s.set_target("d1", &iphone).unwrap();
+        assert_eq!(s.target("d1").unwrap(), Some(iphone));
 
         let acc = SealedAccount {
             id: "a1".into(),

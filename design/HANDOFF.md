@@ -60,7 +60,7 @@ crates/
   ferrowl-core/     models (Account, Folder, Message, Thread, Label, Rule), errors
   ferrowl-store/    SQLite + Maildir, tantivy index
   ferrowl-proto/    IMAP / JMAP / SMTP behind a common `MailBackend` trait
-  ferrowl-crypto/   OpenPGP, DKIM/signature verification
+  ferrowl-crypto/   OpenPGP, signature verification
   ferrowl-rules/    filters (Sieve-compatible)
   ferrowl-ui/       iced app: views, themes, shortcuts
   ferrowl/          binary
@@ -74,7 +74,7 @@ crates/
 - **Top bar**: logo and name, global search with operators (`from:`, `has:attachment`, `label:`) and the `Ctrl K` shortcut, Sync button, Settings (opens the quick Appearance panel) and account avatar.
 - **Sidebar** (min 220 px): **Compose** button, folders (Inbox, Starred, Sent, Drafts, Archive, Spam, Trash) with counters, colored **Labels**, **Accounts** with status (connected or offline) and a status box for sync and indexing.
 - **Message list** (min 340 px): All / Unread / Attachments filters. Each row shows a dot if the message is unread, the sender (bold if unread), the attachment icon, the time, the subject, a preview line and a label. The selected row has the `soft` background and a 3 px `accent` bar on the left.
-- **Reading pane**: bar with Reply, Forward, Archive, Delete, Snooze and a security badge ("Signed · DKIM ok" / "Encrypted · OpenPGP"). Then the subject (26 px), sender with avatar, date, favorite button, body (text at most 820 px wide), attachment cards and a quick reply field (`R`).
+- **Reading pane**: bar with Reply, Forward, Archive, Delete, Snooze and a security badge ("Signed" / "Encrypted · OpenPGP"). Then the subject (26 px), sender with avatar, date, favorite button, body (text at most 820 px wide), attachment cards and a quick reply field (`R`).
 - **Appearance panel** (popover from the gear): grid with the 6 themes, "follow the system dark theme" option and an "All settings" link.
 - Below roughly 1000 px the columns stack vertically.
 
@@ -122,7 +122,7 @@ Palette: Ruggine `#A63A0C` · Ferro `#2A1A12` · Carta `#FBF3EA` · Brace `#E07A
 2. **Reading**: one IMAP account, folder sync, SQLite cache, list and reader (sanitized HTML, remote images blocked).
 3. **Sending**: composing and SMTP, drafts, undo send.
 4. **Search**: tantivy index with operators.
-5. **Security**: OpenPGP (sign, encrypt, verify), DKIM badge.
+5. **Security**: OpenPGP (sign, encrypt, verify).
 6. **The rest**: multiple accounts, JMAP, rules, notifications and tray, full settings, shortcuts.
 
 ## First message to give Claude Code

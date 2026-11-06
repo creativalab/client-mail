@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Push Notifications capability (CODE_SIGN_ENTITLEMENTS of the app). It
+     needs the paid Apple Developer team; a free (personal) team cannot sign
+     it: build with CODE_SIGN_ENTITLEMENTS= there (see README). Xcode
+     switches aps-environment to "production" when archiving. -->
+<plist version="1.0">
+<dict>
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
+</plist>

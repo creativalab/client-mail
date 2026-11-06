@@ -1,9 +1,11 @@
 # ferrowl-push
 
 Push relay for the Ferrowl mobile apps. For each registered account it keeps
-an IMAP IDLE connection on the inbox and, when new mail arrives, sends the
-phone a **data-only** Firebase Cloud Messaging message that contains only an
-account id. The app then fetches the mail directly from the mail server.
+an IMAP IDLE connection on the inbox and, when new mail arrives, wakes the
+phone with a message that contains only an account id: a **data-only**
+Firebase Cloud Messaging message on Android, an Apple Push Notification
+service alert ("New mail", translated by the phone) on iPhone. The app then
+fetches the mail directly from the mail server.
 
 ## Privacy and security
 
@@ -30,7 +32,7 @@ registration need `Authorization: Bearer <device_token>`.
 FERROWL_PUSH_DB=/tmp/push.sqlite cargo run -p ferrowl-push
 ```
 
-Without `GOOGLE_APPLICATION_CREDENTIALS` notifications are only logged.
+Without credentials (Firebase, APNs) notifications are only logged.
 
 ## Deploy (VPS)
 
@@ -38,13 +40,22 @@ Without `GOOGLE_APPLICATION_CREDENTIALS` notifications are only logged.
 2. Firebase console → Project settings → Service accounts → *Generate new
    private key*; save it as `/etc/ferrowl-push/firebase.json`, owner
    `ferrowl-push`, mode `600`.
-3. Install [`deploy/ferrowl-push.service`](deploy/ferrowl-push.service)
+3. Apple Developer site → Certificates, Identifiers & Profiles → Keys → *+*,
+   enable *Apple Push Notifications service (APNs)*, download the `.p8` key
+   (it can be downloaded only once) and note its Key ID and the Team ID;
+   save it as `/etc/ferrowl-push/apns.p8`, owner `ferrowl-push`, mode `600`.
+   Never commit it.
+4. Install [`deploy/ferrowl-push.service`](deploy/ferrowl-push.service)
    (instructions in the file) and Caddy with
    [`deploy/Caddyfile`](deploy/Caddyfile) for HTTPS.
-4. Point the DNS name (e.g. `push.ferrowl.com`) at the VPS.
+5. Point the DNS name (e.g. `push.ferrowl.com`) at the VPS.
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `FERROWL_PUSH_DB` | `ferrowl-push.sqlite` | SQLite database |
 | `FERROWL_PUSH_BIND` | `127.0.0.1:8080` | listen address (behind Caddy) |
-| `GOOGLE_APPLICATION_CREDENTIALS` | — | Firebase service account key |
+| `GOOGLE_APPLICATION_CREDENTIALS` | — | Firebase service account key (Android) |
+| `FERROWL_APNS_KEY` | — | APNs `.p8` key (iPhone) |
+| `FERROWL_APNS_KEY_ID` | — | its Key ID |
+| `FERROWL_APNS_TEAM_ID` | — | Apple Developer Team ID |
+| `FERROWL_APNS_TOPIC` | `com.ferrowl.app` | the iOS app's bundle id |
