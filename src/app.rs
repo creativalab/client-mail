@@ -2837,6 +2837,14 @@ impl App {
                             iced::widget::scrollable::RelativeOffset::START,
                         );
                     }
+                    // The window changed size while this was being painted.
+                    if self
+                        .html_render
+                        .as_ref()
+                        .is_some_and(|r| r.width.abs_diff(self.html_width()) >= 40)
+                    {
+                        return self.start_html_render();
+                    }
                 }
                 Task::none()
             }
@@ -2905,7 +2913,7 @@ impl App {
                 match &self.html_render {
                     Some(r) if r.width.abs_diff(self.html_width()) >= 40 => {
                         let w = size.width;
-                        Task::perform(tokio::time::sleep(Duration::from_millis(250)), move |_| {
+                        Task::perform(tokio::time::sleep(Duration::from_millis(80)), move |_| {
                             Message::HtmlResizeSettled(w)
                         })
                     }
