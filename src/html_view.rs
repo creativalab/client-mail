@@ -33,8 +33,12 @@ const FETCH_DEADLINE: Duration = Duration::from_secs(10);
 #[derive(Debug, Clone)]
 pub struct Rendered {
     pub uid: u32,
-    /// Logical width the message was laid out for.
+    /// Logical width the message was asked for (and is shown at).
     pub width: u32,
+    /// Shown size / painted size: below 1 when the content is wider than
+    /// `width` (fixed-width newsletters) and is shrunk to fit, like mail
+    /// apps do. Tile heights are in painted units.
+    pub zoom: f32,
     /// Logical height of each tile, in order.
     pub tiles: Vec<(image::Handle, f32)>,
     /// Remote content was present but not loaded.
@@ -87,8 +91,18 @@ pub fn link_at(uid: u32, x: f32, y: f32) -> Option<String> {
     rx.recv().ok().flatten()
 }
 
+/// A parsed message kept by the worker, so a new width only lays it out
+/// and paints it again (no parsing, no downloads).
+struct Loaded {
+    uid: u32,
+    allow_remote: bool,
+    html_len: usize,
+    doc: HtmlDocument,
+    blocked_remote: bool,
+}
+
 fn run(rx: mpsc::Receiver<Command>) {
-    let mut current: Option<(u32, HtmlDocument)> = None;
+    let mut current: Option<Loaded> = None;
     while let Ok(cmd) = rx.recv() {
         match cmd {
             Command::Render(job, reply) => {
@@ -106,14 +120,18 @@ fn run(rx: mpsc::Receiver<Command>) {
                         }
                     }
                 }
-                let uid = job.uid;
-                let (doc, rendered) = render_job(job);
-                current = Some((uid, doc));
-                let _ = reply.send(rendered);
+                let same = current.as_ref().is_some_and(|c| {
+                    c.uid == job.uid && c.allow_remote == job.allow_remote && c.html_len == job.html.len()
+                });
+                if !same {
+                    current = Some(load(&job));
+                }
+                let loaded = current.as_mut().expect("loaded above");
+                let _ = reply.send(paint(loaded, job.width, job.scale));
             }
             Command::Hit(uid, x, y, reply) => {
                 let link = match &current {
-                    Some((u, doc)) if *u == uid => link_in(doc, x, y),
+                    Some(c) if c.uid == uid => link_in(&c.doc, x, y),
                     _ => None,
                 };
                 let _ = reply.send(link);
@@ -192,14 +210,19 @@ fn fetch(url: &str) -> Option<Vec<u8>> {
         .ok()
 }
 
-fn render_job(job: Job) -> (HtmlDocument, Rendered) {
+/// Parses the message and waits (bounded) for its images and style sheets.
+fn load(job: &Job) -> Loaded {
     let scale = job.scale.clamp(1.0, 3.0);
     let width = job.width.max(200);
     let pending = Arc::new(AtomicUsize::new(0));
     let blocked = Arc::new(AtomicUsize::new(0));
     let net = Net {
         allow_remote: job.allow_remote,
-        inline: job.inline.into_iter().map(|(k, v)| (k, Bytes::from(v))).collect(),
+        inline: job
+            .inline
+            .iter()
+            .map(|(k, v)| (k.clone(), Bytes::from(v.clone())))
+            .collect(),
         pending: pending.clone(),
         started: AtomicUsize::new(0),
         blocked: blocked.clone(),
@@ -215,7 +238,13 @@ fn render_job(job: Job) -> (HtmlDocument, Rendered) {
         net_provider: Some(Arc::new(net)),
         ..Default::default()
     };
-    let mut doc = HtmlDocument::from_html(&job.html, config);
+    // A text/html part is HTML whatever it declares: Blitz parses anything
+    // starting with an XHTML doctype or `<html xmlns=…xhtml>` as XML, where
+    // the HTML user-agent styles do not apply (head, title and style text
+    // show up, paragraphs and tables collapse). A leading comment keeps its
+    // sniffing off and is harmless to the HTML parser.
+    let html = format!("<!---->{}", job.html);
+    let mut doc = HtmlDocument::from_html(&html, config);
     doc.resolve(0.0);
     // Wait for images/stylesheets (bounded), then lay out again.
     let deadline = Instant::now() + FETCH_DEADLINE;
@@ -223,8 +252,49 @@ fn render_job(job: Job) -> (HtmlDocument, Rendered) {
         std::thread::sleep(Duration::from_millis(15));
     }
     doc.resolve(0.0);
+    Loaded {
+        uid: job.uid,
+        allow_remote: job.allow_remote,
+        html_len: job.html.len(),
+        doc,
+        blocked_remote: blocked.load(Ordering::SeqCst) > 0,
+    }
+}
 
-    let height = (doc.root_element().final_layout().size.height.ceil() as u32).clamp(1, MAX_HEIGHT);
+/// Lays the loaded message out at `width` and paints it into tiles.
+fn paint(loaded: &mut Loaded, width: u32, scale: f32) -> Rendered {
+    let scale = scale.clamp(1.0, 3.0);
+    let width = width.max(200);
+    let doc = &mut loaded.doc;
+    let layout = |doc: &mut HtmlDocument, w: u32| {
+        let physical_w = (w as f32 * scale).round() as u32;
+        doc.set_viewport(Viewport::new(
+            physical_w,
+            (800.0 * scale) as u32,
+            scale,
+            ColorScheme::Light,
+        ));
+        doc.set_viewport_scroll(blitz_dom::Point { x: 0.0, y: 0.0 });
+        doc.resolve(0.0);
+        physical_w
+    };
+    let mut physical_w = layout(doc, width);
+    // Content wider than the room (a 600 px table): lay it out at its own
+    // width and show it shrunk, instead of cutting its right side.
+    let content_w = (doc.root_element().scrollable_overflow().x1 / scale as f64).ceil() as u32;
+    let mut zoom = 1.0;
+    if content_w > width + 1 {
+        let laid = content_w.min(width * 3);
+        physical_w = layout(doc, laid);
+        zoom = width as f32 / laid as f32;
+    }
+
+    // The content's height, not the root box's: with `html, body
+    // { height: 100% }` the root is as tall as the viewport and the rest
+    // overflows it.
+    let root = doc.root_element();
+    let content = (root.scrollable_overflow().y1 / scale as f64) as f32;
+    let height = (root.final_layout().size.height.max(content).ceil() as u32).clamp(1, MAX_HEIGHT);
     let physical_h = (height as f32 * scale).ceil() as u32;
     // Paint tile by tile: a viewport as tall as the tile, scrolled to it.
     let mut tiles = Vec::new();
@@ -238,7 +308,7 @@ fn render_job(job: Job) -> (HtmlDocument, Rendered) {
             y: y as f64 / scale as f64,
         });
         let pixels = render_to_buffer::<VelloCpuImageRenderer, _>(
-            |scene| blitz_paint::paint_scene(scene, &mut doc, scale as f64, physical_w, h, 0, 0),
+            |scene| blitz_paint::paint_scene(scene, doc, scale as f64, physical_w, h, 0, 0),
             physical_w,
             h,
         );
@@ -250,13 +320,13 @@ fn render_job(job: Job) -> (HtmlDocument, Rendered) {
     doc.resolve(0.0);
     doc.set_viewport_scroll(blitz_dom::Point { x: 0.0, y: 0.0 });
 
-    let rendered = Rendered {
-        uid: job.uid,
+    Rendered {
+        uid: loaded.uid,
         width,
+        zoom,
         tiles,
-        blocked_remote: blocked.load(Ordering::SeqCst) > 0,
-    };
-    (doc, rendered)
+        blocked_remote: loaded.blocked_remote,
+    }
 }
 
 fn percent_decode(s: &str) -> String {
@@ -318,6 +388,55 @@ mod tests {
         assert_eq!(link_at(8, 50.0, 50.0), None, "other message");
     }
 
+    #[test]
+    fn xhtml_doctype_is_parsed_as_html() {
+        let _turn = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        for head in [
+            "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\"\n\"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html>",
+            "<html xmlns=\"http://www.w3.org/1999/xhtml\">",
+        ] {
+            let html = format!(
+                "{head}<head><title>T</title><style>div {{ height: 500px }}</style></head>\
+                 <body style=\"margin:0\"><div>a</div></body></html>"
+            );
+            let r = render(Job {
+                uid: 9,
+                html,
+                width: 600,
+                scale: 1.0,
+                allow_remote: false,
+                inline: HashMap::new(),
+            })
+            .unwrap();
+            let total: f32 = r.tiles.iter().map(|(_, h)| h).sum();
+            assert!((500.0..520.0).contains(&total), "style must apply, got {total}");
+        }
+    }
+
+    #[test]
+    fn full_height_body_keeps_its_overflow() {
+        let _turn = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        let html = r#"<html style="height:100%"><body style="height:100%;margin:0">
+            <div style="height:2000px">top</div><p>footer</p></body></html>"#;
+        let job = |width| Job {
+            uid: 11,
+            html: html.into(),
+            width,
+            scale: 1.0,
+            allow_remote: false,
+            inline: HashMap::new(),
+        };
+        let total = |r: Rendered| r.tiles.iter().map(|(_, h)| h).sum::<f32>();
+        assert!(
+            total(render(job(600)).unwrap()) > 2000.0,
+            "footer cut at the viewport"
+        );
+        // Same message, new width: laid out again from the kept document.
+        let r = render(job(400)).unwrap();
+        assert_eq!(r.width, 400);
+        assert!(total(r) > 2000.0);
+    }
+
     /// Renders `$FERROWL_HTML` and writes its tiles next to it (manual check).
     #[test]
     #[ignore = "manual: needs FERROWL_HTML"]
@@ -325,6 +444,20 @@ mod tests {
         let _turn = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
         let path = std::path::PathBuf::from(std::env::var("FERROWL_HTML").unwrap());
         let html = std::fs::read_to_string(&path).unwrap();
+        let t = Instant::now();
+        let job = |width| Job {
+            uid: 1,
+            html: html.clone(),
+            width,
+            scale: 1.0,
+            allow_remote: true,
+            inline: HashMap::new(),
+        };
+        render(job(500)).unwrap();
+        println!("first render {:?}", t.elapsed());
+        let t = Instant::now();
+        render(job(600)).unwrap();
+        println!("re-render at a new width {:?}", t.elapsed());
         let r = render(Job {
             uid: 1,
             html,
