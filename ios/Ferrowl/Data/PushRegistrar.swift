@@ -26,14 +26,21 @@ final class PushRegistrar {
     private static let secrets = "com.ferrowl.app.push"
 
     private(set) var enabled: Bool {
-        didSet { UserDefaults.standard.set(enabled, forKey: "push.enabled") }
+        didSet { SharedStorage.defaults.set(enabled, forKey: "push.enabled") }
+    }
+
+    /// The user was told what instant notifications send to the server and
+    /// answered (first launch, or the switch in Settings). Nothing goes to
+    /// the server before.
+    private(set) var asked: Bool {
+        didSet { SharedStorage.defaults.set(asked, forKey: "push.asked") }
     }
 
     /// Server account ids by address (lowercase).
     private var accounts: [String: String] {
         didSet {
             if let data = try? JSONEncoder().encode(accounts) {
-                UserDefaults.standard.set(data, forKey: "push.accounts")
+                SharedStorage.defaults.set(data, forKey: "push.accounts")
             }
         }
     }
@@ -43,8 +50,12 @@ final class PushRegistrar {
     private var running = false
 
     init() {
-        enabled = UserDefaults.standard.bool(forKey: "push.enabled")
-        accounts = (UserDefaults.standard.data(forKey: "push.accounts"))
+        // On by default: the phone registers with the first account; turning
+        // it off in Settings is remembered.
+        SharedStorage.defaults.register(defaults: ["push.enabled": true])
+        enabled = SharedStorage.defaults.bool(forKey: "push.enabled")
+        asked = SharedStorage.defaults.bool(forKey: "push.asked")
+        accounts = (SharedStorage.defaults.data(forKey: "push.accounts"))
             .flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
     }
 
@@ -81,6 +92,7 @@ final class PushRegistrar {
         }
         let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
         guard granted else { throw FerrowlError.Failed(message: t("push_error", ["err": t("notifications")])) }
+        asked = true
         enabled = true
         do {
             try await sync(app)
@@ -92,6 +104,7 @@ final class PushRegistrar {
 
     /// Turns them off and removes everything from the server.
     func disable() async {
+        asked = true
         enabled = false
         if let token = Keychain.get(Self.secrets, "device") {
             _ = try? await call("DELETE", "/v1/device", token: token, body: nil)
@@ -110,7 +123,7 @@ final class PushRegistrar {
 
     /// Brings the registration up to date (start, accounts or Pro changed).
     func sync(_ app: AppModel) async throws {
-        guard enabled, !running else { return }
+        guard enabled, asked, !running else { return }
         running = true
         defer { running = false }
         let apple = try await appleToken()
@@ -133,6 +146,15 @@ final class PushRegistrar {
             device = token
         }
         guard let token = device, let key = Keychain.get(Self.secrets, "key") else { return }
+        // Registrations kept by versions before the shared settings, which the
+        // server may still watch next to newer ones: removed once.
+        if let data = UserDefaults.standard.data(forKey: "push.accounts"),
+           let legacy = try? JSONDecoder().decode([String: String].self, from: data) {
+            for (email, id) in legacy where accounts[email] != id {
+                _ = try? await call("DELETE", "/v1/accounts/\(id)", token: token, body: nil)
+            }
+            UserDefaults.standard.removeObject(forKey: "push.accounts")
+        }
         if !accounts.isEmpty {
             _ = try await call("POST", "/v1/unlock", token: token, body: ["key": key])
         }

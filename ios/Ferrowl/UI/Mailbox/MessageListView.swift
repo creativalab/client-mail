@@ -106,18 +106,12 @@ struct MessageListView: View {
                     }
                     .tint(.yellow)
                 }
+                // To the left: delete (to the Trash; not in the Trash itself,
+                // where it would be for good without asking).
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                    if mail.folder(of: .archive)?.id != model.folderId {
-                        Button {
-                            model.archiveWithUndo(row)
-                        } label: {
-                            Label(t("archive"), systemImage: "archivebox")
-                        }
-                        .tint(.green)
-                    }
                     if !model.deletesForever {
                         Button(role: .destructive) {
-                            model.delete(row)
+                            model.deleteWithUndo(row)
                         } label: {
                             Label(t("delete"), systemImage: "trash")
                         }

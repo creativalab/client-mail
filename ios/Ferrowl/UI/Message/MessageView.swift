@@ -180,6 +180,8 @@ struct MessageView: View {
         .task {
             await model.load()
             mailbox?.opened([model.uid])
+            // Read now: the unread counts (and the app icon's number) change.
+            await mailbox?.loadUnread()
         }
         .toolbar { if !embedded { toolbar } }
         .overlay(alignment: .bottomLeading) {
@@ -253,7 +255,7 @@ struct MessageView: View {
         .background(.thickMaterial, in: Capsule())
         .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
         .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
-        .padding(.leading, 16)
+        .padding(.leading, 28)
         .padding(.bottom, 12)
     }
 

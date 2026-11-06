@@ -97,7 +97,7 @@ fn watch(
 ) {
     let mut retry = RETRY_MIN;
     while !stop.load(Ordering::Relaxed) {
-        match idle_session(account, stop, || {
+        match idle_session(account_id, account, stop, || {
             on_new_mail(account_id, device_id, store, notifier)
         }) {
             Ok(Ended::Stopped) => return,
@@ -132,6 +132,7 @@ enum Ended {
 }
 
 fn idle_session(
+    account_id: &str,
     account: &Account,
     stop: &AtomicBool,
     mut on_new: impl FnMut() -> bool,
@@ -142,9 +143,18 @@ fn idle_session(
         return Ok(Ended::NoIdle);
     }
     let mut exists = session.select("INBOX")?.exists;
+    eprintln!("account {account_id}: watching the inbox");
     while !stop.load(Ordering::Relaxed) {
         if mail::idle_wait(&mut session, "INBOX", IDLE_TIMEOUT)? {
+            // Removed while waiting (the wait ends only with mail or a
+            // timeout): no notification for an account that is gone.
+            if stop.load(Ordering::Relaxed) {
+                break;
+            }
             let now = session.select("INBOX")?.exists;
+            if now > exists {
+                eprintln!("account {account_id}: new mail, notifying");
+            }
             if now > exists && !on_new() {
                 let _ = session.logout();
                 return Ok(Ended::Gone);
@@ -163,7 +173,13 @@ fn on_new_mail(account_id: &str, device_id: &str, store: &Store, notifier: &dyn 
         _ => return false,
     };
     match notifier.notify(&target, account_id) {
-        Ok(Delivery::Sent) => true,
+        Ok(Delivery::Sent) => {
+            eprintln!(
+                "account {account_id}: notification sent ({})",
+                target.platform.name()
+            );
+            true
+        }
         Ok(Delivery::Unregistered) => {
             eprintln!("device {device_id}: push token no longer valid, removing the device");
             let _ = store.delete_device(device_id);

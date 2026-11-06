@@ -314,6 +314,78 @@ pub fn access_token(provider: Provider, email: &str) -> Result<String> {
     Ok(tokens.access_token)
 }
 
+// ------------------------------------------------------------ push server
+
+/// Which OAuth client got a refresh token: a token can only be refreshed
+/// by the client it was issued to (Google on iOS has its own client).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Client {
+    #[default]
+    Standard,
+    GoogleIos,
+}
+
+/// The sign-in a phone hands to Ferrowl's push server, so it can watch an
+/// account that has no password: the refresh token and its client. Sent
+/// sealed with the phone's key, like the account itself.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Grant {
+    pub refresh_token: String,
+    #[serde(default)]
+    pub client: Client,
+}
+
+/// This device's grant for an account (None when not signed in here).
+pub fn grant(provider: Provider, email: &str) -> Option<Grant> {
+    let refresh_token = load_refresh_token(provider, email)?;
+    let client = if cfg!(target_os = "ios") && provider == Provider::Google {
+        Client::GoogleIos
+    } else {
+        Client::Standard
+    };
+    Some(Grant {
+        refresh_token,
+        client,
+    })
+}
+
+/// A new access token from a refresh.
+#[derive(Debug, Clone)]
+pub struct Refreshed {
+    pub access_token: String,
+    pub lifetime: Duration,
+    /// Some providers (Microsoft) send a new refresh token: keep it.
+    pub refresh_token: Option<String>,
+}
+
+/// Refreshes a grant without the device's vault (the push server keeps
+/// grants itself).
+pub fn refresh_grant(provider: Provider, grant: &Grant) -> Result<Refreshed> {
+    let e = provider.endpoints();
+    let (client_id, client_secret) = match grant.client {
+        Client::GoogleIos => (GOOGLE_IOS_CLIENT_ID, ""),
+        Client::Standard => (e.client_id, e.client_secret),
+    };
+    let mut form = vec![
+        ("client_id", client_id),
+        ("grant_type", "refresh_token"),
+        ("refresh_token", grant.refresh_token.as_str()),
+    ];
+    if !client_secret.is_empty() {
+        form.push(("client_secret", client_secret));
+    }
+    if provider == Provider::Microsoft {
+        form.push(("scope", e.scope));
+    }
+    let tokens = post_token(e.token, &form)?;
+    Ok(Refreshed {
+        lifetime: Duration::from_secs(tokens.expires_in.unwrap_or(3600)),
+        refresh_token: tokens.refresh_token.filter(|r| r != &grant.refresh_token),
+        access_token: tokens.access_token,
+    })
+}
+
 fn remember(provider: Provider, email: &str, tokens: &TokenResponse) -> Result<()> {
     if let Some(refresh) = &tokens.refresh_token {
         save_refresh_token(provider, email, refresh)?;

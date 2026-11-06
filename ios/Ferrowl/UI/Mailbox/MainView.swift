@@ -41,10 +41,22 @@ struct MainView: View {
             }
             await model?.start()
         }
+        // A notification was tapped (also before the mailbox was ready: the
+        // request waits for it).
+        .task(id: "\(app.pendingOpen?.email ?? "")|\(app.pendingOpen?.uid ?? 0)|\(model != nil)") {
+            await openFromNotification()
+        }
         .onChange(of: mail.changes) { _, _ in
             Task { await model?.reloadLocal() }
         }
         .sheet(item: $sheet) { sheet in
+            sheetContent(sheet)
+                .showsNotices()
+        }
+    }
+
+    @ViewBuilder
+    private func sheetContent(_ sheet: Sheet) -> some View {
             switch sheet {
             case .compose(let request):
                 ComposeView(request: request)
@@ -69,7 +81,35 @@ struct MainView: View {
                     }
                 })
             }
+    }
+
+    /// Opens the message of a tapped notification: switches to its account
+    /// first (this screen then starts over and comes back here), then its
+    /// inbox and the message.
+    private func openFromNotification() async {
+        guard let pending = app.pendingOpen, let model else { return }
+        if pending.email.caseInsensitiveCompare(mail.activeEmail ?? "") != .orderedSame {
+            guard app.mayUse(pending.email) else {
+                app.pendingOpen = nil
+                return
+            }
+            try? await mail.switchTo(pending.email)
+            return
         }
+        app.pendingOpen = nil
+        sheet = nil
+        await model.start()
+        if model.folderId != mail.inboxId { model.openFolder(mail.inboxId) }
+        guard let uid = pending.uid else {
+            column = .content
+            return
+        }
+        if model.header(uid) == nil { await model.refresh() }
+        guard let header = model.header(uid) else {
+            column = .content
+            return
+        }
+        model.open = Row(conversation: Conversation(latest: header, uids: [uid], unread: header.seen ? 0 : 1))
     }
 
     private func split(_ model: MailboxModel) -> some View {

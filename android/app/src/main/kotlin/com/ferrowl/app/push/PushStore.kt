@@ -20,7 +20,9 @@ private val Context.push: DataStore<Preferences> by preferencesDataStore(name = 
 
 /** What the phone knows about its registration on the push server. */
 data class PushState(
-    val enabled: Boolean = false,
+    val enabled: Boolean = true,
+    /** The user was told what instant notifications send to the server and answered. */
+    val asked: Boolean = false,
     /** Secret token identifying this phone to the server. */
     val deviceToken: String? = null,
     /** The phone's key (base64), which seals the account on the server. */
@@ -46,7 +48,10 @@ class PushStore @Inject constructor(
 ) {
     val state: Flow<PushState> = context.push.data.map { p ->
         PushState(
-            enabled = p[ENABLED] ?: false,
+            // On by default: the phone registers with the first account;
+            // turning it off in Settings is remembered.
+            enabled = p[ENABLED] ?: true,
+            asked = p[ASKED] ?: false,
             deviceToken = p[TOKEN]?.let(::open),
             key = p[KEY]?.let(::open),
             accounts = p[ACCOUNTS]?.let { runCatching { Json.decodeFromString<Map<String, String>>(it) }.getOrNull() }.orEmpty(),
@@ -56,7 +61,11 @@ class PushStore @Inject constructor(
 
     suspend fun current(): PushState = state.first()
 
-    suspend fun setEnabled(on: Boolean) = context.push.edit { it[ENABLED] = on }
+    /** On or off, after the user answered. */
+    suspend fun setEnabled(on: Boolean) = context.push.edit {
+        it[ENABLED] = on
+        it[ASKED] = true
+    }
 
     suspend fun saveDevice(deviceToken: String, key: String) = context.push.edit {
         it[TOKEN] = secrets.encrypt(deviceToken)
@@ -96,6 +105,7 @@ class PushStore @Inject constructor(
 
     private companion object {
         val ENABLED = booleanPreferencesKey("enabled")
+        val ASKED = booleanPreferencesKey("asked")
         val TOKEN = stringPreferencesKey("device_token")
         val KEY = stringPreferencesKey("key")
         /** Older versions: the only account watched. */

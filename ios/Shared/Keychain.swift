@@ -4,14 +4,51 @@ import Security
 /// Secrets (passwords, OpenPGP passphrases, sign-in tokens) in the iOS
 /// Keychain. They stay on this device: not in backups, not synced through
 /// iCloud, readable once the phone was unlocked after a restart (so the
-/// background refresh can use them).
+/// background refresh and the notification extension can use them).
+/// They belong to the App Group, shared with the notification extension.
 enum Keychain {
+    static let services = ["com.ferrowl.app.accounts", "com.ferrowl.app.tokens", "com.ferrowl.app.push"]
+
     private static func query(_ service: String, _ key: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
+            kSecAttrAccessGroup as String: SharedStorage.group,
         ]
+    }
+
+    /// Items saved by versions before the App Group (the app's own group):
+    /// moved to the shared one.
+    static func moveToSharedGroup() {
+        for service in services {
+            let q: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecMatchLimit as String: kSecMatchLimitAll,
+                kSecReturnAttributes as String: true,
+                kSecReturnData as String: true,
+            ]
+            var out: CFTypeRef?
+            guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess,
+                  let items = out as? [[String: Any]] else { continue }
+            for item in items {
+                guard (item[kSecAttrAccessGroup as String] as? String) != SharedStorage.group,
+                      let key = item[kSecAttrAccount as String] as? String,
+                      let data = item[kSecValueData as String] as? Data,
+                      let secret = String(data: data, encoding: .utf8)
+                else { continue }
+                if set(service, key, secret) {
+                    var old: [String: Any] = [
+                        kSecClass as String: kSecClassGenericPassword,
+                        kSecAttrService as String: service,
+                        kSecAttrAccount as String: key,
+                    ]
+                    if let group = item[kSecAttrAccessGroup as String] { old[kSecAttrAccessGroup as String] = group }
+                    SecItemDelete(old as CFDictionary)
+                }
+            }
+        }
     }
 
     static func get(_ service: String, _ key: String) -> String? {
