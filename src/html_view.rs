@@ -215,7 +215,13 @@ fn render_job(job: Job) -> (HtmlDocument, Rendered) {
         net_provider: Some(Arc::new(net)),
         ..Default::default()
     };
-    let mut doc = HtmlDocument::from_html(&job.html, config);
+    // A text/html part is HTML whatever it declares: Blitz parses anything
+    // starting with an XHTML doctype or `<html xmlns=…xhtml>` as XML, where
+    // the HTML user-agent styles do not apply (head, title and style text
+    // show up, paragraphs and tables collapse). A leading comment keeps its
+    // sniffing off and is harmless to the HTML parser.
+    let html = format!("<!---->{}", job.html);
+    let mut doc = HtmlDocument::from_html(&html, config);
     doc.resolve(0.0);
     // Wait for images/stylesheets (bounded), then lay out again.
     let deadline = Instant::now() + FETCH_DEADLINE;
@@ -316,6 +322,31 @@ mod tests {
         assert_eq!(link_at(7, 50.0, 50.0).as_deref(), Some("https://ferrowl.com/x"));
         assert_eq!(link_at(7, 50.0, 2000.0), None);
         assert_eq!(link_at(8, 50.0, 50.0), None, "other message");
+    }
+
+    #[test]
+    fn xhtml_doctype_is_parsed_as_html() {
+        let _turn = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        for head in [
+            "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\"\n\"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html>",
+            "<html xmlns=\"http://www.w3.org/1999/xhtml\">",
+        ] {
+            let html = format!(
+                "{head}<head><title>T</title><style>div {{ height: 500px }}</style></head>\
+                 <body style=\"margin:0\"><div>a</div></body></html>"
+            );
+            let r = render(Job {
+                uid: 9,
+                html,
+                width: 600,
+                scale: 1.0,
+                allow_remote: false,
+                inline: HashMap::new(),
+            })
+            .unwrap();
+            let total: f32 = r.tiles.iter().map(|(_, h)| h).sum();
+            assert!((500.0..520.0).contains(&total), "style must apply, got {total}");
+        }
     }
 
     /// Renders `$FERROWL_HTML` and writes its tiles next to it (manual check).
