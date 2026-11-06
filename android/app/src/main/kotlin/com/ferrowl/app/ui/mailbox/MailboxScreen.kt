@@ -143,16 +143,26 @@ fun MailboxScreen(
     }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    // Instant notifications are on by default: Android 13+ asks for the
-    // permission to show them once there is a mailbox.
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        val context = LocalContext.current
-        val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
-        LaunchedEffect(Unit) {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                ask.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
+    // Instant notifications: what they send to the server is explained once,
+    // with the first account, before anything is sent; Android 13+ then asks
+    // for the permission to show them.
+    val askPush by vm.askPush.collectAsStateWithLifecycle()
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { vm.enablePush() }
+    val context = LocalContext.current
+    if (askPush) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text(stringResource(R.string.push_title)) },
+            text = { Text(stringResource(R.string.push_desc)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    if (needsPermission) permission.launch(Manifest.permission.POST_NOTIFICATIONS) else vm.enablePush()
+                }) { Text(stringResource(R.string.push_enable)) }
+            },
+            dismissButton = { TextButton(onClick = vm::declinePush) { Text(stringResource(R.string.pro_not_now)) } },
+        )
     }
     var searchOpen by remember { mutableStateOf(false) }
     // The search text with its cursor: a command tapped below puts it at the end.

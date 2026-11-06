@@ -29,6 +29,13 @@ final class PushRegistrar {
         didSet { SharedStorage.defaults.set(enabled, forKey: "push.enabled") }
     }
 
+    /// The user was told what instant notifications send to the server and
+    /// answered (first launch, or the switch in Settings). Nothing goes to
+    /// the server before.
+    private(set) var asked: Bool {
+        didSet { SharedStorage.defaults.set(asked, forKey: "push.asked") }
+    }
+
     /// Server account ids by address (lowercase).
     private var accounts: [String: String] {
         didSet {
@@ -47,6 +54,7 @@ final class PushRegistrar {
         // it off in Settings is remembered.
         SharedStorage.defaults.register(defaults: ["push.enabled": true])
         enabled = SharedStorage.defaults.bool(forKey: "push.enabled")
+        asked = SharedStorage.defaults.bool(forKey: "push.asked")
         accounts = (SharedStorage.defaults.data(forKey: "push.accounts"))
             .flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
     }
@@ -84,6 +92,7 @@ final class PushRegistrar {
         }
         let granted = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
         guard granted else { throw FerrowlError.Failed(message: t("push_error", ["err": t("notifications")])) }
+        asked = true
         enabled = true
         do {
             try await sync(app)
@@ -95,6 +104,7 @@ final class PushRegistrar {
 
     /// Turns them off and removes everything from the server.
     func disable() async {
+        asked = true
         enabled = false
         if let token = Keychain.get(Self.secrets, "device") {
             _ = try? await call("DELETE", "/v1/device", token: token, body: nil)
@@ -113,7 +123,7 @@ final class PushRegistrar {
 
     /// Brings the registration up to date (start, accounts or Pro changed).
     func sync(_ app: AppModel) async throws {
-        guard enabled, !running else { return }
+        guard enabled, asked, !running else { return }
         running = true
         defer { running = false }
         let apple = try await appleToken()

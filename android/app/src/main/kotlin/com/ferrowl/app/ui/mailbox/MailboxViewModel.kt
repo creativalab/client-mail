@@ -93,6 +93,7 @@ class MailboxViewModel @Inject constructor(
     private val notices: Notices,
     private val billing: Billing,
     private val notificationOpen: NotificationOpen,
+    private val push: com.ferrowl.app.push.PushRegistrar,
 ) : ViewModel() {
     private val _state = MutableStateFlow(MailboxState())
     val state: StateFlow<MailboxState> = _state.asStateFlow()
@@ -182,6 +183,35 @@ class MailboxViewModel @Inject constructor(
                 loadUnread()
             }
         }
+    }
+
+    /** Instant notifications: the first-launch question is on screen. */
+    private val _askPush = MutableStateFlow(false)
+    val askPush: StateFlow<Boolean> = _askPush.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            if (push.needsAsking() && repo.savedAccount() != null) _askPush.value = true
+        }
+    }
+
+    /** "Turn on": registers with the push server (after the system permission). */
+    fun enablePush() {
+        _askPush.value = false
+        viewModelScope.launch {
+            try {
+                push.enable()
+            } catch (e: Exception) {
+                notices.error(translate("push_error").replace("{err}", e.message.orEmpty()))
+                runCatching { push.disable() }
+            }
+        }
+    }
+
+    /** "Not now": nothing goes to the server; Settings can turn it on later. */
+    fun declinePush() {
+        _askPush.value = false
+        viewModelScope.launch { runCatching { push.disable() } }
     }
 
     /** A tapped notification asks for this message (switch account first). */
