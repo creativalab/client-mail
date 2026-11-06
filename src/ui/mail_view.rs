@@ -7,7 +7,9 @@ use crate::mail::{Folder, FolderKind};
 use crate::theme;
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::text::Wrapping;
-use iced::widget::{Column, Row, column, mouse_area, opaque, row, scrollable, space, stack, text_editor};
+use iced::widget::{
+    Column, Row, column, mouse_area, opaque, row, scrollable, sensor, space, stack, text_editor,
+};
 use iced::{Alignment, Length::Fill, Padding};
 use std::collections::BTreeMap;
 
@@ -1473,6 +1475,9 @@ fn reader<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
             .line_height(1.25),
     ]
     .spacing(24)
+    // Fill (up to 820): a shrinking column would size the HTML message to
+    // its widest sibling instead of the room the reader has.
+    .width(Fill)
     .max_width(820);
     content = content.push(sender);
     if let Some(card) = super::invite::view(app, msg.uid, p) {
@@ -1769,6 +1774,16 @@ fn thread_row<'a>(
 
 /// The HTML message as rendered tiles, with link hover/click.
 fn html_body<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
+    // Measures the width the reader gives the message, so it is laid out
+    // for exactly that.
+    // Only on_resize: it reports every size change, also while the top of
+    // the message is scrolled out of view (on_show would gate it on that).
+    sensor(container(html_page(app, p)).width(Fill))
+        .on_resize(|s| Message::ReaderWidth(s.width))
+        .into()
+}
+
+fn html_page<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     let Some(r) = &app.html_render else {
         return container(text(t("html_loading")).size(14).color(p.muted))
             .padding([24, 0])
@@ -1777,15 +1792,17 @@ fn html_body<'a>(app: &'a App, p: Palette) -> Element<'a, Message> {
     let pointer = app.hover_link.is_some();
     let mut tiles = Column::new();
     let mut offset = 0.0;
+    let zoom = r.zoom;
     for (handle, h) in &r.tiles {
         let top = offset;
         tiles = tiles.push(
             mouse_area(
                 iced::widget::image(handle.clone())
                     .width(r.width as f32)
-                    .height(*h),
+                    .height(*h * zoom),
             )
-            .on_move(move |pt| Message::HtmlPointer(pt.x, pt.y + top))
+            // Back to the message's own coordinates for hit testing.
+            .on_move(move |pt| Message::HtmlPointer(pt.x / zoom, top + pt.y / zoom))
             .on_press(Message::HtmlClick)
             .on_exit(Message::HtmlLeave)
             .interaction(if pointer {
