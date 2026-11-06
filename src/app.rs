@@ -520,6 +520,10 @@ pub struct App {
     pub conn: Conn,
     pub folders: Vec<Folder>,
     pub unseen: HashMap<String, u32>,
+    /// Unread count last shown on the dock icon.
+    badge: Option<u32>,
+    /// Unread mail in the other accounts' inboxes, by email.
+    other_unread: HashMap<String, u32>,
     pub expanded: HashSet<String>,
     pub current_folder: Option<String>,
     pub headers: Vec<Header>,
@@ -661,6 +665,8 @@ pub enum Message {
     /// New unread mail in another account's inbox: (account address,
     /// (sender, subject) of each message).
     OtherMail(String, Vec<(String, String)>),
+    /// Unread count in another account's inbox (by email), for the dock icon.
+    OtherUnread(String, u32),
     /// Inbox checked after a push while another folder is open.
     PushChecked(Res<(Vec<Header>, u32)>),
     ToggleNotifications(bool),
@@ -914,6 +920,8 @@ impl App {
             conn: Conn::Offline,
             folders: Vec::new(),
             unseen: HashMap::new(),
+            badge: None,
+            other_unread: HashMap::new(),
             expanded: HashSet::new(),
             current_folder: None,
             headers: Vec::new(),
@@ -1136,20 +1144,18 @@ impl App {
                 other: false,
             }));
         }
-        // The other accounts' inboxes too, so their new mail is notified
-        // without switching to them.
-        if self.config.ui.notifications {
-            for (i, account) in self.config.accounts.iter().enumerate() {
-                if i == self.config.active || account.is_pop3() {
-                    continue;
-                }
-                subs.push(crate::push::subscription(crate::push::Watch {
-                    account: account.clone(),
-                    folder: "INBOX".into(),
-                    generation: 0,
-                    other: true,
-                }));
+        // The other accounts' inboxes too: their unread count for the dock
+        // icon and, when enabled, a notification for their new mail.
+        for (i, account) in self.config.accounts.iter().enumerate() {
+            if i == self.config.active || account.is_pop3() {
+                continue;
             }
+            subs.push(crate::push::subscription(crate::push::Watch {
+                account: account.clone(),
+                folder: "INBOX".into(),
+                generation: 0,
+                other: true,
+            }));
         }
         Subscription::batch(subs)
     }
@@ -1165,6 +1171,32 @@ impl App {
     ) -> Task<Message> {
         let generation = self.generation;
         Task::perform(fut, move |r| Message::Scoped(generation, Box::new(f(r))))
+    }
+
+    /// The dock icon shows the unread mail of every account's inbox: the open
+    /// account's from the list, the others' from their push watch.
+    fn update_badge(&mut self) -> Task<Message> {
+        let inbox = self.folder_by_kind(FolderKind::Inbox).map(|f| f.name.clone());
+        let mine = inbox.and_then(|f| self.unseen.get(&f).copied()).unwrap_or(0);
+        let active = self.config.account().map(|a| a.email.clone());
+        let others: u32 = self
+            .config
+            .accounts
+            .iter()
+            .filter(|a| Some(&a.email) != active.as_ref())
+            .filter_map(|a| self.other_unread.get(&a.email))
+            .sum();
+        let count = mine + others;
+        if self.badge == Some(count) {
+            return Task::none();
+        }
+        self.badge = Some(count);
+        Task::perform(
+            async move {
+                let _ = tokio::task::spawn_blocking(move || crate::push::set_badge(count)).await;
+            },
+            |_| Message::Noop,
+        )
     }
 
     /// Compares an inbox listing with the last one: unseen messages with a
@@ -2146,7 +2178,11 @@ impl App {
             }
             Message::Unseen(Ok(map)) => {
                 self.unseen.extend(map);
-                Task::none()
+                self.update_badge()
+            }
+            Message::OtherUnread(email, n) => {
+                self.other_unread.insert(email, n);
+                self.update_badge()
             }
             Message::Unseen(Err(_)) => Task::none(),
             Message::Check(uids, on) => {
