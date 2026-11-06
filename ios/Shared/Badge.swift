@@ -2,10 +2,23 @@ import Foundation
 import UserNotifications
 
 /// The number on the app icon: unread messages in the inboxes of every
-/// account. Each account's count is kept in the shared settings, written
-/// by the app when it loads an inbox and by the notification extension
-/// when new mail arrives.
+/// account (Gmail: of the Primary tab, as the Gmail app counts). Each
+/// account's count is kept in the shared settings, written by the app when
+/// it loads an inbox and by the notification extension when new mail
+/// arrives; accounts no longer on the phone do not count.
 enum Badge {
+    /// An account's count: the server's unread count of the inbox, or for
+    /// Gmail the unread messages of the Primary tab among the newest ones
+    /// (the server's count includes Promotions, Social, Updates, Forums).
+    static func unread(server: UInt32?, headers: [Header], gmail: Bool) -> Int? {
+        if gmail { return headers.filter { !$0.seen && $0.category == 0 }.count }
+        return server.map { Int($0) }
+    }
+
+    static func isGmail(_ account: Account) -> Bool {
+        account.incomingHost.lowercased().hasSuffix("gmail.com")
+    }
+
     private static func key(_ email: String) -> String { "unread:\(email.lowercased())" }
 
     /// The total, after saving one account's count.
@@ -13,14 +26,25 @@ enum Badge {
     static func set(_ unread: Int, for email: String) -> Int {
         let d = SharedStorage.defaults
         d.set(unread, forKey: key(email))
+        #if DEBUG
+        print("badge: \(email) = \(unread)")
+        #endif
         return total()
     }
 
     static func total() -> Int {
-        SharedStorage.defaults.dictionaryRepresentation()
-            .filter { $0.key.hasPrefix("unread:") }
-            .compactMap { $0.value as? Int }
-            .reduce(0, +)
+        let d = SharedStorage.defaults
+        let accounts = Set(AccountStore(directory: SharedStorage.directory).load().accounts.map { $0.email.lowercased() })
+        var sum = 0
+        for (key, value) in d.dictionaryRepresentation() where key.hasPrefix("unread:") {
+            // A removed account (also one removed before this was kept tidy).
+            guard accounts.contains(String(key.dropFirst("unread:".count))) else {
+                d.removeObject(forKey: key)
+                continue
+            }
+            sum += value as? Int ?? 0
+        }
+        return sum
     }
 
     /// Forgets a removed account.

@@ -147,9 +147,14 @@ final class MailboxModel {
     func loadUnread() async {
         if let counts = try? await mail.unread() {
             unread = counts
-            // The number on the app icon.
-            if let email = mail.activeEmail, let inbox = counts[mail.inboxId] {
-                Badge.set(Int(inbox), for: email)
+            // The number on the app icon (Gmail: from the inbox's messages,
+            // so only when the inbox is the open folder).
+            if let account = mail.activeAccount {
+                let gmail = Badge.isGmail(account)
+                if !gmail || folderId == mail.inboxId,
+                   let n = Badge.unread(server: counts[mail.inboxId], headers: messages, gmail: gmail) {
+                    Badge.set(n, for: account.email)
+                }
                 Badge.show()
             }
         }

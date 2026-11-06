@@ -49,7 +49,10 @@ enum SharedStorage {
             }
         }
         let standard = UserDefaults.standard
-        for key in ["push.enabled", "push.accounts"] {
+        let moved = standard.dictionaryRepresentation().keys.filter {
+            $0 == "push.enabled" || $0 == "push.accounts" || $0.hasPrefix("lastUid:")
+        }
+        for key in moved {
             if let value = standard.object(forKey: key), defaults.object(forKey: key) == nil {
                 defaults.set(value, forKey: key)
             }

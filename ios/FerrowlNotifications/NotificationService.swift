@@ -51,16 +51,20 @@ final class NotificationService: UNNotificationServiceExtension {
             let folders = try await engine.connect(account: account)
             let inbox = folders.first { $0.kind == .inbox }?.id ?? "INBOX"
             let headers = try await engine.headers(folderId: inbox).headers
-            if let unread = try? await engine.unread(folderIds: [inbox])[inbox] {
-                content.badge = NSNumber(value: Badge.set(Int(unread), for: account.email))
+            let unread = try? await engine.unread(folderIds: [inbox])[inbox]
+            if let n = Badge.unread(server: unread, headers: headers, gmail: Badge.isGmail(account)) {
+                content.badge = NSNumber(value: Badge.set(n, for: account.email))
             }
             // The same memory as the app's background check: each message once.
             let key = "lastUid:\(account.email.lowercased())"
             let last = UInt32(SharedStorage.defaults.integer(forKey: key))
-            let fresh = headers.filter { $0.uid > last && !$0.seen }.sorted { $0.uid > $1.uid }
-            if let newest = headers.map(\.uid).max() {
-                SharedStorage.defaults.set(Int(max(newest, last)), forKey: key)
-            }
+            let newest = headers.map(\.uid).max() ?? last
+            SharedStorage.defaults.set(Int(max(newest, last)), forKey: key)
+            // First time for this account: no memory of what was already
+            // announced, so only the newest unread message is shown.
+            let fresh = last == 0
+                ? Array(headers.filter { !$0.seen }.sorted { $0.uid > $1.uid }.prefix(1))
+                : headers.filter { $0.uid > last && !$0.seen }.sorted { $0.uid > $1.uid }
             guard let first = fresh.first else { return }
             // Tapping it opens this message.
             content.userInfo["email"] = account.email

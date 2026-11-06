@@ -10,7 +10,6 @@ struct SettingsView: View {
     @Environment(ProStore.self) private var pro
     @Environment(Notices.self) private var notices
     @Environment(\.dismiss) private var dismiss
-    @State private var removing: Account?
     @State private var offer = false
     @State private var manage = false
     @State private var pushBusy = false
@@ -22,7 +21,7 @@ struct SettingsView: View {
                 Section(t("section_accounts")) {
                     ForEach(mail.accounts, id: \.email) { account in
                         NavigationLink {
-                            AccountDetail(account: account, remove: { removing = account })
+                            AccountDetail(account: account, closeSettings: { dismiss() })
                         } label: {
                             HStack {
                                 Avatar(name: account.displayName.isEmpty ? account.email : account.displayName, size: 32)
@@ -118,16 +117,6 @@ struct SettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button(t("close")) { dismiss() } }
             }
-            .confirmationDialog(t("remove_account"), isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
-                                titleVisibility: .visible, presenting: removing) { account in
-                Button(t("remove_account"), role: .destructive) {
-                    Task {
-                        if !(await mail.removeAccount(account.email)) { dismiss() }
-                    }
-                }
-            } message: { _ in
-                Text(t("confirm_remove_account"))
-            }
             .sheet(isPresented: $offer) { ProOffer(onBought: { offer = false }).showsNotices() }
             .manageSubscriptionsSheet(isPresented: $manage)
         }
@@ -157,15 +146,29 @@ struct SettingsView: View {
     }
 }
 
-/// An account's settings: the name, and removing it.
+/// An account's settings: the name, the contacts and calendar servers, and
+/// removing it.
 struct AccountDetail: View {
     let account: Account
-    let remove: () -> Void
+    /// The last account is gone: Settings closes (the setup comes next).
+    let closeSettings: () -> Void
 
     @Environment(MailRepository.self) private var mail
+    @Environment(\.dismiss) private var dismiss
+    @State private var confirmRemove = false
+    @State private var removing = false
     @State private var name = ""
     @State private var carddav = ""
     @State private var caldav = ""
+
+    private func remove() {
+        removing = true
+        Task {
+            let left = await mail.removeAccount(account.email)
+            removing = false
+            if left { dismiss() } else { closeSettings() }
+        }
+    }
 
     var body: some View {
         Form {
@@ -189,16 +192,32 @@ struct AccountDetail: View {
                 Text(t("carddav_url_hint"))
             }
             Section {
-                Button(t("remove_account"), role: .destructive, action: remove)
+                Button(role: .destructive) {
+                    confirmRemove = true
+                } label: {
+                    HStack {
+                        Text(t("remove_account"))
+                        Spacer()
+                        if removing { ProgressView() }
+                    }
+                }
+                .disabled(removing)
             }
         }
         .navigationTitle(t("account_settings"))
+        // On this screen (not the list under it), so iOS shows it.
+        .confirmationDialog(t("remove_account"), isPresented: $confirmRemove, titleVisibility: .visible) {
+            Button(t("remove_account"), role: .destructive) { remove() }
+        } message: {
+            Text(t("confirm_remove_account"))
+        }
         .onAppear {
             name = account.displayName
             carddav = account.carddavUrl
             caldav = account.caldavUrl
         }
         .onDisappear {
+            guard !removing else { return }
             var changed = account
             changed.displayName = name.trimmingCharacters(in: .whitespaces)
             changed.carddavUrl = carddav.trimmingCharacters(in: .whitespaces)

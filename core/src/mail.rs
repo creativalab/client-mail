@@ -529,41 +529,49 @@ pub fn list_folders(session: &mut ImapSession) -> Result<Vec<Folder>> {
     Ok(folders)
 }
 
-/// Unread messages for each requested folder (STATUS command).
 /// Unread messages per folder, and whether the session is still in step
 /// with the server afterwards (false: start the next command on a new
 /// connection).
+///
+/// The STATUS answer is read here rather than by the IMAP library, whose
+/// parser refuses Outlook's ("Unable to parse status response").
 pub fn unseen_counts(session: &mut ImapSession, folders: &[String]) -> (HashMap<String, u32>, bool) {
     let mut out = HashMap::new();
     for f in folders {
-        match session.status(f, "(UNSEEN)") {
-            Ok(_) => {}
+        match session.run_command_and_read_response(format!("STATUS {} (UNSEEN)", quote_mailbox(f))) {
+            Ok(answer) => {
+                if let Some(n) = unseen_in(&answer) {
+                    out.insert(f.clone(), n);
+                }
+            }
             // Refused for this folder: the session is still in step.
             Err(imap::Error::No(_) | imap::Error::Bad(_)) => continue,
-            // An answer the library could not read (seen with Outlook):
-            // the rest of it is still unread, so any further command here
-            // would read it instead of its own. Stop with what we have; the
-            // engine starts the next command on a new connection.
             Err(e) => {
                 if cfg!(debug_assertions) {
-                    eprintln!("imap: STATUS {f:?} unreadable, stopping the counts: {e}");
+                    eprintln!("imap: STATUS {f:?} failed, stopping the counts: {e}");
                 }
-                session.unsolicited_responses.try_iter().for_each(drop);
                 return (out, false);
-            }
-        }
-        // imap 2.4 delivers the STATUS response among the unsolicited responses.
-        while let Ok(resp) = session.unsolicited_responses.try_recv() {
-            if let imap::types::UnsolicitedResponse::Status { attributes, .. } = resp {
-                for a in attributes {
-                    if let imap::types::StatusAttribute::Unseen(n) = a {
-                        out.insert(f.clone(), n);
-                    }
-                }
             }
         }
     }
     (out, true)
+}
+
+/// A mailbox name as an IMAP quoted string.
+fn quote_mailbox(name: &str) -> String {
+    format!("\"{}\"", name.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// The UNSEEN count in a STATUS answer ("* STATUS INBOX (UNSEEN 3)").
+fn unseen_in(answer: &[u8]) -> Option<u32> {
+    let text = String::from_utf8_lossy(answer).to_ascii_uppercase();
+    let at = text.find("UNSEEN ")? + "UNSEEN ".len();
+    text[at..]
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>()
+        .parse()
+        .ok()
 }
 
 // ---------------------------------------------------------------- reading
@@ -1595,6 +1603,20 @@ impl lettre::message::header::Header for Autocrypt {
     }
     fn display(&self) -> lettre::message::header::HeaderValue {
         lettre::message::header::HeaderValue::new(Self::name(), self.0.clone())
+    }
+}
+
+#[cfg(test)]
+mod status_tests {
+    #[test]
+    fn unseen_counts_are_read_from_status_answers() {
+        assert_eq!(super::unseen_in(b"* STATUS INBOX (UNSEEN 3)\r\n"), Some(3));
+        assert_eq!(
+            super::unseen_in(b"* STATUS \"Posta in arrivo\" (MESSAGES 9 UNSEEN 12)\r\n"),
+            Some(12)
+        );
+        assert_eq!(super::unseen_in(b"* STATUS Archivio ()\r\n"), None);
+        assert_eq!(super::quote_mailbox("A \"b\""), "\"A \\\"b\\\"\"");
     }
 }
 
