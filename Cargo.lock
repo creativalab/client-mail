@@ -2272,6 +2272,7 @@ dependencies = [
  "tokio",
  "ureq",
  "winresource",
+ "zbus 5.19.0",
 ]
 
 [[package]]
