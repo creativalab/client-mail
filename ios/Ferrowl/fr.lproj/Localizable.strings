@@ -1,0 +1,2 @@
+/* Generated from core/locales by ffi/build-ios.sh: edit those files. */
+"notif_new_mail" = "Nouveau message";

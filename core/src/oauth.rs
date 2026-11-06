@@ -42,17 +42,31 @@ const MICROSOFT_CLIENT_ID: &str = match option_env!("FERROWL_MICROSOFT_CLIENT_ID
     // Microsoft Entra tenant, publisher domain ferrowl.com.
     None => "40824528-0620-4dc4-9eee-84f31a1637f5",
 };
-const GOOGLE_CLIENT_ID: &str = match option_env!("FERROWL_GOOGLE_CLIENT_ID") {
+const GOOGLE_DESKTOP_CLIENT_ID: &str = match option_env!("FERROWL_GOOGLE_CLIENT_ID") {
     Some(id) => id,
     // "Ferrowl desktop" OAuth client of the Google Cloud project "Ferrowl".
     None => "72326679637-br76ngo5he65p71eesvk2qdjmb63qqhj.apps.googleusercontent.com",
+};
+/// "Ferrowl iOS" OAuth client (bundle id com.ferrowl.app): no secret, the
+/// answer comes back to the app's own address (see [GOOGLE_IOS_REDIRECT]).
+pub const GOOGLE_IOS_CLIENT_ID: &str =
+    "72326679637-s3g4uak2k5861mat9p2ar1m5h32i0ibn.apps.googleusercontent.com";
+/// Where Google sends the iOS app back: the client id reversed, as Google
+/// requires for iOS clients.
+pub const GOOGLE_IOS_REDIRECT: &str =
+    "com.googleusercontent.apps.72326679637-s3g4uak2k5861mat9p2ar1m5h32i0ibn:/oauth2redirect";
+const GOOGLE_CLIENT_ID: &str = if cfg!(target_os = "ios") {
+    GOOGLE_IOS_CLIENT_ID
+} else {
+    GOOGLE_DESKTOP_CLIENT_ID
 };
 /// Google requires a "secret" even for installed apps; it is not
 /// confidential (it ships in every copy of the app), but it is kept out of
 /// the public repository and given at build time.
 const GOOGLE_CLIENT_SECRET: &str = match option_env!("FERROWL_GOOGLE_CLIENT_SECRET") {
-    Some(s) => s,
-    None => "",
+    // The iOS client has no secret.
+    Some(s) if !cfg!(target_os = "ios") => s,
+    _ => "",
 };
 
 struct Endpoints {
@@ -86,8 +100,10 @@ impl Provider {
     /// Whether this build has an application ID for the provider.
     pub fn available(self) -> bool {
         let e = self.endpoints();
-        // Google also needs its client secret (given at build time).
-        !e.client_id.is_empty() && (self != Provider::Google || !e.client_secret.is_empty())
+        // Google also needs its client secret (given at build time), except
+        // with the iOS client.
+        !e.client_id.is_empty()
+            && (self != Provider::Google || cfg!(target_os = "ios") || !e.client_secret.is_empty())
     }
 
     /// IMAP and SMTP servers for an address of this provider.

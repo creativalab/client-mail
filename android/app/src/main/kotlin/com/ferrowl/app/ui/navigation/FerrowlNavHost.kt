@@ -108,6 +108,7 @@ fun FerrowlNavHost() {
                 starred = route.starred,
                 onBack = { nav.popBackStack() },
                 onReply = { kind -> nav.navigate(Write(kind.name, route.folderId, route.uid)) },
+                onGone = { nav.popBackStack(Mailbox, inclusive = false) },
             )
         }
         composable<Write> { entry ->

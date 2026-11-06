@@ -136,6 +136,10 @@ fn path() -> Option<PathBuf> {
 
 /// The shared cache, or `None` if it cannot be opened (the app then works
 /// without it).
+/// The "address book" of contacts kept only on this device (accounts
+/// without a CardDAV server, or when saving there failed).
+pub const LOCAL_BOOK: &str = "local";
+
 pub fn get() -> Option<&'static Cache> {
     static CACHE: OnceLock<Option<Cache>> = OnceLock::new();
     CACHE
@@ -540,8 +544,10 @@ impl Cache {
     /// server).
     pub fn contact_etags(&self, account: &str) -> Result<Vec<(String, String)>> {
         let conn = self.lock();
-        let mut stmt = conn.prepare_cached("SELECT url, etag FROM contacts WHERE account = ?1")?;
-        let rows = stmt.query_map(params![account], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        // Contacts kept only on this device are not on the server.
+        let mut stmt =
+            conn.prepare_cached("SELECT url, etag FROM contacts WHERE account = ?1 AND book != ?2")?;
+        let rows = stmt.query_map(params![account, LOCAL_BOOK], |r| Ok((r.get(0)?, r.get(1)?)))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
@@ -581,7 +587,10 @@ impl Cache {
             let stored: Vec<String> = stmt
                 .query_map(params![account], |r| r.get(0))?
                 .collect::<rusqlite::Result<_>>()?;
-            for book in stored.iter().filter(|b| !books.contains(&b.as_str())) {
+            for book in stored
+                .iter()
+                .filter(|b| b.as_str() != LOCAL_BOOK && !books.contains(&b.as_str()))
+            {
                 tx.execute(
                     "DELETE FROM contacts WHERE account = ?1 AND book = ?2",
                     params![account, book],
@@ -589,6 +598,62 @@ impl Cache {
             }
         }
         tx.commit()?;
+        Ok(())
+    }
+
+    /// URLs of the account's address books on its CardDAV server (known
+    /// from the last sync).
+    pub fn address_books(&self, account: &str) -> Result<Vec<String>> {
+        let conn = self.lock();
+        let mut stmt = conn.prepare_cached(
+            "SELECT DISTINCT book FROM contacts WHERE account = ?1 AND book != ?2 ORDER BY book",
+        )?;
+        let rows = stmt.query_map(params![account, LOCAL_BOOK], |r| r.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Whether a saved contact has this address.
+    pub fn has_contact_email(&self, account: &str, email: &str) -> Result<bool> {
+        let email = email.trim().to_lowercase();
+        let conn = self.lock();
+        let mut stmt = conn.prepare_cached("SELECT emails FROM contacts WHERE account = ?1")?;
+        let rows = stmt.query_map(params![account], |r| r.get::<_, String>(0))?;
+        for emails in rows {
+            if emails?.lines().any(|e| e.trim().to_lowercase() == email) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Stores a contact just created: on the server (`book` is its address
+    /// book; the next sync brings its ETag) or only here ([LOCAL_BOOK]).
+    pub fn add_contact(
+        &self,
+        account: &str,
+        url: &str,
+        book: &str,
+        contact: &crate::vcard::Contact,
+        vcard: &str,
+    ) -> Result<()> {
+        let conn = self.lock();
+        conn.execute(
+            "INSERT OR REPLACE INTO contacts
+             (account, url, book, etag, uid, name, emails, phones, org, note, vcard)
+             VALUES (?1, ?2, ?3, '', ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                account,
+                url,
+                book,
+                contact.uid,
+                contact.name,
+                contact.emails.join("\n"),
+                contact.phones.join("\n"),
+                contact.organization,
+                contact.note,
+                vcard
+            ],
+        )?;
         Ok(())
     }
 
@@ -1234,6 +1299,26 @@ mod tests {
         assert_eq!(c.contacts("acc", "").unwrap().len(), 1);
         c.apply_contacts("acc", &Changes::default()).unwrap();
         assert!(c.contacts("acc", "").unwrap().is_empty());
+    }
+
+    #[test]
+    fn local_contacts_survive_syncs() {
+        use crate::carddav::Changes;
+        let c = Cache::in_memory();
+        let contact = crate::vcard::Contact {
+            uid: "1@ferrowl".into(),
+            name: "Ada".into(),
+            emails: vec!["ada@x.org".into()],
+            ..Default::default()
+        };
+        c.add_contact("acc", "local:1", LOCAL_BOOK, &contact, "").unwrap();
+        assert!(c.has_contact_email("acc", "ADA@x.org").unwrap());
+        assert!(!c.has_contact_email("acc", "bob@x.org").unwrap());
+        // Not sent to the server's sync, not removed by it.
+        assert!(c.contact_etags("acc").unwrap().is_empty());
+        assert!(c.address_books("acc").unwrap().is_empty());
+        c.apply_contacts("acc", &Changes::default()).unwrap();
+        assert_eq!(c.contacts("acc", "").unwrap().len(), 1);
     }
 
     #[test]

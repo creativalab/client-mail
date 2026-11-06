@@ -12,6 +12,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import java.util.Locale
+import javax.inject.Named
 import javax.inject.Singleton
 
 /** How Hilt builds objects that are not ours (here: the Rust engine). */
@@ -28,6 +29,22 @@ object AppModule {
     fun engine(@ApplicationContext context: Context, vault: KeystoreTokenVault, google: GoogleSignIn): Engine {
         setTokenVault(vault)
         setAccessTokenSource(google)
+        return Engine(dataDir = context.filesDir.resolve("mail").path, language = Locale.getDefault().language)
+    }
+
+    /**
+     * A second engine on the same files, for the accounts that are not the
+     * active one (new-mail notifications): connecting one there does not
+     * disconnect the account on screen.
+     */
+    @Provides
+    @Singleton
+    @Named("side")
+    fun sideEngine(
+        @ApplicationContext context: Context,
+        // Asked for so it is made first: it hands the engine the token vault.
+        @Suppress("UNUSED_PARAMETER") main: Engine,
+    ): Engine {
         return Engine(dataDir = context.filesDir.resolve("mail").path, language = Locale.getDefault().language)
     }
 }

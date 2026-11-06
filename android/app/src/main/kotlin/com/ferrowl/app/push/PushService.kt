@@ -38,20 +38,22 @@ class PushService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         if (message.data["type"] != "new_mail") return
         runBlocking {
-            val shown = withTimeoutOrNull(TIMEOUT_MS) { notifyNewMessages() } ?: false
-            if (!shown) notifier.showGeneric()
+            // Which account has new mail (the server sends its id).
+            val email = message.data["account"]?.let { store.current().emailOf(it) }
+            val shown = withTimeoutOrNull(TIMEOUT_MS) { notifyNewMessages(email) } ?: false
+            if (!shown) notifier.showGeneric(email)
         }
     }
 
     /** True if it decided what to show (possibly nothing: already read). */
-    private suspend fun notifyNewMessages(): Boolean = runCatching {
-        repo.ensureConnected()
-        val headers = repo.headers(repo.inboxId())
-        val last = store.current().lastNotifiedUid
+    private suspend fun notifyNewMessages(email: String?): Boolean = runCatching {
+        val address = email ?: repo.savedAccount()?.email ?: return@runCatching false
+        val headers = repo.inboxOf(address)
+        val last = store.current().lastNotified[address.lowercase()] ?: 0
         val fresh = headers.filter { !it.seen && it.uid.toLong() > last }.sortedByDescending { it.uid }
         if (fresh.isNotEmpty()) {
-            notifier.show(fresh)
-            store.setLastNotified(fresh.first().uid.toLong())
+            notifier.show(fresh, address)
+            store.setLastNotified(address, fresh.first().uid.toLong())
         }
         true
     }.getOrDefault(false)
