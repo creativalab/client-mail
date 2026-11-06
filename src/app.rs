@@ -1611,13 +1611,9 @@ impl App {
         }
     }
 
-    /// Words of the search box that are not operators (`from:`, `is:`, `has:`).
+    /// Words of the search box that are not operators (see `ferrowl_core::query`).
     fn free_words(&self) -> Vec<String> {
-        self.search
-            .split_whitespace()
-            .filter(|w| !w.contains(':'))
-            .map(str::to_string)
-            .collect()
+        ferrowl_core::query::Query::parse(&self.search).words
     }
 
     /// Searches the local index (all cached messages of the folder, not only
@@ -1929,7 +1925,8 @@ impl App {
     }
 
     pub fn visible(&self) -> Vec<&Header> {
-        let tokens: Vec<String> = self.search.split_whitespace().map(str::to_lowercase).collect();
+        // Operators and free words, as in the mobile apps (ferrowl_core::query).
+        let query = ferrowl_core::query::Query::parse(&self.search);
         // Free words were already matched by the full-text index.
         let indexed = self.search_results.is_some();
         let by_tab = self.tabs_shown() && self.search.trim().is_empty();
@@ -1945,27 +1942,7 @@ impl App {
                 ListFilter::Starred => h.flagged,
                 ListFilter::Attachments => h.has_attachment,
             })
-            .filter(|h| {
-                tokens.iter().all(|tok| {
-                    if let Some(v) = tok.strip_prefix("from:") {
-                        h.from.to_lowercase().contains(v)
-                    } else if tok.starts_with("has:attach") {
-                        h.has_attachment
-                    } else if tok == "is:unread" {
-                        !h.seen
-                    } else if tok == "is:read" {
-                        h.seen
-                    } else if tok == "is:starred" {
-                        h.flagged
-                    } else if indexed {
-                        true
-                    } else {
-                        h.subject.to_lowercase().contains(tok)
-                            || h.from.to_lowercase().contains(tok)
-                            || h.preview.to_lowercase().contains(tok)
-                    }
-                })
-            })
+            .filter(|h| query.matches(h) && (indexed || query.matches_words(h)))
             .collect()
     }
 

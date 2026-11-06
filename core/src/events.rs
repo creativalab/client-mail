@@ -443,7 +443,7 @@ fn finish(lines: &[String]) -> String {
 }
 
 /// A random identifier for UIDs and file names.
-fn uuid_like() -> String {
+pub(crate) fn uuid_like() -> String {
     use rand::Rng;
     let mut rng = rand::thread_rng();
     format!("{:016x}{:016x}", rng.r#gen::<u64>(), rng.r#gen::<u64>())

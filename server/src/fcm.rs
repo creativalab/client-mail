@@ -1,4 +1,5 @@
-//! Wakes phones through Firebase Cloud Messaging (HTTP v1 API).
+//! Push targets and Firebase Cloud Messaging (HTTP v1 API), which wakes
+//! Android phones (iPhones: see `apns`).
 //!
 //! The message is *data-only* and carries just the account id: no sender,
 //! no subject. The app then fetches the mail itself, straight from the mail
@@ -17,17 +18,76 @@ pub enum Delivery {
     Unregistered,
 }
 
-pub trait Notifier: Send + Sync {
-    fn notify(&self, fcm_token: &str, account_id: &str) -> Result<Delivery>;
+/// Where a phone receives notifications.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Platform {
+    /// Android, Firebase Cloud Messaging.
+    Fcm,
+    /// iPhone, Apple Push Notification service (App Store and TestFlight builds).
+    Apns,
+    /// iPhone, development builds (Apple's sandbox).
+    ApnsSandbox,
 }
 
-/// For development without Firebase: only logs.
+impl Platform {
+    pub fn name(self) -> &'static str {
+        match self {
+            Platform::Fcm => "fcm",
+            Platform::Apns => "apns",
+            Platform::ApnsSandbox => "apns-sandbox",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Platform {
+        match name {
+            "apns" => Platform::Apns,
+            "apns-sandbox" => Platform::ApnsSandbox,
+            _ => Platform::Fcm,
+        }
+    }
+}
+
+/// A phone's push address: its platform and the token it got there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Target {
+    pub platform: Platform,
+    pub token: String,
+}
+
+pub trait Notifier: Send + Sync {
+    fn notify(&self, target: &Target, account_id: &str) -> Result<Delivery>;
+}
+
+/// For development without Firebase/APNs credentials: only logs.
 pub struct LogNotifier;
 
 impl Notifier for LogNotifier {
-    fn notify(&self, _fcm_token: &str, account_id: &str) -> Result<Delivery> {
-        eprintln!("push (log only): new mail for account {account_id}");
+    fn notify(&self, target: &Target, account_id: &str) -> Result<Delivery> {
+        eprintln!(
+            "push (log only, {}): new mail for account {account_id}",
+            target.platform.name()
+        );
         Ok(Delivery::Sent)
+    }
+}
+
+/// Sends each phone's notification through its platform; platforms without
+/// credentials only log.
+pub struct Push {
+    pub fcm: Option<Box<dyn Notifier>>,
+    pub apns: Option<Box<dyn Notifier>>,
+}
+
+impl Notifier for Push {
+    fn notify(&self, target: &Target, account_id: &str) -> Result<Delivery> {
+        let service = match target.platform {
+            Platform::Fcm => &self.fcm,
+            Platform::Apns | Platform::ApnsSandbox => &self.apns,
+        };
+        match service {
+            Some(n) => n.notify(target, account_id),
+            None => LogNotifier.notify(target, account_id),
+        }
     }
 }
 
@@ -108,7 +168,8 @@ impl Fcm {
 }
 
 impl Notifier for Fcm {
-    fn notify(&self, fcm_token: &str, account_id: &str) -> Result<Delivery> {
+    fn notify(&self, target: &Target, account_id: &str) -> Result<Delivery> {
+        let fcm_token = target.token.as_str();
         let url = format!(
             "https://fcm.googleapis.com/v1/projects/{}/messages:send",
             self.project_id

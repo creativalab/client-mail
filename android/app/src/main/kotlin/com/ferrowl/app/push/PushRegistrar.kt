@@ -2,6 +2,8 @@ package com.ferrowl.app.push
 
 import android.util.Base64
 import com.ferrowl.app.data.AccountStore
+import com.ferrowl.app.data.Billing
+import com.ferrowl.core.Account
 import com.ferrowl.core.Protocol
 import com.ferrowl.core.pushAccountJson
 import com.ferrowl.core.translate
@@ -21,8 +23,9 @@ import javax.inject.Singleton
  * 1. the phone registers with its Firebase token and gets a secret device
  *    token;
  * 2. it creates a random 256-bit key, kept only here (encrypted with the
- *    Android Keystore), and sends the account with it: the server stores
- *    the account sealed with that key and starts watching the inbox;
+ *    Android Keystore), and sends every account with it (IMAP with a
+ *    password; after the first one only with Ferrowl Pro): the server
+ *    stores them sealed with that key and watches their inboxes;
  * 3. at every app start it sends the key again (`unlock`), because the
  *    server keeps it in memory only and forgets it when it restarts.
  */
@@ -31,16 +34,18 @@ class PushRegistrar @Inject constructor(
     private val store: PushStore,
     private val client: PushClient,
     private val accounts: AccountStore,
+    private val billing: Billing,
 ) {
     private val lock = Mutex()
 
     /** Turns notifications on. Throws with a message to show if it fails. */
     suspend fun enable() {
-        val account = accounts.account.first() ?: return
-        if (account.protocol == Protocol.POP3) throw PushException(translate("push_pop3"), 0)
-        // The push server watches the inbox with a password; signed-in
-        // accounts (Microsoft, Google) are not supported there yet.
-        if (account.oauth != null) throw PushException(translate("push_oauth"), 0)
+        val all = accounts.accounts.first()
+        val first = all.firstOrNull() ?: return
+        if (watched(all).isEmpty()) {
+            if (first.protocol == Protocol.POP3) throw PushException(translate("push_pop3"), 0)
+            throw PushException(translate("push_oauth"), 0)
+        }
         store.setEnabled(true)
         try {
             sync()
@@ -58,11 +63,18 @@ class PushRegistrar @Inject constructor(
         store.clearRegistration()
     }
 
-    /** Brings the registration up to date (app start, new account). */
+    /**
+     * The accounts the server can watch: IMAP with a password (signed-in
+     * Microsoft/Google accounts are not supported there yet), and after
+     * the first one only with Ferrowl Pro.
+     */
+    private fun watched(all: List<Account>): List<Account> =
+        all.filterIndexed { i, a -> (i == 0 || billing.pro.value) && a.protocol != Protocol.POP3 && a.oauth == null }
+
+    /** Brings the registration up to date (app start, accounts changed). */
     suspend fun sync(): Unit = lock.withLock {
         if (!store.current().enabled) return
-        val account = accounts.account.first() ?: return
-        if (account.protocol == Protocol.POP3 || account.oauth != null) return
+        val wanted = watched(accounts.accounts.first())
         val fcmToken = FirebaseMessaging.getInstance().token.await()
         var s = store.current()
         if (s.deviceToken != null) {
@@ -79,22 +91,39 @@ class PushRegistrar @Inject constructor(
             store.saveDevice(newToken, newKey())
         }
         val key = store.current().key ?: return
-        val accountId = store.current().accountId
-        if (accountId == null) {
-            store.saveAccount(client.addAccount(token, key, pushAccountJson(account)))
-        } else {
-            client.unlock(token, key)
+        // An older version watched one account without saying which: start over.
+        store.legacyAccount()?.let { old ->
+            runCatching { client.deleteAccount(token, old) }
+            store.clearLegacyAccount()
+        }
+        val known = store.current().accounts
+        // The server restarted meanwhile: give it the key again first.
+        if (known.isNotEmpty()) client.unlock(token, key)
+        for ((email, id) in known) {
+            if (wanted.none { it.email.equals(email, ignoreCase = true) }) {
+                runCatching { client.deleteAccount(token, id) }
+                store.removeAccount(email)
+            }
+        }
+        for (account in wanted) {
+            if (known.keys.none { it.equals(account.email, ignoreCase = true) }) {
+                store.saveAccount(account.email, client.addAccount(token, key, pushAccountJson(account)))
+            }
         }
     }
 
-    /** The account was replaced (new setup): watch the new one instead. */
-    suspend fun accountChanged() {
+    /** The accounts changed (added, removed, Pro bought or ended): watch the right ones. */
+    suspend fun accountChanged() = sync()
+
+    /** An account was set up again (maybe a new password): the server gets its new settings. */
+    suspend fun accountSaved(email: String) {
         lock.withLock {
             val s = store.current()
-            if (s.deviceToken != null && s.accountId != null) {
-                runCatching { client.deleteAccount(s.deviceToken, s.accountId) }
+            val id = s.accounts[email.lowercase()]
+            if (s.deviceToken != null && id != null) {
+                runCatching { client.deleteAccount(s.deviceToken, id) }
+                store.removeAccount(email)
             }
-            store.clearAccount()
         }
         sync()
     }

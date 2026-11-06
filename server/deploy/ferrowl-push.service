@@ -1,7 +1,8 @@
 # systemd unit for the Ferrowl push relay.
 # Install: copy the binary to /usr/local/bin/ferrowl-push, this file to
 # /etc/systemd/system/, the Firebase key to /etc/ferrowl-push/firebase.json
-# (owner ferrowl-push, mode 600), then:
+# and the Apple key to /etc/ferrowl-push/apns.p8 (both owner ferrowl-push,
+# mode 600), then:
 #   sudo useradd --system --home /var/lib/ferrowl-push --create-home ferrowl-push
 #   sudo systemctl enable --now ferrowl-push
 [Unit]
@@ -14,6 +15,12 @@ User=ferrowl-push
 Environment=FERROWL_PUSH_DB=/var/lib/ferrowl-push/push.sqlite
 Environment=FERROWL_PUSH_BIND=127.0.0.1:8080
 Environment=GOOGLE_APPLICATION_CREDENTIALS=/etc/ferrowl-push/firebase.json
+# iPhones (Apple Push Notification service): the .p8 key and its ids from
+# developer.apple.com → Certificates, Identifiers & Profiles → Keys.
+Environment=FERROWL_APNS_KEY=/etc/ferrowl-push/apns.p8
+Environment=FERROWL_APNS_KEY_ID=NPQCNWMA59
+Environment=FERROWL_APNS_TEAM_ID=5C6VYPSHRS
+Environment=FERROWL_APNS_TOPIC=com.ferrowl.app
 ExecStart=/usr/local/bin/ferrowl-push
 Restart=always
 RestartSec=5

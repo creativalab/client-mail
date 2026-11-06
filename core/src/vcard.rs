@@ -18,6 +18,25 @@ pub struct Contact {
     pub note: String,
 }
 
+/// A minimal vCard 3.0 (the version every server accepts) for a new
+/// contact: its name and one address.
+pub fn build(uid: &str, name: &str, email: &str) -> String {
+    let esc = |v: &str| {
+        v.replace('\\', "\\\\")
+            .replace(',', "\\,")
+            .replace(';', "\\;")
+            .replace('\n', "\\n")
+            .replace('\r', "")
+    };
+    format!(
+        "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:{}\r\nFN:{}\r\nN:{};;;;\r\nEMAIL;TYPE=INTERNET:{}\r\nEND:VCARD\r\n",
+        esc(uid),
+        esc(name),
+        esc(name),
+        esc(email)
+    )
+}
+
 /// Reads the first vCard in `text`. Returns `None` if there is no
 /// BEGIN:VCARD ... END:VCARD block.
 pub fn parse(text: &str) -> Option<Contact> {
@@ -169,6 +188,16 @@ pub(crate) fn unescape(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn built_cards_read_back() {
+        let card = build("1@ferrowl", "Rossi, Ada; Jr", "ada@x.org");
+        let c = parse(&card).expect("vcard");
+        assert_eq!(c.uid, "1@ferrowl");
+        assert_eq!(c.name, "Rossi, Ada; Jr");
+        assert_eq!(c.emails, vec!["ada@x.org".to_string()]);
+    }
+
     use super::*;
 
     #[test]

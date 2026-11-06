@@ -54,3 +54,15 @@ pub fn sync(account: &Account, known: &[(String, String)]) -> Result<Changes> {
         gone: changes.gone,
     })
 }
+
+/// Saves a new card in the address book at `book`; returns the card's URL.
+pub fn create(account: &Account, book: &str, file: &str, vcard: &str) -> Result<String> {
+    let base = if book.ends_with('/') {
+        book.to_string()
+    } else {
+        format!("{book}/")
+    };
+    let url = format!("{base}{file}.vcf");
+    Client::new(account, Kind::Contacts).put(&url, vcard, "text/vcard; charset=utf-8", None)?;
+    Ok(url)
+}

@@ -158,14 +158,14 @@ fn idle_session(
 
 /// Notifies the device. Returns false when the device no longer exists.
 fn on_new_mail(account_id: &str, device_id: &str, store: &Store, notifier: &dyn Notifier) -> bool {
-    let token = match store.fcm_token(device_id) {
+    let target = match store.target(device_id) {
         Ok(Some(t)) => t,
         _ => return false,
     };
-    match notifier.notify(&token, account_id) {
+    match notifier.notify(&target, account_id) {
         Ok(Delivery::Sent) => true,
         Ok(Delivery::Unregistered) => {
-            eprintln!("device {device_id}: FCM token no longer valid, removing the device");
+            eprintln!("device {device_id}: push token no longer valid, removing the device");
             let _ = store.delete_device(device_id);
             false
         }

@@ -636,6 +636,21 @@ impl Backend {
     }
 
     /// Full-text search in the cached messages of a folder.
+    /// The search box ([crate::query]): free words through the full-text
+    /// index, operators applied to the results; with operators only, the
+    /// messages stored for the folder are filtered.
+    pub fn search_query(account: &Account, folder: &str, text: &str) -> Vec<Header> {
+        let q = crate::query::Query::parse(text);
+        let found = if !q.words.is_empty() {
+            Self::search(account, folder, &q.words)
+        } else if q.has_filters() {
+            Self::cached_headers_up_to(account, folder, 5000)
+        } else {
+            Vec::new()
+        };
+        found.into_iter().filter(|h| q.matches(h)).collect()
+    }
+
     pub fn search(account: &Account, folder: &str, words: &[String]) -> Vec<Header> {
         if account.is_pop3() {
             return local::get()
@@ -929,6 +944,10 @@ impl Backend {
                 .flat_map(|f| mail::parse_recipients(f))
                 .collect();
             b.cache(|c, key| c.note_sent(key, &to, chrono::Utc::now().timestamp()));
+            // New recipients become contacts (may take a server round trip:
+            // not while sending).
+            let (who, recipients) = (account.clone(), to.clone());
+            std::thread::spawn(move || save_new_contacts(&who, &recipients));
             if account.is_pop3() {
                 // Sent copy in the local mailbox.
                 return Ok(local_op(&account, |s, key| s.insert(key, local::SENT, &raw, true)).err());
@@ -942,6 +961,50 @@ impl Backend {
             }
         })
         .await
+    }
+}
+
+/// Saves the recipients that are not contacts yet: on the account's
+/// contacts server (CardDAV) when it has one, otherwise on this device.
+/// Failures only mean the contact is not saved: nothing to tell the user.
+fn save_new_contacts(account: &Account, recipients: &[(String, String)]) {
+    let Some(cache) = cache::get() else { return };
+    let key = cache::account_key(account);
+    let own = account.email.trim().to_lowercase();
+    let books = cache.address_books(&key).unwrap_or_default();
+    for (name, address) in recipients {
+        let address = address.trim().to_lowercase();
+        if !address.contains('@') || address == own || cache.has_contact_email(&key, &address).unwrap_or(true)
+        {
+            continue;
+        }
+        let id = crate::events::uuid_like();
+        let name = if name.trim().is_empty() {
+            address.clone()
+        } else {
+            name.trim().to_string()
+        };
+        let contact = crate::vcard::Contact {
+            uid: format!("{id}@ferrowl"),
+            name,
+            emails: vec![address.clone()],
+            ..Default::default()
+        };
+        let vcard = crate::vcard::build(&contact.uid, &contact.name, &address);
+        let on_server =
+            books
+                .first()
+                .and_then(|book| match crate::carddav::create(account, book, &id, &vcard) {
+                    Ok(url) => Some((url, book.clone())),
+                    Err(e) => {
+                        eprintln!("contacts: saving {address} on the server failed: {e:#}");
+                        None
+                    }
+                });
+        let (url, book) = on_server.unwrap_or_else(|| (format!("local:{id}"), cache::LOCAL_BOOK.to_string()));
+        if let Err(e) = cache.add_contact(&key, &url, &book, &contact, &vcard) {
+            eprintln!("contacts: {e:#}");
+        }
     }
 }
 

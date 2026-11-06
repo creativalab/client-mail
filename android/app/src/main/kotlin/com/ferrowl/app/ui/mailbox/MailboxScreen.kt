@@ -96,6 +96,13 @@ import com.ferrowl.core.Header
 import com.ferrowl.core.SortOrder
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
 
 /**
  * The mail list of one folder, with the folder list in a side drawer,
@@ -119,6 +126,12 @@ fun MailboxScreen(
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var searchOpen by remember { mutableStateOf(false) }
+    // The search text with its cursor: a command tapped below puts it at the end.
+    var searchField by remember { mutableStateOf(TextFieldValue("")) }
+    fun search(v: TextFieldValue) {
+        searchField = v
+        vm.setQuery(v.text)
+    }
     // A failed refresh is reported at the top, like every notice.
     ReportError(s.error, vm::errorShown)
     if (s.confirmDelete) ConfirmBulkDelete(vm)
@@ -136,6 +149,19 @@ fun MailboxScreen(
             ModalDrawerSheet {
                 // Scrollable list inside the sheet: some accounts have dozens of folders.
                 Column(Modifier.verticalScroll(rememberScrollState())) {
+                    // The app's name with its logo, as on iOS.
+                    Row(
+                        Modifier.padding(start = 28.dp, top = 20.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Image(
+                            painterResource(R.drawable.logo),
+                            contentDescription = null,
+                            modifier = Modifier.size(36.dp).clip(RoundedCornerShape(9.dp)),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text("Ferrowl", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    }
                     // Accounts first: tap one to show it, or add another.
                     Text(
                         stringResource(R.string.section_account),
@@ -236,9 +262,9 @@ fun MailboxScreen(
                     title = {
                         if (searchOpen) {
                             TextField(
-                                value = s.query,
-                                onValueChange = vm::setQuery,
-                                placeholder = { Text(stringResource(R.string.search_placeholder), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                value = searchField,
+                                onValueChange = ::search,
+                                placeholder = { Text(stringResource(R.string.search_folder), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                 singleLine = true,
                                 colors = TextFieldDefaults.colors(
                                     focusedContainerColor = Color.Transparent,
@@ -252,12 +278,12 @@ fun MailboxScreen(
                     },
                     actions = {
                         IconButton(onClick = {
-                            if (searchOpen) vm.setQuery("")
+                            if (searchOpen) search(TextFieldValue(""))
                             searchOpen = !searchOpen
                         }) {
                             Icon(
                                 if (searchOpen) Icons.Filled.Close else Icons.Filled.Search,
-                                contentDescription = stringResource(if (searchOpen) R.string.close else R.string.search_placeholder),
+                                contentDescription = stringResource(if (searchOpen) R.string.close else R.string.search_folder),
                             )
                         }
                         if (!searchOpen) SortMenu(s.sort, vm::setSort)
@@ -266,13 +292,15 @@ fun MailboxScreen(
             },
             floatingActionButton = {
                 if (!s.selecting) {
-                    FloatingActionButton(onClick = onCompose) {
+                    FloatingActionButton(onClick = onCompose, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.Filled.Edit, contentDescription = stringResource(R.string.compose))
                     }
                 }
             },
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
+                // The search commands, ready to tap (as in Gmail, in English in every language).
+                if (searchOpen && s.query.isBlank()) SearchCommands { search(TextFieldValue(it, TextRange(it.length))) }
                 PullToRefreshBox(
                     isRefreshing = s.refreshing,
                     onRefresh = vm::refresh,
@@ -717,4 +745,26 @@ private fun ProOffer(price: String?, vm: MailboxViewModel) {
         },
         dismissButton = { TextButton(onClick = vm::dismissPro) { Text(stringResource(R.string.pro_not_now)) } },
     )
+}
+
+/** Chips that start a search with a command (`from:`, `has:attachment`, `is:unread`, `is:starred`). */
+@Composable
+private fun SearchCommands(onPick: (String) -> Unit) {
+    val commands = listOf(
+        "from:" to R.string.from,
+        "has:attachment " to R.string.filter_attachments,
+        "is:unread " to R.string.filter_unread,
+        "is:starred " to R.string.filter_starred,
+    )
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        commands.forEach { (command, label) ->
+            SuggestionChip(
+                onClick = { onPick(command) },
+                label = { Text("${command.trim()} · ${stringResource(label)}") },
+            )
+        }
+    }
 }

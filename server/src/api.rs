@@ -2,8 +2,8 @@
 //!
 //! | Method | Path                  | Body                    | Effect |
 //! |--------|-----------------------|-------------------------|--------|
-//! | POST   | /v1/devices           | `{fcm_token}`           | registers the phone → `{device_id, device_token}` |
-//! | PUT    | /v1/device            | `{fcm_token}`           | new FCM token |
+//! | POST   | /v1/devices           | push token (below)      | registers the phone → `{device_id, device_token}` |
+//! | PUT    | /v1/device            | push token (below)      | new push token |
 //! | DELETE | /v1/device            |                         | forgets the phone and all its accounts |
 //! | POST   | /v1/accounts          | `{key, account}`        | stores the account (sealed) and starts watching → `{account_id}` |
 //! | DELETE | /v1/accounts/{id}     |                         | stops watching and deletes it |
@@ -11,8 +11,12 @@
 //! | GET    | /healthz              |                         | `ok` |
 //!
 //! Every call except registration needs `Authorization: Bearer <device_token>`.
+//!
+//! Push token: `{fcm_token}` (Android), or `{apns_token, apns_sandbox}`
+//! (iPhone: the device token in hex; `apns_sandbox` true for development
+//! builds).
 
-use crate::fcm::Notifier;
+use crate::fcm::{Notifier, Platform, Target};
 use crate::seal::{DeviceKey, random_token};
 use crate::store::{Device, SealedAccount, Store};
 use crate::watch::Watchers;
@@ -99,18 +103,50 @@ fn key_of(text: &str) -> ApiResult<DeviceKey> {
     DeviceKey::from_base64(text).map_err(|e| ApiError::new(StatusCode::BAD_REQUEST, e.to_string()))
 }
 
-fn valid_fcm_token(token: &str) -> ApiResult<()> {
-    if token.is_empty() || token.len() > 4096 {
-        return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid fcm_token"));
+/// The push address in a registration body.
+fn target_of(body: &PushTokenBody) -> ApiResult<Target> {
+    let target = match (&body.fcm_token, &body.apns_token) {
+        (Some(t), None) => Target {
+            platform: Platform::Fcm,
+            token: t.clone(),
+        },
+        (None, Some(t)) => {
+            // APNs device tokens are hex (32 bytes today, longer allowed).
+            if !t.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid apns_token"));
+            }
+            Target {
+                platform: if body.apns_sandbox {
+                    Platform::ApnsSandbox
+                } else {
+                    Platform::Apns
+                },
+                token: t.to_ascii_lowercase(),
+            }
+        }
+        _ => {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "send fcm_token or apns_token",
+            ));
+        }
+    };
+    if target.token.is_empty() || target.token.len() > 4096 {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid push token"));
     }
-    Ok(())
+    Ok(target)
 }
 
 // ---------------------------------------------------------------- handlers
 
 #[derive(Deserialize)]
-struct FcmTokenBody {
-    fcm_token: String,
+struct PushTokenBody {
+    #[serde(default)]
+    fcm_token: Option<String>,
+    #[serde(default)]
+    apns_token: Option<String>,
+    #[serde(default)]
+    apns_sandbox: bool,
 }
 
 #[derive(Serialize)]
@@ -121,14 +157,12 @@ struct Registered {
 
 async fn register(
     State(state): State<AppState>,
-    Json(body): Json<FcmTokenBody>,
+    Json(body): Json<PushTokenBody>,
 ) -> ApiResult<Json<Registered>> {
-    valid_fcm_token(&body.fcm_token)?;
+    let target = target_of(&body)?;
     let device_id = random_token();
     let device_token = random_token();
-    state
-        .store
-        .add_device(&device_id, &device_token, &body.fcm_token)?;
+    state.store.add_device(&device_id, &device_token, &target)?;
     Ok(Json(Registered {
         device_id,
         device_token,
@@ -138,11 +172,11 @@ async fn register(
 async fn update_token(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(body): Json<FcmTokenBody>,
+    Json(body): Json<PushTokenBody>,
 ) -> ApiResult<StatusCode> {
     let d = device(&state, &headers)?;
-    valid_fcm_token(&body.fcm_token)?;
-    state.store.set_fcm_token(&d.id, &body.fcm_token)?;
+    let target = target_of(&body)?;
+    state.store.set_target(&d.id, &target)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -437,6 +471,37 @@ mod tests {
         )
         .await;
         assert_eq!(code, StatusCode::UNAUTHORIZED, "deleted device is gone");
+    }
+
+    #[tokio::test]
+    async fn iphones_register_with_an_apns_token() {
+        let st = state();
+        let app = router(st.clone());
+        let (code, reg) = call(
+            &app,
+            "POST",
+            "/v1/devices",
+            None,
+            serde_json::json!({"apns_token": "AB12cd", "apns_sandbox": true}),
+        )
+        .await;
+        assert_eq!(code, StatusCode::OK);
+        let id = reg["device_id"].as_str().unwrap();
+        assert_eq!(
+            st.store.target(id).unwrap(),
+            Some(Target {
+                platform: Platform::ApnsSandbox,
+                token: "ab12cd".into()
+            })
+        );
+        for bad in [
+            serde_json::json!({"apns_token": "not hex"}),
+            serde_json::json!({}),
+            serde_json::json!({"fcm_token": "f", "apns_token": "ab"}),
+        ] {
+            let (code, _) = call(&app, "POST", "/v1/devices", None, bad).await;
+            assert_eq!(code, StatusCode::BAD_REQUEST);
+        }
     }
 
     #[tokio::test]

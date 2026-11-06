@@ -1,0 +1,325 @@
+import Foundation
+import Observation
+
+/// A row of the message list: a conversation, or one message.
+struct Row: Identifiable, Hashable {
+    let conversation: Conversation
+    var id: UInt32 { conversation.latest.uid }
+    var header: Header { conversation.latest }
+    var uids: [UInt32] { conversation.uids }
+    var unread: Bool { conversation.unread > 0 }
+    var flagged: Bool { header.flagged }
+}
+
+/// The state of the mailbox (folders, list, search, selection), as
+/// `MailboxViewModel` on Android.
+@MainActor
+@Observable
+final class MailboxModel {
+    let mail: MailRepository
+    let prefs: Preferences
+    let notices: Notices
+
+    var folderId = ""
+    var unread: [String: UInt32] = [:]
+    private(set) var messages: [Header] = []
+    private(set) var refreshing = false
+    /// Search text; when not blank the list shows [results].
+    var query = "" {
+        didSet { if query != oldValue { search() } }
+    }
+    private(set) var results: [Header] = []
+    /// Gmail inbox: which tab is open (0 Primary … 4 Forums).
+    var category = 0
+    /// Checking messages: the selection toolbar is shown.
+    var selecting = false
+    var selected: Set<UInt32> = []
+    /// The open row (shown in the detail column).
+    var open: Row?
+
+    private var searchTask: Task<Void, Never>?
+    private var started = false
+
+    init(mail: MailRepository, prefs: Preferences, notices: Notices) {
+        self.mail = mail
+        self.prefs = prefs
+        self.notices = notices
+    }
+
+    var folder: Folder? { mail.folder(folderId) }
+
+    /// Gmail inbox: the tabs are shown.
+    var tabs: Bool { mail.isGmail && folderId == mail.inboxId && query.isEmpty }
+
+    var shown: [Header] {
+        if !query.trimmingCharacters(in: .whitespaces).isEmpty { return results }
+        if tabs { return messages.filter { Int($0.category) == category } }
+        return messages
+    }
+
+    var rows: [Row] {
+        let list = shown
+        let conversations = prefs.threaded
+            ? groupConversations(headers: list)
+            : list.map { Conversation(latest: $0, uids: [$0.uid], unread: $0.seen ? 0 : 1) }
+        return sortConversations(rows: conversations, order: prefs.sort).map(Row.init)
+    }
+
+    /// Gmail inbox: unread messages per tab.
+    var unreadByCategory: [Int: Int] {
+        guard tabs else { return [:] }
+        return Dictionary(grouping: messages.filter { !$0.seen }, by: { Int($0.category) }).mapValues(\.count)
+    }
+
+    func header(_ uid: UInt32) -> Header? { messages.first { $0.uid == uid } ?? results.first { $0.uid == uid } }
+
+    // MARK: loading
+
+    /// The saved inbox right away (connecting can take a while), then the
+    /// server.
+    func start() async {
+        guard !started else { return }
+        started = true
+        refreshing = true
+        let early = await mail.cachedInbox()
+        if !early.isEmpty, folderId.isEmpty {
+            folderId = "INBOX"
+            messages = early
+        }
+        do {
+            try await mail.ensureConnected()
+            if folderId.isEmpty || mail.folder(folderId) == nil { folderId = mail.inboxId }
+            await refresh()
+        } catch {
+            refreshing = false
+            notices.error(describe(error))
+        }
+    }
+
+    func openFolder(_ id: String) {
+        guard id != folderId else { return }
+        folderId = id
+        messages = []
+        query = ""
+        results = []
+        selected = []
+        selecting = false
+        category = 0
+        open = nil
+        Task { await refresh() }
+    }
+
+    /// The local copy at once, then the newest messages from the server.
+    func refresh() async {
+        let id = folderId
+        guard !id.isEmpty else { return }
+        refreshing = true
+        defer { if folderId == id { refreshing = false } }
+        let cached = await mail.cachedHeaders(id)
+        if !cached.isEmpty, folderId == id { messages = cached }
+        do {
+            var fresh = try await mail.headers(id)
+            // Sender lists: blocked mail leaves the inbox, allowed mail leaves Spam.
+            if let moved = try? await mail.applySenderRules(id, fresh), !moved.isEmpty {
+                fresh.removeAll { moved.contains($0.uid) }
+            }
+            guard folderId == id else { return }
+            messages = fresh
+            if id == mail.inboxId, let email = mail.activeEmail {
+                // What the background check compares with.
+                BackgroundRefresh.notifyNew(fresh, account: email, announce: false)
+            }
+            await loadUnread()
+        } catch {
+            notices.error(describe(error))
+        }
+    }
+
+    /// Something was moved, deleted or sent: reload from the local copy.
+    func reloadLocal() async {
+        let id = folderId
+        guard !id.isEmpty else { return }
+        let cached = await mail.cachedHeaders(id)
+        if folderId == id { messages = cached }
+        await loadUnread()
+    }
+
+    func loadUnread() async {
+        if let counts = try? await mail.unread() { unread = counts }
+    }
+
+    private func search() {
+        searchTask?.cancel()
+        let text = query
+        guard !text.trimmingCharacters(in: .whitespaces).isEmpty else {
+            results = []
+            return
+        }
+        let id = folderId
+        searchTask = Task {
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            let found = await mail.search(id, text)
+            guard !Task.isCancelled else { return }
+            results = found
+        }
+    }
+
+    // MARK: selection
+
+    func toggle(_ row: Row) {
+        let uids = Set(row.uids)
+        if uids.isSubset(of: selected) {
+            selected.subtract(uids)
+        } else {
+            selected.formUnion(uids)
+        }
+    }
+
+    func isSelected(_ row: Row) -> Bool { Set(row.uids).isSubset(of: selected) }
+
+    enum Pick { case all, none, read, unread, starred }
+
+    func select(_ pick: Pick) {
+        selected = Set(shown.filter {
+            switch pick {
+            case .all: true
+            case .none: false
+            case .read: $0.seen
+            case .unread: !$0.seen
+            case .starred: $0.flagged
+            }
+        }.map(\.uid))
+    }
+
+    func endSelection() {
+        selecting = false
+        selected = []
+    }
+
+    // MARK: actions
+
+    private func update(_ uids: [UInt32], _ change: (inout Header) -> Void) {
+        let set = Set(uids)
+        for i in messages.indices where set.contains(messages[i].uid) { change(&messages[i]) }
+        for i in results.indices where set.contains(results[i].uid) { change(&results[i]) }
+    }
+
+    /// The selection, or the given row's messages.
+    private func target(_ row: Row?) -> [UInt32] { row?.uids ?? Array(selected) }
+
+    private func run(_ uids: [UInt32], _ action: @escaping (String, [UInt32]) async throws -> Void) {
+        guard !uids.isEmpty else { return }
+        let folder = folderId
+        endSelection()
+        Task {
+            do {
+                try await action(folder, uids)
+            } catch {
+                notices.error(describe(error))
+                await refresh()
+            }
+        }
+    }
+
+    func markRead(_ seen: Bool, _ row: Row? = nil) {
+        let uids = target(row)
+        update(uids) { $0.seen = seen }
+        run(uids) { [mail] f, u in try await mail.setSeen(f, u, seen) }
+    }
+
+    func star(_ on: Bool, _ row: Row? = nil) {
+        let uids = target(row)
+        update(uids) { $0.flagged = on }
+        run(uids) { [weak self, mail] f, u in
+            do {
+                try await mail.setFlagged(f, u, on)
+            } catch {
+                self?.update(u) { $0.flagged = !on }
+                throw error
+            }
+        }
+    }
+
+    func archive(_ row: Row? = nil) {
+        run(target(row)) { [mail] f, u in try await mail.archive(f, u) }
+    }
+
+    /// Swipe: the row leaves the list at once and "Archived · Undo" shows at
+    /// the top; the server is asked only when the notice is gone, so Undo
+    /// really undoes it.
+    func archiveWithUndo(_ row: Row) {
+        let folder = folderId
+        let uids = Set(row.uids)
+        let removed = messages.filter { uids.contains($0.uid) }
+        messages.removeAll { uids.contains($0.uid) }
+        results.removeAll { uids.contains($0.uid) }
+        if open?.id == row.id { open = nil }
+        let job = Task {
+            try? await Task.sleep(for: Notices.duration)
+            guard !Task.isCancelled else { return }
+            do {
+                try await mail.archive(folder, Array(uids), quiet: true)
+            } catch {
+                notices.error(describe(error))
+                await refresh()
+            }
+        }
+        notices.withAction(t("archived"), t("undo")) { [weak self] in
+            job.cancel()
+            guard let self, self.folderId == folder else { return }
+            self.messages = (self.messages + removed).sorted { $0.timestamp > $1.timestamp }
+        }
+    }
+
+    var deletesForever: Bool { mail.deletesForever(folderId) }
+
+    func delete(_ row: Row? = nil) {
+        let uids = target(row)
+        if let open, uids.contains(open.id) { self.open = nil }
+        run(uids) { [mail] f, u in try await mail.delete(f, u) }
+    }
+
+    func move(to target: String, _ row: Row? = nil) {
+        run(self.target(row)) { [mail] f, u in try await mail.move(f, u, to: target) }
+    }
+
+    var inSpam: Bool { mail.isSpam(folderId) }
+
+    /// Report spam, or in Spam "not spam" (which also allows the senders).
+    func spam(_ row: Row? = nil) {
+        let uids = target(row)
+        let toSpam = !inSpam
+        if !toSpam {
+            let set = Set(uids)
+            let senders = Set(shown.filter { set.contains($0.uid) && !$0.fromAddress.isEmpty }.map(\.fromAddress))
+            for s in senders { try? mail.setSenderRule(s, allow: true) }
+        }
+        run(uids) { [mail] f, u in try await mail.spam(f, u, toSpam: toSpam) }
+    }
+
+    /// Adds or removes a Gmail label on the checked messages (the selection stays).
+    func setLabel(_ label: String, _ on: Bool) {
+        let uids = Array(selected)
+        guard !uids.isEmpty else { return }
+        let apply: (Bool) -> Void = { [weak self] add in
+            self?.update(uids) { h in
+                h.labels.removeAll { $0 == label }
+                if add { h.labels.append(label) }
+            }
+        }
+        apply(on)
+        let folder = folderId
+        Task {
+            do {
+                try await mail.setLabel(folder, uids, label, on)
+            } catch {
+                apply(!on)
+                notices.error(describe(error))
+            }
+        }
+    }
+
+    /// A message was opened: it is read now.
+    func opened(_ uids: [UInt32]) { update(uids) { $0.seen = true } }
+}
