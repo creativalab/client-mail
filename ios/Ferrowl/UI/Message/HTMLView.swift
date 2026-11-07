@@ -133,11 +133,24 @@ struct HTMLView: UIViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            // Height of the content, so the message scrolls as one page.
-            webView.evaluateJavaScript("document.documentElement.scrollHeight") { [weak self] value, _ in
+            // Mail laid out wider than the view (fixed-width newsletters) is
+            // zoomed out to fit, since WebKit ignores shrink-to-fit. Then the
+            // height of the content, so the message scrolls as one page.
+            // (Runs in the app's own world: the mail's scripts stay off.)
+            webView.evaluateJavaScript(Self.fit) { [weak self] value, _ in
                 guard let h = value as? CGFloat else { return }
                 DispatchQueue.main.async { self?.parent.height = max(h, 40) }
             }
         }
+
+        private static let fit = """
+        (function () {
+          var root = document.documentElement;
+          var wide = root.scrollWidth, view = window.innerWidth;
+          if (wide > view + 1) { root.style.zoom = view / wide; }
+          // Already in zoomed (on-screen) points.
+          return Math.ceil(root.getBoundingClientRect().height);
+        })()
+        """
     }
 }
