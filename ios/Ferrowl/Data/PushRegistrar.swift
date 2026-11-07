@@ -24,6 +24,9 @@ import UserNotifications
 final class PushRegistrar {
     static let base = URL(string: "https://push.ferrowl.com")!
     private static let secrets = "com.ferrowl.app.push"
+    /// Set once this installation has used the server (settings, unlike the
+    /// Keychain, are removed with the app).
+    private static let installedKey = "push.installed"
 
     private(set) var enabled: Bool {
         didSet { SharedStorage.defaults.set(enabled, forKey: "push.enabled") }
@@ -129,6 +132,16 @@ final class PushRegistrar {
         let apple = try await appleToken()
         let body: [String: Any] = ["apns_token": apple, "apns_sandbox": Self.sandbox]
         var device = Keychain.get(Self.secrets, "device")
+        // The Keychain outlives the app, its settings do not: a device left by
+        // an earlier installation would keep the server watching accounts
+        // this one knows nothing about. It is removed and the phone starts over.
+        if let token = device, accounts.isEmpty, !SharedStorage.defaults.bool(forKey: Self.installedKey) {
+            _ = try? await call("DELETE", "/v1/device", token: token, body: nil)
+            Keychain.delete(Self.secrets, "device")
+            Keychain.delete(Self.secrets, "key")
+            device = nil
+        }
+        SharedStorage.defaults.set(true, forKey: Self.installedKey)
         if let token = device {
             do {
                 _ = try await call("PUT", "/v1/device", token: token, body: body)
