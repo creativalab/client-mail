@@ -148,8 +148,9 @@ struct HTMLView: UIViewRepresentable {
           var root = document.documentElement;
           var wide = root.scrollWidth, view = window.innerWidth;
           if (wide > view + 1) { root.style.zoom = view / wide; }
-          // Already in zoomed (on-screen) points.
-          return Math.ceil(root.getBoundingClientRect().height);
+          // scrollHeight is already in zoomed (on-screen) points, and unlike the
+          // root's box it counts the content of pages styled height:100%.
+          return root.scrollHeight;
         })()
         """
     }
